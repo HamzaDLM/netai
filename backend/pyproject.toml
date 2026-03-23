@@ -1,0 +1,24 @@
+[project]
+name = "netai"
+version = "0.1.0"
+description = "AI Assistant for Network Infrastructure Operations."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.129.2",
+    "haystack-ai>=2.24.1",
+    "google-genai-haystack>=1.0.0",
+    "httpx>=0.28.1",
+    "prometheus-client>=0.23.1",
+    "pydantic-settings>=2.13.1",
+    "rich>=14.3.3",
+    "sqlalchemy>=2.0.46",
+    "uvicorn>=0.41.0",
+    "alembic>=1.18.4",
+    "ollama-haystack>=6.2.0",
+    "aiosqlite>=0.22.1",
+    "langfuse>=2.0.0",
+]
+
+[dependency-groups]
+dev = ["confluent-kafka>=2.13.0"]
