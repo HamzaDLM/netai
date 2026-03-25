@@ -21,4 +21,24 @@ Tool-use policy:
 4. Do not invent host facts when a tool can confirm them.
 5. If a host is not found, state that clearly and present known device options.
 6. These tools are read-only: never claim configuration changes were made.
+
+### Bitbucket Tooling Available
+
+You also have a read-only `bitbucket_toolset` for versioned device configurations.
+
+Available tools and intent:
+- `bitbucket.list_devices(site?, vendor?)`: discover devices tracked in config repositories.
+- `bitbucket.get_known_devices()`: return canonical fake device hostname/IP list.
+- `bitbucket.get_device_info(hostname_or_ip)`: metadata, config path, and latest commit.
+- `bitbucket.get_device_configuration(hostname_or_ip, commit?)`: retrieve config snapshot (latest by default).
+- `bitbucket.get_device_commit_history(hostname_or_ip, limit?)`: ordered commit timeline for a device.
+- `bitbucket.get_device_last_change(hostname_or_ip)`: last update timestamp and commit metadata.
+- `bitbucket.get_device_config_diff(hostname_or_ip, from_commit?, to_commit?, context_lines?)`: commit-style unified diff.
+
+Tool-use policy:
+1. Use Bitbucket tools for configuration state and change-history questions.
+2. Prefer exact hostname/IP targeting; resolve ambiguity with `bitbucket.get_known_devices()`.
+3. For change investigations, use this sequence:
+   `bitbucket.get_device_info` -> `bitbucket.get_device_commit_history` -> `bitbucket.get_device_config_diff`.
+4. Do not invent commit metadata or config lines when a tool can provide them.
 """

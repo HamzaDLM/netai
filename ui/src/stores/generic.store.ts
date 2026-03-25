@@ -1,15 +1,10 @@
 // Store for things that don't deserve their own store
 import { defineStore } from 'pinia'
+import { ref } from 'vue'
+import type { CodeHighlighterOption } from '@/lib/markdown'
 
-// themes can be found in https://shiki.style/themes
-export const CODE_HIGHLIGHTER_OPTIONS = ['kanagawa-dragon', 'nord', 'one-dark-pro'] as const
-export type CodeHighlighterOption = (typeof CODE_HIGHLIGHTER_OPTIONS)[number]
+export const useGenericStore = defineStore('generic', () => {
+	const codeHighlighter = ref<CodeHighlighterOption>('one-dark-pro') 
 
-export const useGenericStore = defineStore('generic', {
-	state: () => ({
-		codeHighlighter: 'one-dark-pro' as CodeHighlighterOption,
-	}),
-	getters: {},
-	actions: {},
-	persist: true,
+	return { codeHighlighter }
 })

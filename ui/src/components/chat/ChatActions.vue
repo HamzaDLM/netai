@@ -14,7 +14,6 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 
 const props = defineProps<{
     messageId: number
@@ -118,14 +117,15 @@ async function submitFeedback(): Promise<void> {
                         </DialogTrigger>
                         <DialogContent class="sm:max-w-[625px]">
                             <DialogHeader>
-                                <DialogTitle>Send feedback</DialogTitle>
+                                <DialogTitle>Feedback</DialogTitle>
                                 <DialogDescription>
                                     Your feedback is essential to improving NetAI.
                                 </DialogDescription>
                             </DialogHeader>
                             <div class="grid gap-4">
                                 <div class="grid gap-3">
-                                    <Input id="name-1" name="name" default-value="Pedro Duarte" />
+                                    <Input id="name-1" name="name" default-value=""
+                                        placeholder="was there something wrong about the response?" />
                                 </div>
                             </div>
                             <DialogFooter>
@@ -134,8 +134,8 @@ async function submitFeedback(): Promise<void> {
                                         Cancel
                                     </Button>
                                 </DialogClose>
-                                <Button type="submit">
-                                    Save changes
+                                <Button @click="submitFeedback" type="submit">
+                                    Send feedback
                                 </Button>
                             </DialogFooter>
                         </DialogContent>

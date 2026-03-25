@@ -1,8 +1,10 @@
 import MarkdownIt from 'markdown-it'
 import DOMPurify from 'dompurify'
 import { createHighlighter, type Highlighter } from 'shiki'
-import type { CodeHighlighterOption } from '@/stores/generic.store'
-import { CODE_HIGHLIGHTER_OPTIONS } from '@/stores/generic.store'
+
+// themes can be found in https://shiki.style/themes
+export const CODE_HIGHLIGHTER_OPTIONS = ['kanagawa-dragon', 'nord', 'one-dark-pro']
+export type CodeHighlighterOption = (typeof CODE_HIGHLIGHTER_OPTIONS)[number]
 
 let highlighter: Highlighter | null = null
 

@@ -3,10 +3,12 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Main from '../layout/Main.vue'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue';
 import ChatListTool from '@/components/chat/ChatListTool.vue';
+import ConfigDiffViewer from '@/components/chat/ConfigDiffViewer.vue';
 import ChatActions from '@/components/chat/ChatActions.vue';
 import Button from '@/components/ui/button/Button.vue';
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
 import { useChatStore } from '@/stores/chat.store';
+import type { Message, ToolCall } from '@/types/chat.type';
 import {
     Tooltip,
     TooltipContent,
@@ -21,11 +23,227 @@ let contentObserver: MutationObserver | null = null
 const showScrollToBottomButton = ref(false)
 const nearBottomThreshold = 120
 const showButtonThreshold = 320
-const historySearchQuery = ref('')
+// const historySearchQuery = ref('')
 const chatInputValue = ref('')
 const chatTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const maxChatInputHeight = 220
 const isSidebarCollapsed = ref(false)
+
+type DiffLineType = 'context' | 'added' | 'removed' | 'meta'
+type DiffLine = {
+    type: DiffLineType
+    old_lineno: number | null
+    new_lineno: number | null
+    content: string
+}
+type DiffHunk = {
+    header: string
+    old_start: number
+    old_lines: number
+    new_start: number
+    new_lines: number
+    lines: DiffLine[]
+}
+type DiffFile = {
+    old_path: string
+    new_path: string
+    hunks: DiffHunk[]
+}
+type MessageRenderSegment =
+    | { id: string; type: 'markdown'; content: string }
+    | { id: string; type: 'diff'; diffFiles: DiffFile[] }
+
+function parseToolResult(toolcall: ToolCall): Record<string, unknown> | null {
+    const raw = toolcall.result?.['value']
+    if (!raw) return null
+
+    if (typeof raw === 'string') {
+        try {
+            return JSON.parse(raw
+                .replace(/'/g, '"')
+                .replace(/\bNone\b/g, 'null')
+                .replace(/\bFalse\b/g, 'false')
+                .replace(/\bTrue\b/g, 'true')) as Record<string, unknown>
+        } catch {
+            return null
+        }
+    }
+
+    if (typeof raw === 'object') {
+        return raw as Record<string, unknown>
+    }
+
+    return null
+}
+
+function getMessageDiffFiles(toolCalls: ToolCall[] | undefined): DiffFile[] {
+    if (!toolCalls?.length) return []
+
+    const files: DiffFile[] = []
+    for (const toolcall of toolCalls) {
+        if (toolcall.tool_name !== 'bitbucket.get_device_config_diff') continue
+        const result = parseToolResult(toolcall)
+        const diffFiles = result?.['diff_files']
+        if (!Array.isArray(diffFiles)) continue
+        files.push(...(diffFiles as DiffFile[]))
+    }
+    return files
+}
+
+function getMessageRenderSegments(message: Message): MessageRenderSegment[] {
+    const content = message.content || ''
+    const diffFiles = getMessageDiffFiles(message.tool_calls)
+    const segments: MessageRenderSegment[] = []
+    const markerRegex = /\[\[\s*CONFIG_DIFF(?:\s*:\s*(\d+))?\s*\]\]/gi
+
+    let cursor = 0
+    let markerCount = 0
+    let sequentialDiffIndex = 0
+    let matchedAnyMarker = false
+    let match: RegExpExecArray | null
+
+    while ((match = markerRegex.exec(content)) !== null) {
+        matchedAnyMarker = true
+        const markerStart = match.index
+        const markerEnd = markerStart + match[0].length
+        const beforeText = content.slice(cursor, markerStart)
+        if (beforeText.trim().length > 0) {
+            segments.push({
+                id: `m-${message.id}-md-${markerCount}`,
+                type: 'markdown',
+                content: beforeText,
+            })
+        }
+
+        const explicitIndexRaw = match[1]
+        const explicitIndex = explicitIndexRaw ? Number(explicitIndexRaw) - 1 : null
+        const selectedIndex = explicitIndex !== null ? explicitIndex : sequentialDiffIndex
+
+        if (selectedIndex >= 0 && selectedIndex < diffFiles.length) {
+            segments.push({
+                id: `m-${message.id}-diff-${markerCount}`,
+                type: 'diff',
+                diffFiles: [diffFiles[selectedIndex]],
+            })
+            if (explicitIndex === null) {
+                sequentialDiffIndex += 1
+            }
+        } else {
+            // Keep unresolved marker visible in markdown to aid debugging prompt/tool mismatches.
+            segments.push({
+                id: `m-${message.id}-missing-marker-${markerCount}`,
+                type: 'markdown',
+                content: match[0],
+            })
+        }
+
+        cursor = markerEnd
+        markerCount += 1
+    }
+
+    const trailing = content.slice(cursor)
+    if (trailing.trim().length > 0) {
+        segments.push({
+            id: `m-${message.id}-md-tail`,
+            type: 'markdown',
+            content: trailing,
+        })
+    }
+
+    if (!matchedAnyMarker && diffFiles.length > 0) {
+        // Automatic inline fallback:
+        // If LLM pasted unified diff in a fenced code block, replace that block with ConfigDiffViewer.
+        const fallbackSegments: MessageRenderSegment[] = []
+        const fenceRegex = /```[a-zA-Z0-9_-]*\n[\s\S]*?```/g
+        let blockCursor = 0
+        let fenceIndex = 0
+        let diffIndex = 0
+        let fenceMatch: RegExpExecArray | null
+        let replacedAnyFence = false
+
+        const isLikelyUnifiedDiffBlock = (block: string): boolean => {
+            return (
+                block.includes('--- a/') &&
+                block.includes('+++ b/') &&
+                block.includes('@@ ')
+            )
+        }
+
+        while ((fenceMatch = fenceRegex.exec(content)) !== null) {
+            const start = fenceMatch.index
+            const end = start + fenceMatch[0].length
+            const before = content.slice(blockCursor, start)
+
+            if (before.trim().length > 0) {
+                fallbackSegments.push({
+                    id: `m-${message.id}-md-fallback-before-${fenceIndex}`,
+                    type: 'markdown',
+                    content: before,
+                })
+            }
+
+            const fenceBlock = fenceMatch[0]
+            if (diffIndex < diffFiles.length && isLikelyUnifiedDiffBlock(fenceBlock)) {
+                fallbackSegments.push({
+                    id: `m-${message.id}-diff-fallback-inline-${fenceIndex}`,
+                    type: 'diff',
+                    diffFiles: [diffFiles[diffIndex]],
+                })
+                diffIndex += 1
+                replacedAnyFence = true
+            } else {
+                fallbackSegments.push({
+                    id: `m-${message.id}-md-fallback-fence-${fenceIndex}`,
+                    type: 'markdown',
+                    content: fenceBlock,
+                })
+            }
+
+            blockCursor = end
+            fenceIndex += 1
+        }
+
+        const afterFences = content.slice(blockCursor)
+        if (afterFences.trim().length > 0) {
+            fallbackSegments.push({
+                id: `m-${message.id}-md-fallback-tail`,
+                type: 'markdown',
+                content: afterFences,
+            })
+        }
+
+        if (replacedAnyFence) {
+            for (let i = diffIndex; i < diffFiles.length; i += 1) {
+                fallbackSegments.push({
+                    id: `m-${message.id}-diff-fallback-extra-${i}`,
+                    type: 'diff',
+                    diffFiles: [diffFiles[i]],
+                })
+            }
+            return fallbackSegments
+        }
+
+        // Final fallback: append diff(s) after markdown if no marker and no diff block was found.
+        for (let i = 0; i < diffFiles.length; i += 1) {
+            segments.push({
+                id: `m-${message.id}-diff-fallback-${i}`,
+                type: 'diff',
+                diffFiles: [diffFiles[i]],
+            })
+        }
+    }
+
+    // Ensure we always render markdown when no segments are produced.
+    if (segments.length === 0) {
+        segments.push({
+            id: `m-${message.id}-md-empty`,
+            type: 'markdown',
+            content,
+        })
+    }
+    console.log("segments:", segments)
+    return segments
+}
 
 // ========== Resizing logic ===============
 async function resizeChatTextarea() {
@@ -145,11 +363,16 @@ onBeforeUnmount(() => {
                                 <!-- Toolcalls -->
                                 <ChatListTool :tool-calls="message.tool_calls" />
                                 <!-- Response -->
-                                <MarkdownRenderer :content="message.content" />
+                                <div class="flex flex-col gap-4">
+                                    <template v-for="segment in getMessageRenderSegments(message)" :key="segment.id">
+                                        <MarkdownRenderer v-if="segment.type === 'markdown'"
+                                            :content="segment.content" />
+                                        <ConfigDiffViewer v-else :diff-files="segment.diffFiles" />
+                                    </template>
+                                </div>
                                 <!-- Feedback -->
                                 <ChatActions v-if="!chatStore.isMessageStreaming(message.id)" :message-id="message.id"
                                     :content="message.content" />
-                                <!-- {{ chatStore }} -->
                             </div>
                             <!-- User message -->
                             <div v-if="message.role == 'user'" class="flex justify-end">
@@ -212,7 +435,7 @@ onBeforeUnmount(() => {
                                                     chatStore.contextWindow.left_percent }}% left)</p>
                                                 <p>{{ chatStore.contextWindow.used_tokens }} / {{
                                                     chatStore.contextWindow.left_tokens }} tokens left</p>
-                                                Compacted ? {{ chatStore.contextWindow.compacted }}
+                                                {{ chatStore.contextWindow.compacted ? 'Compacted' : 'Not Compacted' }}
                                             </div>
                                         </TooltipContent>
                                     </Tooltip>

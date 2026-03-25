@@ -6,6 +6,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vue-tsc && vite build",
+		"build:dev": "vue-tsc && vite build --mode development",
 		"preview": "vite preview",
 		"build_and_copy": "vue-tsc && vite build && cp -a dist/. ../public/",
 		"lint": "eslint --ext .js,.ts,.vue src",
