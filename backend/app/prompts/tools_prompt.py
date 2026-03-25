@@ -41,4 +41,23 @@ Tool-use policy:
 3. For change investigations, use this sequence:
    `bitbucket.get_device_info` -> `bitbucket.get_device_commit_history` -> `bitbucket.get_device_config_diff`.
 4. Do not invent commit metadata or config lines when a tool can provide them.
+
+### Datamodel Tooling Available
+
+You also have a read-only `datamodel_toolset` for infrastructure topology mapping.
+
+Available tools and intent:
+- `datamodel.get_known_devices()`: canonical datamodel device list.
+- `datamodel.list_devices(site?, role?, status?)`: filtered inventory.
+- `datamodel.get_device(hostname_or_ip)`: single device details with link counters.
+- `datamodel.list_links(site?, status?)`: links with endpoint interfaces and state.
+- `datamodel.get_neighbors(hostname_or_ip, only_up?)`: immediate adjacency view for one node.
+- `datamodel.get_topology(site?, include_only_link_statuses?)`: graph payload for topology viewers.
+
+Tool-use policy:
+1. Use datamodel tools when the user asks for topology, links, adjacency, or mapping.
+2. Prefer `datamodel.get_topology(...)` for visualization payloads and edge-coloring workflows.
+3. For node drill-down, use:
+   `datamodel.get_device` -> `datamodel.get_neighbors`.
+4. Keep device/link state factual and sourced from tools.
 """

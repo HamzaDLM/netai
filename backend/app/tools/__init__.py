@@ -11,6 +11,14 @@ from app.tools.bitbucket import (
     get_known_fake_devices as get_known_fake_bitbucket_devices,
     list_bitbucket_devices,
 )
+from app.tools.datamodel import (
+    get_device as get_datamodel_device,
+    get_known_fake_devices as get_known_fake_datamodel_devices,
+    get_neighbors,
+    get_topology,
+    list_devices as list_datamodel_devices,
+    list_links,
+)
 from app.tools.zabbix import (
     get_host_interfaces,
     get_host_inventory,
@@ -46,3 +54,14 @@ bitbucket_tools: list[Tool] = [
 ]
 
 bitbucket_toolset = Toolset(bitbucket_tools)
+
+datamodel_tools: list[Tool] = [
+    cast(Tool, get_known_fake_datamodel_devices),
+    cast(Tool, list_datamodel_devices),
+    cast(Tool, get_datamodel_device),
+    cast(Tool, list_links),
+    cast(Tool, get_neighbors),
+    cast(Tool, get_topology),
+]
+
+datamodel_toolset = Toolset(datamodel_tools)

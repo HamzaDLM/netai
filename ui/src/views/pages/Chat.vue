@@ -15,6 +15,7 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip'
+import TopologyMapper from '@/components/chat/TopologyMapper.vue';
 
 const chatStore = useChatStore()
 
@@ -52,9 +53,18 @@ type DiffFile = {
 type MessageRenderSegment =
     | { id: string; type: 'markdown'; content: string }
     | { id: string; type: 'diff'; diffFiles: DiffFile[] }
+type TopologyPayload = {
+    scope: string
+    device_count: number
+    link_count: number
+    link_status_counts?: Record<string, number>
+    devices: Array<Record<string, unknown>>
+    links: Array<Record<string, unknown>>
+}
 
 function parseToolResult(toolcall: ToolCall): Record<string, unknown> | null {
-    const raw = toolcall.result?.['value']
+    const resultObj = toolcall.result as Record<string, unknown> | undefined
+    const raw = resultObj?.['value'] ?? resultObj
     if (!raw) return null
 
     if (typeof raw === 'string') {
@@ -88,6 +98,20 @@ function getMessageDiffFiles(toolCalls: ToolCall[] | undefined): DiffFile[] {
         files.push(...(diffFiles as DiffFile[]))
     }
     return files
+}
+
+function getMessageTopology(toolCalls: ToolCall[] | undefined): TopologyPayload | null {
+    if (!toolCalls?.length) return null
+
+    for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
+        const toolcall = toolCalls[i]
+        if (toolcall.tool_name !== 'datamodel.get_topology') continue
+        const result = parseToolResult(toolcall)
+        if (!result) continue
+        if (!Array.isArray(result.devices) || !Array.isArray(result.links)) continue
+        return result as TopologyPayload
+    }
+    return null
 }
 
 function getMessageRenderSegments(message: Message): MessageRenderSegment[] {
@@ -241,7 +265,6 @@ function getMessageRenderSegments(message: Message): MessageRenderSegment[] {
             content,
         })
     }
-    console.log("segments:", segments)
     return segments
 }
 
@@ -370,6 +393,8 @@ onBeforeUnmount(() => {
                                         <ConfigDiffViewer v-else :diff-files="segment.diffFiles" />
                                     </template>
                                 </div>
+                                <TopologyMapper v-if="getMessageTopology(message.tool_calls)"
+                                    :topology="getMessageTopology(message.tool_calls) || undefined" />
                                 <!-- Feedback -->
                                 <ChatActions v-if="!chatStore.isMessageStreaming(message.id)" :message-id="message.id"
                                     :content="message.content" />
