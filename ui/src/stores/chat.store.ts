@@ -53,7 +53,10 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			const result = await chatService.getConversations()
 			conversations.value = result.data
 			if (conversations.value.length > 0) {
-				selectConversation(conversations.value[0].id)
+				await selectConversation(conversations.value[0].id)
+			} else {
+				await createConversation()
+				await selectConversation(conversations.value[0].id)
 			}
 		} catch (err) {
 			errorMessage.value = 'Failed to load conversations'
