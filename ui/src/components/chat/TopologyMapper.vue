@@ -167,6 +167,22 @@ function edgeStatusColor(status: EdgeStatus): string {
     }
 }
 
+function normalizeNodeStatus(raw: unknown): NodeStatus {
+    const value = String(raw ?? "up").toLowerCase().trim()
+    if (value === "down" || value === "critical" || value === "error") return "down"
+    if (value === "degraded" || value === "warning" || value === "warn") return "degraded"
+    if (value === "maintenance" || value === "maint") return "maintenance"
+    return "up"
+}
+
+function normalizeEdgeStatus(raw: unknown): EdgeStatus {
+    const value = String(raw ?? "up").toLowerCase().trim()
+    if (value === "down" || value === "critical" || value === "error") return "down"
+    if (value === "degraded" || value === "warning" || value === "warn") return "degraded"
+    if (value === "maintenance" || value === "maint") return "maintenance"
+    return "up"
+}
+
 function openZoom(): void {
     isZoomed.value = true
 }
@@ -204,7 +220,7 @@ const configs = defineConfigs({
             height: 30,
             borderRadius: 6,
             color: (node) => {
-                const status = (nodes.value[String(node)]?.status ?? "up") as NodeStatus
+                const status = normalizeNodeStatus(node?.status)
                 return nodeStatusColor(status)
             },
             strokeWidth: 1,
@@ -222,7 +238,7 @@ const configs = defineConfigs({
         normal: {
             width: 2.5,
             color: (edge) => {
-                const status = (edges.value[String(edge)]?.status ?? "up") as EdgeStatus
+                const status = normalizeEdgeStatus(edge?.status)
                 return edgeStatusColor(status)
             },
         },
@@ -259,7 +275,7 @@ const configs = defineConfigs({
                     </svg>
                     TOPOLOGY MAPPER
                 </div>
-                <button class="p-1 text-xs" @click="openZoom">
+                <button @click="openZoom">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-stone-400 hover:text-stone-200"
                         viewBox="0 0 24 24">
                         <path fill="currentColor"
@@ -292,10 +308,12 @@ const configs = defineConfigs({
                             </svg>
                             TOPOLOGY MAPPER
                         </div>
-                        <button
-                            class="px-3 py-1 text-xs border rounded border-stone-700 bg-stone-950 hover:bg-stone-900"
-                            @click="closeZoom">
-                            Close
+                        <button @click="closeZoom">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-stone-400 hover:text-stone-200"
+                                viewBox="0 0 24 24">
+                                <path fill="currentColor"
+                                    d="m12 13.4l-4.9 4.9q-.275.275-.7.275t-.7-.275t-.275-.7t.275-.7l4.9-4.9l-4.9-4.9q-.275-.275-.275-.7t.275-.7t.7-.275t.7.275l4.9 4.9l4.9-4.9q.275-.275.7-.275t.7.275t.275.7t-.275.7L13.4 12l4.9 4.9q.275.275.275.7t-.275.7t-.7.275t-.7-.275z" />
+                            </svg>
                         </button>
                     </div>
                     <div v-if="topology"

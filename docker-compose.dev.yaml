@@ -1,0 +1,156 @@
+version: "3.9"
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    tmpfs:
+      - /var/lib/zookeeper/data
+      - /var/lib/zookeeper/log
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      - zookeeper
+    tmpfs:
+      - /var/lib/kafka/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    tmpfs:
+      - /qdrant/storage
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    environment:
+      CLICKHOUSE_DB: netops
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: admin
+    tmpfs:
+      - /var/lib/clickhouse
+      - /var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      FRONTEND_HOST: http://localhost:5173
+      CLICKHOUSE_URL: http://clickhouse:8123
+      QDRANT_URL: http://qdrant:6333
+      SQLALCHEMY_URL: sqlite+aiosqlite:///./data/netai_local.db
+    command: >
+      sh -c "uv run alembic upgrade head &&
+             uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    tmpfs:
+      - /app/data
+
+  log_ingestor:
+    build:
+      context: ./log_ingestor
+      dockerfile: Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_TOPIC: syslogs
+      KAFKA_GROUP_ID: log-ingestor
+      CLICKHOUSE_URL: http://clickhouse:8123
+      QDRANT_URL: http://qdrant:6333
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      qdrant:
+        condition: service_started
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_URL: /api/v1
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "5173:80"
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    tmpfs:
+      - /prometheus
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    tmpfs:
+      - /var/lib/grafana
+
+  uptime_kuma:
+    image: louislam/uptime-kuma:1
+    ports:
+      - "3001:3001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    tmpfs:
+      - /app/data
