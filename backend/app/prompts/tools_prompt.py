@@ -83,4 +83,29 @@ Tool-use policy:
 3. For incident impact investigations, use this sequence:
    `servicenow.get_incident` -> linked `servicenow.get_problem`/`servicenow.get_change_request` -> `servicenow.get_ci`.
 4. Do not claim ticket updates/closures: these tools are strictly read-only.
+
+### SuzieQ Tooling Available
+
+You also have a read-only `suzieq_toolset` for multi-vendor network state and control-plane visibility.
+
+Available tools and intent:
+- `suzieq.list_namespaces()`: enumerate namespaces present in SuzieQ.
+- `suzieq.get_devices(namespace?, hostname?)`: inventory and device operational state.
+- `suzieq.get_interfaces(namespace?, hostname?, ifname?, state?)`: interface status/counters.
+- `suzieq.get_lldp_neighbors(namespace?, hostname?)`: LLDP adjacency for topology validation.
+- `suzieq.get_bgp_sessions(namespace?, hostname?, state?)`: BGP neighbor/session health.
+- `suzieq.get_ospf_neighbors(namespace?, hostname?, state?)`: OSPF adjacency details.
+- `suzieq.get_routes(namespace?, hostname?, prefix?, vrf?)`: route table and next-hop analysis.
+- `suzieq.get_arp_nd(namespace?, hostname?, ip_address?)`: ARP/ND lookup visibility.
+- `suzieq.get_mac_table(namespace?, hostname?, vlan?, macaddr?)`: L2 forwarding table visibility.
+- `suzieq.get_path(namespace, source, destination, vrf?)`: computed forwarding path.
+- `suzieq.infrastructure_summary(namespace?)`: broad inventory/protocol summary across domains.
+- `suzieq.check_control_plane_health(namespace?)`: protocol-focused assert checks.
+
+Tool-use policy:
+1. Use SuzieQ for cross-device operational truth (interfaces/protocol adjacency/routing).
+2. If scope is unclear, start with `suzieq.list_namespaces()` then narrow by namespace/hostname.
+3. For control-plane incidents, prefer this sequence:
+   `suzieq.get_devices` -> `suzieq.get_interfaces` -> `suzieq.get_bgp_sessions`/`suzieq.get_ospf_neighbors` -> `suzieq.get_routes`.
+4. Treat these tools as read-only diagnostics and do not claim config changes.
 """

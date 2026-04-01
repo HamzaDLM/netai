@@ -31,6 +31,20 @@ from app.tools.servicenow import (
     list_incidents,
     list_problems,
 )
+from app.tools.suzieq import (
+    check_control_plane_health,
+    get_arp_nd,
+    get_bgp_sessions,
+    get_devices,
+    get_interfaces,
+    get_lldp_neighbors,
+    get_mac_table,
+    get_ospf_neighbors,
+    get_path,
+    get_routes,
+    infrastructure_summary,
+    list_namespaces,
+)
 from app.tools.zabbix import (
     get_host_interfaces,
     get_host_inventory,
@@ -92,3 +106,20 @@ servicenow_tools: list[Tool] = [
 ]
 
 servicenow_toolset = Toolset(servicenow_tools)
+
+suzieq_tools: list[Tool] = [
+    cast(Tool, list_namespaces),
+    cast(Tool, get_devices),
+    cast(Tool, get_interfaces),
+    cast(Tool, get_lldp_neighbors),
+    cast(Tool, get_bgp_sessions),
+    cast(Tool, get_ospf_neighbors),
+    cast(Tool, get_routes),
+    cast(Tool, get_arp_nd),
+    cast(Tool, get_mac_table),
+    cast(Tool, get_path),
+    cast(Tool, infrastructure_summary),
+    cast(Tool, check_control_plane_health),
+]
+
+suzieq_toolset = Toolset(suzieq_tools)
