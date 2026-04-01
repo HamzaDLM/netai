@@ -19,6 +19,18 @@ from app.tools.datamodel import (
     list_devices as list_datamodel_devices,
     list_links,
 )
+from app.tools.servicenow import (
+    get_change_request,
+    get_ci,
+    get_incident,
+    get_known_cis,
+    get_problem,
+    get_service_summary,
+    list_change_requests,
+    list_cis,
+    list_incidents,
+    list_problems,
+)
 from app.tools.zabbix import (
     get_host_interfaces,
     get_host_inventory,
@@ -65,3 +77,18 @@ datamodel_tools: list[Tool] = [
 ]
 
 datamodel_toolset = Toolset(datamodel_tools)
+
+servicenow_tools: list[Tool] = [
+    cast(Tool, get_known_cis),
+    cast(Tool, list_incidents),
+    cast(Tool, get_incident),
+    cast(Tool, list_change_requests),
+    cast(Tool, get_change_request),
+    cast(Tool, list_problems),
+    cast(Tool, get_problem),
+    cast(Tool, list_cis),
+    cast(Tool, get_ci),
+    cast(Tool, get_service_summary),
+]
+
+servicenow_toolset = Toolset(servicenow_tools)

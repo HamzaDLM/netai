@@ -151,23 +151,23 @@ function resetState() {
                     placeholder="Search history..." type="text" />
             </div>
         </div>
-        <div v-if="!props.collapsed" class="flex-1 min-h-0 pr-1 mt-4 space-y-2 overflow-y-auto text-sm">
-            <div class="flex justify-center gap-2 mx-4 mb-4">
-                <Button @click="chatStore.createConversation()" variant="outline"
-                    class="flex w-full gap-2 text-stone-300" size="sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
-                        <path fill="currentColor"
-                            d="M15.275 12.475L11.525 8.7L14.3 5.95l-.725-.725L8.1 10.7L6.7 9.3l5.45-5.475q.6-.6 1.413-.6t1.412.6l.725.725l1.25-1.25q.3-.3.713-.3t.712.3L20.7 5.625q.3.3.3.713t-.3.712zM6.75 21H3v-3.75l7.1-7.125l3.775 3.75z" />
-                    </svg>
-                    New Conversation
-                </Button>
-                <Button @click="resetState" variant="outline" class="w-min text-stone-300" size="sm">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="currentColor"
-                            d="M5.53 17.506q-.978-1.142-1.504-2.558T3.5 12q0-3.616 2.664-6.058T12.5 3.5V2l3.673 2.75L12.5 7.5V6Q9.86 6 7.93 7.718T6 12q0 1.13.399 2.15t1.13 1.846zM11.5 22l-3.673-2.75L11.5 16.5V18q2.64 0 4.57-1.718T18 12q0-1.13-.399-2.16q-.399-1.028-1.13-1.855l1.998-1.51q.979 1.142 1.505 2.558T20.5 12q0 3.616-2.664 6.058T11.5 20.5z" />
-                    </svg>
-                </Button>
-            </div>
+        <div class="flex justify-center gap-2 mx-4 my-4">
+            <Button @click="chatStore.createConversation()" variant="outline" class="flex w-full gap-2 text-stone-300"
+                size="sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M15.275 12.475L11.525 8.7L14.3 5.95l-.725-.725L8.1 10.7L6.7 9.3l5.45-5.475q.6-.6 1.413-.6t1.412.6l.725.725l1.25-1.25q.3-.3.713-.3t.712.3L20.7 5.625q.3.3.3.713t-.3.712zM6.75 21H3v-3.75l7.1-7.125l3.775 3.75z" />
+                </svg>
+                New Conversation
+            </Button>
+            <Button @click="resetState" variant="outline" class="w-min text-stone-300" size="sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="currentColor"
+                        d="M5.53 17.506q-.978-1.142-1.504-2.558T3.5 12q0-3.616 2.664-6.058T12.5 3.5V2l3.673 2.75L12.5 7.5V6Q9.86 6 7.93 7.718T6 12q0 1.13.399 2.15t1.13 1.846zM11.5 22l-3.673-2.75L11.5 16.5V18q2.64 0 4.57-1.718T18 12q0-1.13-.399-2.16q-.399-1.028-1.13-1.855l1.998-1.51q.979 1.142 1.505 2.558T20.5 12q0 3.616-2.664 6.058T11.5 20.5z" />
+                </svg>
+            </Button>
+        </div>
+        <div v-if="!props.collapsed" class="flex-1 min-h-0 pr-1 space-y-2 overflow-y-auto text-sm">
             <div v-for="conversation in chatStore.conversations" @click="chatStore.selectConversation(conversation.id)"
                 class="flex flex-col gap-2 px-4 py-2 border-l-4 cursor-pointer"
                 :class="conversation.id == chatStore.selectedConversation?.id ? 'border-red-500/40 opacity-100 bg-stone-900/30' : 'border-transparent opacity-50 hover:opacity-80'">

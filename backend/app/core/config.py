@@ -80,10 +80,18 @@ class Settings(BaseSettings):
 
     ZABBIX_ENABLED: bool = False
     BITBUCKET_ENABLED: bool = False
+    SERVICENOW_ENABLED: bool = False
 
     ZABBIX_API_URL: str = ""
     ZABBIX_API_TOKEN: str = ""
     ZABBIX_TIMEOUT_SECONDS: float = 12.0
+
+    SERVICENOW_INSTANCE_URL: str = ""
+    SERVICENOW_API_VERSION: str = "v2"
+    SERVICENOW_ACCESS_TOKEN: str = ""
+    SERVICENOW_USERNAME: str = ""
+    SERVICENOW_PASSWORD: str = ""
+    SERVICENOW_TIMEOUT_SECONDS: float = 12.0
 
     LANGFUSE_ENABLED: bool = True
     LANGFUSE_PUBLIC_KEY: str = ""
