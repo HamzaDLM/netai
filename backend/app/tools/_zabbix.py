@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
@@ -103,7 +101,15 @@ class ZabbixGateway:
                 "active_available",
             ],
             "selectHostGroups": ["groupid", "name"],
-            "selectInterfaces": ["interfaceid", "ip", "dns", "type", "available", "error", "main"],
+            "selectInterfaces": [
+                "interfaceid",
+                "ip",
+                "dns",
+                "type",
+                "available",
+                "error",
+                "main",
+            ],
             "selectTags": ["tag", "value"],
         }
         if group:
@@ -234,7 +240,10 @@ def host_brief(host: dict[str, Any]) -> dict[str, Any]:
         if host_group.get("name")
     ]
 
-    maintenance = str(host.get("maintenance_status", "0")) != "0" or str(host.get("maintenanceid", "0")) != "0"
+    maintenance = (
+        str(host.get("maintenance_status", "0")) != "0"
+        or str(host.get("maintenanceid", "0")) != "0"
+    )
     if maintenance:
         status = "maintenance"
     else:
@@ -274,7 +283,9 @@ def error_payload(tool_name: str, exc: Exception | str) -> dict[str, Any]:
 
 def gateway() -> ZabbixGateway:
     zabbix_gateway = ZabbixGateway()
-    api_version = zabbix_gateway.api_version()  # API probe (latest server can be discovered by version)
+    api_version = (
+        zabbix_gateway.api_version()
+    )  # API probe (latest server can be discovered by version)
     if not api_version:
         raise ZabbixToolError("zabbix_api_version_empty")
     return zabbix_gateway
@@ -283,15 +294,24 @@ def gateway() -> ZabbixGateway:
 @tool(name="zabbix.list_hosts")
 def list_zabbix_hosts(
     status: Annotated[str | None, "Optional status filter: up/down/maintenance"] = None,
-    group: Annotated[str | None, "Optional group filter (example: Switches, Firewalls)"] = None,
+    group: Annotated[
+        str | None, "Optional group filter (example: Switches, Firewalls)"
+    ] = None,
 ) -> dict[str, Any]:
     """List Zabbix hosts with optional status/group filters."""
     try:
         zabbix_gateway = gateway()
-        hosts = [host_brief(host_entry) for host_entry in zabbix_gateway.list_hosts_raw(group=group)]
+        hosts = [
+            host_brief(host_entry)
+            for host_entry in zabbix_gateway.list_hosts_raw(group=group)
+        ]
         status_lc = normalize(status)
         if status_lc:
-            hosts = [host_entry for host_entry in hosts if normalize(str(host_entry.get("status"))) == status_lc]
+            hosts = [
+                host_entry
+                for host_entry in hosts
+                if normalize(str(host_entry.get("status"))) == status_lc
+            ]
         return {"count": len(hosts), "hosts": hosts}
     except Exception as exc:
         return error_payload("list_hosts", exc)
@@ -318,7 +338,10 @@ def get_host_status(
         zabbix_gateway = gateway()
         host = zabbix_gateway.resolve_host(hostname_or_ip)
         if not host:
-            return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": zabbix_gateway.known_devices()}
+            return {
+                "error": f"host_not_found:{hostname_or_ip}",
+                "known_devices": zabbix_gateway.known_devices(),
+            }
 
         problems = list(
             zabbix_gateway.api.problem.get(
@@ -333,17 +356,29 @@ def get_host_status(
 
         highest = "information"
         if problems:
-            sev_num = max(int(problem_entry.get("severity", 1)) for problem_entry in problems)
+            sev_num = max(
+                int(problem_entry.get("severity", 1)) for problem_entry in problems
+            )
             highest = SEVERITY_NUM_TO_NAME.get(str(sev_num), "information")
 
         return {
             **host_brief(host),
             "availability": {
-                "agent": AVAILABILITY_MAP.get(str(host.get("available", "0")), "unknown"),
-                "snmp": AVAILABILITY_MAP.get(str(host.get("snmp_available", "0")), "unknown"),
-                "ipmi": AVAILABILITY_MAP.get(str(host.get("ipmi_available", "0")), "unknown"),
-                "jmx": AVAILABILITY_MAP.get(str(host.get("jmx_available", "0")), "unknown"),
-                "active": AVAILABILITY_MAP.get(str(host.get("active_available", "0")), "unknown"),
+                "agent": AVAILABILITY_MAP.get(
+                    str(host.get("available", "0")), "unknown"
+                ),
+                "snmp": AVAILABILITY_MAP.get(
+                    str(host.get("snmp_available", "0")), "unknown"
+                ),
+                "ipmi": AVAILABILITY_MAP.get(
+                    str(host.get("ipmi_available", "0")), "unknown"
+                ),
+                "jmx": AVAILABILITY_MAP.get(
+                    str(host.get("jmx_available", "0")), "unknown"
+                ),
+                "active": AVAILABILITY_MAP.get(
+                    str(host.get("active_available", "0")), "unknown"
+                ),
             },
             "active_problem_count": len(problems),
             "highest_active_severity": highest,
@@ -361,7 +396,10 @@ def get_host_inventory(
         zabbix_gateway = gateway()
         host = zabbix_gateway.resolve_host(hostname_or_ip)
         if not host:
-            return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": zabbix_gateway.known_devices()}
+            return {
+                "error": f"host_not_found:{hostname_or_ip}",
+                "known_devices": zabbix_gateway.known_devices(),
+            }
 
         full = list(
             zabbix_gateway.api.host.get(
@@ -375,7 +413,10 @@ def get_host_inventory(
             or []
         )
         if not full:
-            return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": zabbix_gateway.known_devices()}
+            return {
+                "error": f"host_not_found:{hostname_or_ip}",
+                "known_devices": zabbix_gateway.known_devices(),
+            }
 
         resolved = full[0]
         inventory = resolved.get("inventory") or {}
@@ -403,11 +444,25 @@ def get_host_interfaces(
         zabbix_gateway = gateway()
         host = zabbix_gateway.resolve_host(hostname_or_ip)
         if not host:
-            return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": zabbix_gateway.known_devices()}
+            return {
+                "error": f"host_not_found:{hostname_or_ip}",
+                "known_devices": zabbix_gateway.known_devices(),
+            }
 
         interfaces = list(
             zabbix_gateway.api.hostinterface.get(
-                output=["interfaceid", "hostid", "ip", "dns", "port", "main", "type", "useip", "available", "error"],
+                output=[
+                    "interfaceid",
+                    "hostid",
+                    "ip",
+                    "dns",
+                    "port",
+                    "main",
+                    "type",
+                    "useip",
+                    "available",
+                    "error",
+                ],
                 hostids=[host["hostid"]],
             )
             or []
@@ -417,20 +472,35 @@ def get_host_interfaces(
         for iface in interfaces:
             row = {
                 "interfaceid": str(iface.get("interfaceid", "")),
-                "name": str(iface.get("dns") or iface.get("ip") or iface.get("interfaceid") or ""),
+                "name": str(
+                    iface.get("dns")
+                    or iface.get("ip")
+                    or iface.get("interfaceid")
+                    or ""
+                ),
                 "type": IFACE_TYPE_MAP.get(str(iface.get("type", "")), "unknown"),
                 "admin_status": "up",
-                "oper_status": "up" if str(iface.get("available", "0")) == "1" else "down",
+                "oper_status": (
+                    "up" if str(iface.get("available", "0")) == "1" else "down"
+                ),
                 "ip": str(iface.get("ip", "")),
                 "dns": str(iface.get("dns", "")),
                 "port": str(iface.get("port", "")),
                 "main": str(iface.get("main", "0")) == "1",
                 "error": str(iface.get("error", "")),
             }
-            if not only_problematic or row["oper_status"] == "down" or bool(row["error"]):
+            if (
+                not only_problematic
+                or row["oper_status"] == "down"
+                or bool(row["error"])
+            ):
                 rows.append(row)
 
-        return {"hostname": str(host.get("host", "")), "ip": primary_ip(host), "interfaces": rows}
+        return {
+            "hostname": str(host.get("host", "")),
+            "ip": primary_ip(host),
+            "interfaces": rows,
+        }
     except Exception as exc:
         return error_payload("get_host_interfaces", exc)
 
@@ -448,10 +518,23 @@ def get_host_metrics(
         zabbix_gateway = gateway()
         host = zabbix_gateway.resolve_host(hostname_or_ip)
         if not host:
-            return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": zabbix_gateway.known_devices()}
+            return {
+                "error": f"host_not_found:{hostname_or_ip}",
+                "known_devices": zabbix_gateway.known_devices(),
+            }
 
         params: dict[str, Any] = {
-            "output": ["itemid", "hostid", "name", "key_", "lastvalue", "units", "lastclock", "state", "status"],
+            "output": [
+                "itemid",
+                "hostid",
+                "name",
+                "key_",
+                "lastvalue",
+                "units",
+                "lastclock",
+                "state",
+                "status",
+            ],
             "hostids": [host["hostid"]],
             "sortfield": ["name"],
             "limit": 500,
@@ -479,7 +562,9 @@ def get_host_metrics(
             "metrics": metrics,
         }
         if metric_keys:
-            payload["missing_metric_keys"] = [metric_key for metric_key in metric_keys if metric_key not in metrics]
+            payload["missing_metric_keys"] = [
+                metric_key for metric_key in metric_keys if metric_key not in metrics
+            ]
         return payload
     except Exception as exc:
         return error_payload("get_host_metrics", exc)
@@ -508,11 +593,21 @@ def get_trigger_events(
         if hostname_or_ip:
             host = zabbix_gateway.resolve_host(hostname_or_ip)
             if not host:
-                return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": zabbix_gateway.known_devices()}
+                return {
+                    "error": f"host_not_found:{hostname_or_ip}",
+                    "known_devices": zabbix_gateway.known_devices(),
+                }
             hostids = [str(host["hostid"])]
 
         params: dict[str, Any] = {
-            "output": ["eventid", "name", "severity", "clock", "acknowledged", "r_eventid"],
+            "output": [
+                "eventid",
+                "name",
+                "severity",
+                "clock",
+                "acknowledged",
+                "r_eventid",
+            ],
             "selectHosts": ["host", "name"],
             "recent": not only_active,
             "sortfield": ["eventid"],
@@ -538,7 +633,9 @@ def get_trigger_events(
                     "eventid": str(event.get("eventid", "")),
                     "hostname": str(host.get("host", "")),
                     "name": str(event.get("name", "")),
-                    "severity": SEVERITY_NUM_TO_NAME.get(str(event.get("severity", "0")), "not_classified"),
+                    "severity": SEVERITY_NUM_TO_NAME.get(
+                        str(event.get("severity", "0")), "not_classified"
+                    ),
                     "status": "active" if is_active else "resolved",
                     "since": to_iso(event.get("clock")),
                     "acknowledged": str(event.get("acknowledged", "0")) == "1",
@@ -558,12 +655,18 @@ def get_problem_summary(
     try:
         zabbix_gateway = gateway()
         hosts = zabbix_gateway.list_hosts_raw(group=group)
-        hostids = [str(host_entry.get("hostid", "")) for host_entry in hosts if host_entry.get("hostid")]
+        hostids = [
+            str(host_entry.get("hostid", ""))
+            for host_entry in hosts
+            if host_entry.get("hostid")
+        ]
         if not hostids:
             return {
                 "scope": group if group else "all_hosts",
                 "active_problem_total": 0,
-                "active_by_severity": {severity_name: 0 for severity_name in SEVERITY_NAME_TO_NUM},
+                "active_by_severity": {
+                    severity_name: 0 for severity_name in SEVERITY_NAME_TO_NUM
+                },
                 "active_by_host": {},
             }
 
@@ -581,7 +684,9 @@ def get_problem_summary(
         host_totals: dict[str, int] = {}
 
         for event in problems:
-            sev = SEVERITY_NUM_TO_NAME.get(str(event.get("severity", "0")), "not_classified")
+            sev = SEVERITY_NUM_TO_NAME.get(
+                str(event.get("severity", "0")), "not_classified"
+            )
             if sev not in severity_totals:
                 severity_totals[sev] = 0
             severity_totals[sev] += 1

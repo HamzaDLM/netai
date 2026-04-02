@@ -219,6 +219,7 @@ Metrics endpoint:
 - Prometheus scrapes backend metrics from `/metrics`
 - Grafana dashboards are provisioned from `monitoring/grafana/dashboards`
 - LLM traces can be sent to Langfuse when enabled
+- In dev compose, Langfuse UI is available at `http://localhost:3002`
 
 ## Typical Local Flow
 
@@ -246,6 +247,7 @@ Metrics endpoint:
 
 - Port conflicts:
   - `3000` is used by Grafana in `docker-compose.yaml`.
+  - `3002` is used by Langfuse in `docker-compose.dev.yaml`.
 
 ## Current Caveats
 

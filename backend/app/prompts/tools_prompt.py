@@ -27,20 +27,19 @@ Tool-use policy:
 You also have a read-only `bitbucket_toolset` for versioned device configurations.
 
 Available tools and intent:
-- `bitbucket.list_devices(site?, vendor?)`: discover devices tracked in config repositories.
-- `bitbucket.get_known_devices()`: return canonical fake device hostname/IP list.
-- `bitbucket.get_device_info(hostname_or_ip)`: metadata, config path, and latest commit.
-- `bitbucket.get_device_configuration(hostname_or_ip, commit?)`: retrieve config snapshot (latest by default).
-- `bitbucket.get_device_commit_history(hostname_or_ip, limit?)`: ordered commit timeline for a device.
-- `bitbucket.get_device_last_change(hostname_or_ip)`: last update timestamp and commit metadata.
-- `bitbucket.get_device_config_diff(hostname_or_ip, from_commit?, to_commit?, context_lines?)`: commit-style unified diff.
+- `bitbucket.clone_repo(repo_url, destination, branch?, refresh?)`: clone/fetch a git repo used for config tracking.
+- `bitbucket.list_devices(repo_path, path_contains?)`: list tracked files as devices (device name derived from file stem).
+- `bitbucket.get_device_file_info(repo_path, device)`: show commit count plus latest commit message/date and last sanitized diff for a device file.
+- `bitbucket.get_device_configuration(repo_path, device, commit_ref?)`: retrieve sanitized device configuration at HEAD or a commit.
+- `bitbucket.get_recent_commits(repo_path, limit?)`: latest commits with changed files and affected devices.
 
 Tool-use policy:
 1. Use Bitbucket tools for configuration state and change-history questions.
-2. Prefer exact hostname/IP targeting; resolve ambiguity with `bitbucket.get_known_devices()`.
-3. For change investigations, use this sequence:
-   `bitbucket.get_device_info` -> `bitbucket.get_device_commit_history` -> `bitbucket.get_device_config_diff`.
-4. Do not invent commit metadata or config lines when a tool can provide them.
+2. Ensure the repo is locally available first (`bitbucket.clone_repo`) before querying files/history.
+3. For device-level investigations, use:
+   `bitbucket.list_devices` -> `bitbucket.get_device_file_info`.
+4. Use `bitbucket.get_recent_commits` when the user asks what changed recently and which devices were impacted.
+5. Do not invent commit metadata or diff lines when a tool can provide them.
 
 ### Datamodel Tooling Available
 

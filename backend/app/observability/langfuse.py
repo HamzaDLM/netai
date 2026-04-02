@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import random
 from dataclasses import dataclass
@@ -119,7 +117,10 @@ class LangfuseClientWrapper:
         if not project_settings.LANGFUSE_ENABLED:
             logger.info("Langfuse disabled via LANGFUSE_ENABLED=false")
             return
-        if not project_settings.LANGFUSE_PUBLIC_KEY or not project_settings.LANGFUSE_SECRET_KEY:
+        if (
+            not project_settings.LANGFUSE_PUBLIC_KEY
+            or not project_settings.LANGFUSE_SECRET_KEY
+        ):
             logger.info("Langfuse keys missing; tracing disabled")
             return
 

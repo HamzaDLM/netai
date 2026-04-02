@@ -8,6 +8,7 @@ from pydantic import (
     computed_field,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from app.utils import parse_cors
 
 
@@ -96,7 +97,7 @@ class Settings(BaseSettings):
     LANGFUSE_ENABLED: bool = True
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_SECRET_KEY: str = ""
-    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+    LANGFUSE_BASE_URL: str = "http://localhost:3002"
     LANGFUSE_SAMPLE_RATE: float = Field(default=1.0, ge=0.0, le=1.0)
 
 

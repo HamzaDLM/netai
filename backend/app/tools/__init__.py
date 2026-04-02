@@ -3,12 +3,10 @@ from typing import cast
 from haystack.tools import Tool, Toolset
 
 from app.tools.bitbucket import (
-    get_device_commit_history,
-    get_device_config_diff,
-    get_device_configuration,
-    get_device_info,
-    get_device_last_change,
-    get_known_fake_devices as get_known_fake_bitbucket_devices,
+    clone_bitbucket_repo,
+    get_bitbucket_device_configuration,
+    get_bitbucket_device_file_info,
+    get_bitbucket_recent_commits,
     list_bitbucket_devices,
 )
 from app.tools.datamodel import (
@@ -31,6 +29,7 @@ from app.tools.servicenow import (
     list_incidents,
     list_problems,
 )
+
 from app.tools.suzieq import (
     check_control_plane_health,
     get_arp_nd,
@@ -70,13 +69,11 @@ zabbix_tools: list[Tool] = [
 zabbix_toolset = Toolset(zabbix_tools)
 
 bitbucket_tools: list[Tool] = [
+    cast(Tool, clone_bitbucket_repo),
     cast(Tool, list_bitbucket_devices),
-    cast(Tool, get_known_fake_bitbucket_devices),
-    cast(Tool, get_device_info),
-    cast(Tool, get_device_configuration),
-    cast(Tool, get_device_commit_history),
-    cast(Tool, get_device_last_change),
-    cast(Tool, get_device_config_diff),
+    cast(Tool, get_bitbucket_device_file_info),
+    cast(Tool, get_bitbucket_device_configuration),
+    cast(Tool, get_bitbucket_recent_commits),
 ]
 
 bitbucket_toolset = Toolset(bitbucket_tools)

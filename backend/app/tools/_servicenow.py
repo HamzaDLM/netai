@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Annotated, Any
 
 import httpx
@@ -134,7 +132,9 @@ class ServiceNowGateway:
     ) -> dict[str, Any]:
         url = f"{self.base_url}/{table}"
         try:
-            with httpx.Client(timeout=self.timeout, headers=self._headers, auth=self._auth) as client:
+            with httpx.Client(
+                timeout=self.timeout, headers=self._headers, auth=self._auth
+            ) as client:
                 response = client.request(method, url, params=params)
         except Exception as exc:
             raise ServiceNowToolError(f"http_request_failed:{exc}") from exc
@@ -147,7 +147,9 @@ class ServiceNowGateway:
         if response.status_code >= 400:
             if isinstance(payload, dict):
                 error_body = payload.get("error", {})
-                message = _string(error_body.get("message")) or _string(payload.get("message"))
+                message = _string(error_body.get("message")) or _string(
+                    payload.get("message")
+                )
                 detail = _string(error_body.get("detail"))
                 joined = f"{message}:{detail}".strip(":")
             else:
@@ -226,7 +228,8 @@ def _incident_brief(row: dict[str, Any]) -> dict[str, Any]:
         "priority": _string(row.get("priority")),
         "impact": _string(row.get("impact")),
         "urgency": _string(row.get("urgency")),
-        "major_incident": normalize(_string(row.get("major_incident_state"))) not in {"", "not_major"},
+        "major_incident": normalize(_string(row.get("major_incident_state")))
+        not in {"", "not_major"},
         "short_description": _string(row.get("short_description")),
         "description": _string(row.get("description")),
         "service": _string(row.get("business_service")),
@@ -265,7 +268,8 @@ def _problem_brief(row: dict[str, Any]) -> dict[str, Any]:
         "number": _string(row.get("number")),
         "state": _string(row.get("state")),
         "priority": _string(row.get("priority")),
-        "known_error": normalize(_string(row.get("known_error"))) in {"true", "1", "yes"},
+        "known_error": normalize(_string(row.get("known_error")))
+        in {"true", "1", "yes"},
         "short_description": _string(row.get("short_description")),
         "root_cause": _string(row.get("close_notes")),
         "service": _string(row.get("business_service")),
@@ -302,8 +306,12 @@ def get_known_cis() -> list[dict[str, Any]] | dict[str, Any]:
 
 @tool(name="servicenow.list_incidents")
 def list_incidents(
-    state: Annotated[str | None, "Optional state filter: new/in_progress/on_hold/resolved"] = None,
-    priority: Annotated[str | None, "Optional priority filter: e.g. 1 - Critical"] = None,
+    state: Annotated[
+        str | None, "Optional state filter: new/in_progress/on_hold/resolved"
+    ] = None,
+    priority: Annotated[
+        str | None, "Optional priority filter: e.g. 1 - Critical"
+    ] = None,
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
     service: Annotated[str | None, "Optional business service filter"] = None,
     only_major: Annotated[bool, "Only major incidents"] = False,
@@ -398,8 +406,12 @@ def get_incident(
 
 @tool(name="servicenow.list_change_requests")
 def list_change_requests(
-    state: Annotated[str | None, "Optional state filter: new/scheduled/implement/closed"] = None,
-    risk: Annotated[str | None, "Optional risk filter: critical/high/moderate/low"] = None,
+    state: Annotated[
+        str | None, "Optional state filter: new/scheduled/implement/closed"
+    ] = None,
+    risk: Annotated[
+        str | None, "Optional risk filter: critical/high/moderate/low"
+    ] = None,
     service: Annotated[str | None, "Optional business service filter"] = None,
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
     limit: Annotated[int, "Maximum number of changes to return"] = 20,
@@ -485,7 +497,9 @@ def get_change_request(
 
 @tool(name="servicenow.list_problems")
 def list_problems(
-    state: Annotated[str | None, "Optional state filter: investigating/known_error/resolved"] = None,
+    state: Annotated[
+        str | None, "Optional state filter: investigating/known_error/resolved"
+    ] = None,
     priority: Annotated[str | None, "Optional priority filter"] = None,
     service: Annotated[str | None, "Optional business service filter"] = None,
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
@@ -567,7 +581,9 @@ def get_problem(
 
 @tool(name="servicenow.list_cis")
 def list_cis(
-    ci_class: Annotated[str | None, "Optional class filter: network_firewall/network_switch/..."] = None,
+    ci_class: Annotated[
+        str | None, "Optional class filter: network_firewall/network_switch/..."
+    ] = None,
     site: Annotated[str | None, "Optional site filter"] = None,
     service: Annotated[str | None, "Optional service filter"] = None,
     install_status: Annotated[str | None, "Optional install status filter"] = None,
@@ -731,9 +747,13 @@ def get_service_summary(
                 "open_changes": len(open_changes),
                 "open_problems": len(open_problems),
             },
-            "active_incident_numbers": [_string(row.get("number")) for row in active_incidents],
+            "active_incident_numbers": [
+                _string(row.get("number")) for row in active_incidents
+            ],
             "open_change_numbers": [_string(row.get("number")) for row in open_changes],
-            "open_problem_numbers": [_string(row.get("number")) for row in open_problems],
+            "open_problem_numbers": [
+                _string(row.get("number")) for row in open_problems
+            ],
         }
     except Exception as exc:
         return error_payload("get_service_summary", exc)

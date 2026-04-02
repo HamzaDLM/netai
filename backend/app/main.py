@@ -9,6 +9,7 @@ from starlette.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import project_settings
 from app.observability import langfuse_client
+import uvicorn
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -43,3 +44,7 @@ async def lifespan(_: FastAPI):
 @app.get("/metrics", include_in_schema=False)
 def metrics() -> Response:
     return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+def run_api():
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)

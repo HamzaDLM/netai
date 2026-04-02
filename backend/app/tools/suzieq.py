@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 from typing import Annotated, Any
 
@@ -42,9 +40,8 @@ def suzieq_api_url() -> str:
 
 
 def suzieq_api_token() -> str:
-    return (
-        os.getenv("SUZIEQ_API_TOKEN")
-        or str(getattr(project_settings, "SUZIEQ_API_TOKEN", "") or "")
+    return os.getenv("SUZIEQ_API_TOKEN") or str(
+        getattr(project_settings, "SUZIEQ_API_TOKEN", "") or ""
     )
 
 
@@ -103,7 +100,9 @@ class SuzieQClient:
 
         endpoint = f"{self.base_url}/api/{SUZIEQ_API_VERSION}/{table}/{verb}"
         try:
-            with httpx.Client(timeout=self.timeout_seconds, verify=self.verify_tls) as http_client:
+            with httpx.Client(
+                timeout=self.timeout_seconds, verify=self.verify_tls
+            ) as http_client:
                 response = http_client.get(endpoint, params=query_params)
                 response.raise_for_status()
                 return response.json()
@@ -168,7 +167,9 @@ def get_interfaces(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
     ifname: Annotated[str | None, "Optional interface name filter"] = None,
-    state: Annotated[str | None, "Optional state filter, e.g. up/down/notConnected"] = None,
+    state: Annotated[
+        str | None, "Optional state filter, e.g. up/down/notConnected"
+    ] = None,
 ) -> dict[str, Any]:
     """Get interface state, addresses, speed, and counters."""
     try:
@@ -211,7 +212,9 @@ def get_lldp_neighbors(
 def get_bgp_sessions(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
-    state: Annotated[str | None, "Optional BGP state filter (Established, NotEstd, etc.)"] = None,
+    state: Annotated[
+        str | None, "Optional BGP state filter (Established, NotEstd, etc.)"
+    ] = None,
 ) -> dict[str, Any]:
     """Get BGP session health, neighbors, and state."""
     try:
