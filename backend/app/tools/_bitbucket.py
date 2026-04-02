@@ -5,17 +5,39 @@ from typing import Annotated, Any
 
 from haystack.tools import tool
 
+from app.core.config import project_settings
+
 
 class BitbucketToolError(RuntimeError):
+    """Raised for controlled, user-facing Bitbucket tool failures."""
+
     pass
 
 
 def normalize(value: str | None) -> str:
+    """Lowercase and trim optional text values."""
     return (value or "").strip().lower()
 
 
 def _error(tool_name: str, exc: Exception | str) -> dict[str, Any]:
+    """Build a consistent error payload for agent/tool responses."""
     return {"error": f"{tool_name}_failed:{exc}"}
+
+
+def _resolved_repo_path(repo_path: str | Path | None = None) -> Path:
+    """Resolve a repo path from argument or configured default clone dir."""
+    selected = str(repo_path or project_settings.BITBUCKET_CLONE_DIR).strip()
+    if not selected:
+        raise BitbucketToolError("missing_repo_path_and_bitbucket_clone_dir")
+    return Path(selected).resolve()
+
+
+def _resolved_repo_url(repo_url: str | None = None) -> str:
+    """Resolve a repo URL from argument or configured default Bitbucket URL."""
+    selected = (repo_url or project_settings.BITBUCKET_URL).strip()
+    if not selected:
+        raise BitbucketToolError("missing_repo_url_and_bitbucket_url")
+    return selected
 
 
 def _run_git(
@@ -23,6 +45,7 @@ def _run_git(
     *,
     repo_path: str | Path | None = None,
 ) -> str:
+    """Run a git command and return stdout, raising clean tool errors on failures."""
     command = ["git", *args]
     cwd = str(Path(repo_path).resolve()) if repo_path else None
     try:
@@ -51,6 +74,7 @@ def _clone_repo(
     branch: str | None = None,
     refresh: bool = False,
 ) -> dict[str, Any]:
+    """Clone a repository, or return metadata for an existing clone."""
     target = Path(destination).resolve()
     git_dir = target / ".git"
 
@@ -86,6 +110,7 @@ def _clone_repo(
 
 
 def _tracked_files(repo_path: str | Path) -> list[str]:
+    """List tracked files from the repository index."""
     output = _run_git(["ls-files"], repo_path=repo_path)
     if not output:
         return []
@@ -93,6 +118,7 @@ def _tracked_files(repo_path: str | Path) -> list[str]:
 
 
 def _device_name_from_path(file_path: str) -> str:
+    """Extract a device name from a config filename stem."""
     return Path(file_path).stem
 
 
@@ -101,6 +127,7 @@ def _list_device_files(
     *,
     path_contains: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Return tracked files as device/file tuples, optionally filtered by path text."""
     files = _tracked_files(repo_path)
     lookup = normalize(path_contains)
 
@@ -119,6 +146,7 @@ def _list_device_files(
 
 
 def _resolve_device_file(repo_path: str | Path, device: str) -> str:
+    """Resolve one unique tracked file for a device stem or exact filename."""
     lookup = normalize(device)
     if not lookup:
         raise BitbucketToolError("device_is_required")
@@ -138,6 +166,7 @@ def _resolve_device_file(repo_path: str | Path, device: str) -> str:
 
 
 def _file_commit_count(repo_path: str | Path, file_path: str) -> int:
+    """Count commits that touched a specific tracked file."""
     output = _run_git(
         ["rev-list", "--count", "HEAD", "--", file_path], repo_path=repo_path
     )
@@ -148,6 +177,7 @@ def _file_commit_count(repo_path: str | Path, file_path: str) -> int:
 
 
 def _last_commit_for_file(repo_path: str | Path, file_path: str) -> dict[str, str]:
+    """Fetch latest commit metadata for a tracked file."""
     output = _run_git(
         [
             "log",
@@ -175,6 +205,7 @@ def _last_commit_for_file(repo_path: str | Path, file_path: str) -> dict[str, st
 
 
 def _diff_for_file(repo_path: str | Path, file_path: str, commit_hash: str) -> str:
+    """Return unified diff for a file in the selected commit versus its parent."""
     parent_exists = True
     try:
         _run_git(["rev-parse", f"{commit_hash}^"], repo_path=repo_path)
@@ -194,6 +225,7 @@ def _diff_for_file(repo_path: str | Path, file_path: str, commit_hash: str) -> s
 
 
 def _file_content_at_ref(repo_path: str | Path, file_path: str, ref: str = "HEAD") -> str:
+    """Read file content at a specific git ref."""
     return _run_git(["show", f"{ref}:{file_path}"], repo_path=repo_path)
 
 
@@ -227,6 +259,7 @@ _SANITIZE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 
 
 def sanitize_config_text(config_text: str) -> str:
+    """Mask sensitive values while preserving line structure for troubleshooting."""
     sanitized = config_text
     for pattern, replacement in _SANITIZE_PATTERNS:
         sanitized = pattern.sub(replacement, sanitized)
@@ -234,6 +267,7 @@ def sanitize_config_text(config_text: str) -> str:
 
 
 def sanitize_unified_diff(diff_text: str) -> str:
+    """Mask secrets in diff bodies while preserving diff headers and prefixes."""
     if not diff_text:
         return diff_text
 
@@ -255,6 +289,7 @@ def sanitize_unified_diff(diff_text: str) -> str:
 
 
 def _get_device_file_info(repo_path: str | Path, device: str) -> dict[str, Any]:
+    """Build last-change details for one device file, including a sanitized diff."""
     file_path = _resolve_device_file(repo_path, device)
     last_commit = _last_commit_for_file(repo_path, file_path)
     commit_count = _file_commit_count(repo_path, file_path)
@@ -274,6 +309,7 @@ def _get_recent_commits_with_devices(
     *,
     limit: int = 10,
 ) -> list[dict[str, Any]]:
+    """Return recent commits with changed files and derived affected devices."""
     if limit < 1:
         raise BitbucketToolError("limit_must_be_positive")
 
@@ -328,26 +364,30 @@ def _get_recent_commits_with_devices(
 
 @tool(name="bitbucket.clone_repo")
 def clone_bitbucket_repo(
-    repo_url: Annotated[str, "Git URL/path to clone from"],
-    destination: Annotated[str, "Local directory where repo should be cloned"],
     branch: Annotated[str | None, "Optional branch to clone"] = None,
     refresh: Annotated[bool, "If repo exists locally, fetch updates"] = False,
 ) -> dict[str, Any]:
     """Clone a Bitbucket git repository locally (or return existing clone metadata)."""
     try:
-        return _clone_repo(repo_url, destination, branch=branch, refresh=refresh)
+        resolved_url = _resolved_repo_url()
+        resolved_destination = _resolved_repo_path()
+        return _clone_repo(
+            resolved_url,
+            resolved_destination,
+            branch=branch,
+            refresh=refresh,
+        )
     except BitbucketToolError as exc:
         return _error("bitbucket_clone_repo", exc)
 
 
 @tool(name="bitbucket.list_devices")
 def list_bitbucket_devices(
-    repo_path: Annotated[str, "Path to a local git clone"],
     path_contains: Annotated[str | None, "Optional path substring filter"] = None,
 ) -> dict[str, Any]:
     """List tracked files in the repo as devices (device name = file stem)."""
     try:
-        devices = _list_device_files(repo_path, path_contains=path_contains)
+        devices = _list_device_files(_resolved_repo_path(), path_contains=path_contains)
         return {"count": len(devices), "devices": devices}
     except BitbucketToolError as exc:
         return _error("bitbucket_list_devices", exc)
@@ -355,27 +395,26 @@ def list_bitbucket_devices(
 
 @tool(name="bitbucket.get_device_file_info")
 def get_bitbucket_device_file_info(
-    repo_path: Annotated[str, "Path to a local git clone"],
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
     """Get last-change details for one device file: message/date/diff and commit count."""
     try:
-        return _get_device_file_info(repo_path, device)
+        return _get_device_file_info(_resolved_repo_path(), device)
     except BitbucketToolError as exc:
         return _error("bitbucket_get_device_file_info", exc)
 
 
 @tool(name="bitbucket.get_device_configuration")
 def get_bitbucket_device_configuration(
-    repo_path: Annotated[str, "Path to a local git clone"],
     device: Annotated[str, "Device name (file stem) or exact filename"],
     commit_ref: Annotated[str | None, "Optional commit hash; defaults to HEAD"] = None,
 ) -> dict[str, Any]:
     """Return sanitized configuration text for one device file at a commit ref (or HEAD)."""
     try:
-        file_path = _resolve_device_file(repo_path, device)
+        resolved_repo = _resolved_repo_path()
+        file_path = _resolve_device_file(resolved_repo, device)
         ref = commit_ref or "HEAD"
-        raw_config = _file_content_at_ref(repo_path, file_path, ref=ref)
+        raw_config = _file_content_at_ref(resolved_repo, file_path, ref=ref)
         return {
             "device": _device_name_from_path(file_path),
             "file_path": file_path,
@@ -388,12 +427,13 @@ def get_bitbucket_device_configuration(
 
 @tool(name="bitbucket.get_recent_commits")
 def get_bitbucket_recent_commits(
-    repo_path: Annotated[str, "Path to a local git clone"],
     limit: Annotated[int, "Maximum number of recent commits to return"] = 10,
 ) -> dict[str, Any]:
     """Return latest commits and which device files each commit changed."""
     try:
-        commits = _get_recent_commits_with_devices(repo_path, limit=limit)
+        commits = _get_recent_commits_with_devices(
+            _resolved_repo_path(), limit=limit
+        )
     except BitbucketToolError as exc:
         return _error("bitbucket_get_recent_commits", exc)
 

@@ -83,6 +83,9 @@ class Settings(BaseSettings):
     BITBUCKET_ENABLED: bool = False
     SERVICENOW_ENABLED: bool = False
 
+    BITBUCKET_CLONE_DIR: str = ""
+    BITBUCKET_URL: str = ""
+
     ZABBIX_API_URL: str = ""
     ZABBIX_API_TOKEN: str = ""
     ZABBIX_TIMEOUT_SECONDS: float = 12.0

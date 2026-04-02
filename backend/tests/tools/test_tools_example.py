@@ -29,7 +29,7 @@ def _invoke_tool(tool_obj: Any, **kwargs: Any) -> Any:
 
 
 def test_example_invoke_tool_returns_error_payload() -> None:
-    result = _invoke_tool(list_bitbucket_devices, repo_path="/no/such/repo")
+    result = _invoke_tool(list_bitbucket_devices)
 
     assert isinstance(result, dict)
     assert "error" in result

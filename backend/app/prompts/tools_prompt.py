@@ -27,11 +27,11 @@ Tool-use policy:
 You also have a read-only `bitbucket_toolset` for versioned device configurations.
 
 Available tools and intent:
-- `bitbucket.clone_repo(repo_url, destination, branch?, refresh?)`: clone/fetch a git repo used for config tracking.
-- `bitbucket.list_devices(repo_path, path_contains?)`: list tracked files as devices (device name derived from file stem).
-- `bitbucket.get_device_file_info(repo_path, device)`: show commit count plus latest commit message/date and last sanitized diff for a device file.
-- `bitbucket.get_device_configuration(repo_path, device, commit_ref?)`: retrieve sanitized device configuration at HEAD or a commit.
-- `bitbucket.get_recent_commits(repo_path, limit?)`: latest commits with changed files and affected devices.
+- `bitbucket.clone_repo(branch?, refresh?)`: clone/fetch the configured repo (`BITBUCKET_URL` into `BITBUCKET_CLONE_DIR`).
+- `bitbucket.list_devices(path_contains?)`: list tracked files as devices (device name derived from file stem).
+- `bitbucket.get_device_file_info(device)`: show commit count plus latest commit message/date and last sanitized diff for a device file.
+- `bitbucket.get_device_configuration(device, commit_ref?)`: retrieve sanitized device configuration at HEAD or a commit.
+- `bitbucket.get_recent_commits(limit?)`: latest commits with changed files and affected devices.
 
 Tool-use policy:
 1. Use Bitbucket tools for configuration state and change-history questions.
