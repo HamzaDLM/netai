@@ -1,0 +1,19 @@
+[Unit]
+Description=NetAI FastAPI backend
+After=network.target
+
+[Service]
+Type=simple
+User={{ netai_user }}
+Group={{ netai_group }}
+WorkingDirectory={{ netai_release_dir }}/backend
+Environment=PATH={{ netai_home }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile={{ netai_release_dir }}/backend/.env
+ExecStart={{ netai_home }}/.local/bin/uv run uvicorn app.main:app --host {{ netai_backend_host }} --port {{ netai_backend_port }}
+Restart=always
+RestartSec=5
+StandardOutput=append:{{ netai_log_dir }}/backend.log
+StandardError=append:{{ netai_log_dir }}/backend.err.log
+
+[Install]
+WantedBy=multi-user.target

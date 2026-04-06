@@ -1,0 +1,207 @@
+---
+- name: Install datastore package dependencies
+  ansible.builtin.apt:
+    name:
+      - redis-server
+      - clickhouse-server
+      - clickhouse-client
+      - clang
+      - cmake
+      - pkg-config
+      - libssl-dev
+    state: present
+    update_cache: true
+
+- name: Configure redis bind address
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^bind '
+    line: "bind {{ netai_redis_bind }}"
+  when: netai_redis_enabled | bool
+  notify: Restart redis
+
+- name: Configure redis port
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^port '
+    line: "port {{ netai_redis_port }}"
+  when: netai_redis_enabled | bool
+  notify: Restart redis
+
+- name: Configure redis protected mode
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^protected-mode '
+    line: "protected-mode yes"
+  when: netai_redis_enabled | bool
+  notify: Restart redis
+
+- name: Remove redis password when not set
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^requirepass '
+    state: absent
+  when:
+    - netai_redis_enabled | bool
+    - netai_redis_password | length == 0
+  notify: Restart redis
+
+- name: Configure redis password
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^requirepass '
+    line: "requirepass {{ netai_redis_password }}"
+  when:
+    - netai_redis_enabled | bool
+    - netai_redis_password | length > 0
+  no_log: true
+  notify: Restart redis
+
+- name: Ensure redis is enabled and started
+  ansible.builtin.systemd_service:
+    name: redis-server
+    enabled: true
+    state: started
+  when: netai_redis_enabled | bool
+
+- name: Ensure clickhouse is enabled and started
+  ansible.builtin.systemd_service:
+    name: clickhouse-server
+    enabled: true
+    state: started
+  when: netai_clickhouse_enabled | bool
+
+- name: Wait for clickhouse HTTP port
+  ansible.builtin.wait_for:
+    host: "{{ netai_clickhouse_host }}"
+    port: "{{ netai_clickhouse_http_port }}"
+    timeout: 60
+  when: netai_clickhouse_enabled | bool
+
+- name: Ensure clickhouse database exists
+  ansible.builtin.shell: |
+    clickhouse-client --query "CREATE DATABASE IF NOT EXISTS {{ netai_clickhouse_db }}"
+  args:
+    executable: /bin/bash
+  when: netai_clickhouse_enabled | bool
+
+- name: Ensure clickhouse user exists
+  ansible.builtin.shell: |
+    clickhouse-client --query "CREATE USER IF NOT EXISTS {{ netai_clickhouse_user }} IDENTIFIED WITH plaintext_password BY '{{ netai_clickhouse_password | replace(\"'\", \"''\") }}'"
+  args:
+    executable: /bin/bash
+  when:
+    - netai_clickhouse_enabled | bool
+    - netai_clickhouse_user != "default"
+  no_log: true
+
+- name: Grant clickhouse privileges
+  ansible.builtin.shell: |
+    clickhouse-client --query "GRANT ALL ON {{ netai_clickhouse_db }}.* TO {{ netai_clickhouse_user }}"
+  args:
+    executable: /bin/bash
+  when:
+    - netai_clickhouse_enabled | bool
+    - netai_clickhouse_user != "default"
+
+- name: Ensure qdrant group exists
+  ansible.builtin.group:
+    name: "{{ netai_qdrant_group }}"
+    state: present
+  when: netai_qdrant_enabled | bool
+
+- name: Ensure qdrant user exists
+  ansible.builtin.user:
+    name: "{{ netai_qdrant_user }}"
+    group: "{{ netai_qdrant_group }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+  when: netai_qdrant_enabled | bool
+
+- name: Ensure qdrant directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(netai_qdrant_user) }}"
+    group: "{{ item.group | default(netai_qdrant_group) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - { path: "{{ netai_qdrant_src_dir }}" }
+    - { path: "{{ netai_qdrant_config_dir }}", owner: root, group: root }
+    - { path: "{{ netai_qdrant_data_dir }}" }
+    - { path: "{{ netai_qdrant_log_dir }}" }
+  when: netai_qdrant_enabled | bool
+
+- name: Install rustup for qdrant user
+  become_user: "{{ netai_qdrant_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+      curl https://sh.rustup.rs -sSf | sh -s -- -y
+    fi
+    "$HOME/.cargo/bin/rustup" default stable
+  args:
+    executable: /bin/bash
+  when: netai_qdrant_enabled | bool
+
+- name: Checkout qdrant source
+  become_user: "{{ netai_qdrant_user }}"
+  ansible.builtin.git:
+    repo: "{{ netai_qdrant_repo_url }}"
+    version: "{{ netai_qdrant_version }}"
+    dest: "{{ netai_qdrant_src_dir }}"
+    force: true
+    update: true
+  when: netai_qdrant_enabled | bool
+
+- name: Build qdrant from source
+  become_user: "{{ netai_qdrant_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    export PATH="$HOME/.cargo/bin:$PATH"
+    cd "{{ netai_qdrant_src_dir }}"
+    cargo build --release --bin qdrant
+  args:
+    executable: /bin/bash
+  when: netai_qdrant_enabled | bool
+
+- name: Install qdrant binary
+  ansible.builtin.copy:
+    src: "{{ netai_qdrant_src_dir }}/target/release/qdrant"
+    dest: /usr/local/bin/qdrant
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  when: netai_qdrant_enabled | bool
+  notify: Restart qdrant
+
+- name: Install qdrant config
+  ansible.builtin.template:
+    src: qdrant-config.yaml.j2
+    dest: "{{ netai_qdrant_config_dir }}/config.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  when: netai_qdrant_enabled | bool
+  notify: Restart qdrant
+
+- name: Install qdrant systemd service
+  ansible.builtin.template:
+    src: qdrant.service.j2
+    dest: /etc/systemd/system/qdrant.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: netai_qdrant_enabled | bool
+  notify:
+    - Reload systemd
+    - Restart qdrant
+
+- name: Ensure qdrant service is enabled and started
+  ansible.builtin.systemd_service:
+    name: qdrant
+    enabled: true
+    state: started
+  when: netai_qdrant_enabled | bool

@@ -1,0 +1,20 @@
+---
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install base system dependencies
+  ansible.builtin.apt:
+    name:
+      - git
+      - curl
+      - ca-certificates
+      - build-essential
+      - pkg-config
+      - libssl-dev
+      - rsync
+      - nginx
+      - nodejs
+      - npm
+    state: present

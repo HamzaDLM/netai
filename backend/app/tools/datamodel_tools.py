@@ -454,7 +454,9 @@ def get_known_fake_devices() -> list[dict[str, Any]]:
 def list_devices(
     site: Annotated[str | None, "Optional site filter, e.g. Paris-DC1"] = None,
     role: Annotated[str | None, "Optional role filter, e.g. spine, core-router"] = None,
-    status: Annotated[str | None, "Optional status filter, e.g. up/down/degraded"] = None,
+    status: Annotated[
+        str | None, "Optional status filter, e.g. up/down/degraded"
+    ] = None,
 ) -> dict[str, Any]:
     """List datamodel devices with optional site/role/status filters."""
     site_lc = _normalize(site)
@@ -480,12 +482,16 @@ def get_device(
     """Get one datamodel device with attached link counters."""
     device = _resolve_device(hostname_or_ip)
     if not device:
-        return {"error": f"device_not_found:{hostname_or_ip}", "known_devices": KNOWN_FAKE_DEVICES}
+        return {
+            "error": f"device_not_found:{hostname_or_ip}",
+            "known_devices": KNOWN_FAKE_DEVICES,
+        }
 
     links = [
         link
         for link in _FAKE_LINKS
-        if link["a_device"] == device["hostname"] or link["b_device"] == device["hostname"]
+        if link["a_device"] == device["hostname"]
+        or link["b_device"] == device["hostname"]
     ]
     status_counts: dict[str, int] = {}
     for link in links:
@@ -501,8 +507,13 @@ def get_device(
 
 @tool(name="datamodel.list_links")
 def list_links(
-    site: Annotated[str | None, "Optional site filter. Includes cross-site links if they contain the value."] = None,
-    status: Annotated[str | None, "Optional status filter, e.g. up/down/degraded/maintenance"] = None,
+    site: Annotated[
+        str | None,
+        "Optional site filter. Includes cross-site links if they contain the value.",
+    ] = None,
+    status: Annotated[
+        str | None, "Optional status filter, e.g. up/down/degraded/maintenance"
+    ] = None,
 ) -> dict[str, Any]:
     """List topology links with endpoint/interface and status data."""
     site_lc = _normalize(site)
@@ -528,11 +539,17 @@ def get_neighbors(
     """Get immediate neighbors for one device, including per-link state."""
     device = _resolve_device(hostname_or_ip)
     if not device:
-        return {"error": f"device_not_found:{hostname_or_ip}", "known_devices": KNOWN_FAKE_DEVICES}
+        return {
+            "error": f"device_not_found:{hostname_or_ip}",
+            "known_devices": KNOWN_FAKE_DEVICES,
+        }
 
     neighbors: list[dict[str, Any]] = []
     for link in _FAKE_LINKS:
-        if link["a_device"] != device["hostname"] and link["b_device"] != device["hostname"]:
+        if (
+            link["a_device"] != device["hostname"]
+            and link["b_device"] != device["hostname"]
+        ):
             continue
         if only_up and _normalize(link["status"]) != "up":
             continue
@@ -578,20 +595,23 @@ def get_topology(
 ) -> dict[str, Any]:
     """Return graph-oriented topology payload (devices + links + status summary)."""
     site_lc = _normalize(site)
-    allowed_statuses = {_normalize(s) for s in (include_only_link_statuses or []) if _normalize(s)}
+    allowed_statuses = {
+        _normalize(s) for s in (include_only_link_statuses or []) if _normalize(s)
+    }
 
     scoped_devices = list(_FAKE_DEVICES.values())
     if site_lc:
         scoped_devices = [
-            device
-            for device in scoped_devices
-            if _normalize(device["site"]) == site_lc
+            device for device in scoped_devices if _normalize(device["site"]) == site_lc
         ]
     scoped_hostnames = {device["hostname"] for device in scoped_devices}
 
     scoped_links: list[dict[str, Any]] = []
     for link in _FAKE_LINKS:
-        if site_lc and (link["a_device"] not in scoped_hostnames or link["b_device"] not in scoped_hostnames):
+        if site_lc and (
+            link["a_device"] not in scoped_hostnames
+            or link["b_device"] not in scoped_hostnames
+        ):
             continue
         if allowed_statuses and _normalize(link["status"]) not in allowed_statuses:
             continue

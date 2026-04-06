@@ -8,10 +8,19 @@ pub struct Config {
     pub clickhouse_db: String,
     pub clickhouse_user: String,
     pub clickhouse_password: String,
+    pub embedding_url: String,
+    pub embedding_model: String,
+    pub embedding_api_key: Option<String>,
+    pub embedding_timeout_secs: u64,
+    pub embedding_dimension: u64,
 }
 
 impl Config {
     pub fn from_env() -> Self {
+        let embedding_api_key = std::env::var("EMBEDDING_API_KEY")
+            .ok()
+            .and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
+
         Self {
             kafka_brokers: std::env::var("KAFKA_BROKERS").unwrap_or("localhost:9092".into()),
             kafka_topic: std::env::var("KAFKA_TOPIC").unwrap_or("syslogs".into()),
@@ -23,6 +32,19 @@ impl Config {
             clickhouse_db: std::env::var("CLICKHOUSE_DB").unwrap_or("netops".into()),
             clickhouse_user: std::env::var("CLICKHOUSE_USER").unwrap_or("admin".into()),
             clickhouse_password: std::env::var("CLICKHOUSE_PASSWORD").unwrap_or("admin".into()),
+            embedding_url: std::env::var("EMBEDDING_URL")
+                .unwrap_or("http://localhost:8080/openai/embed".into()),
+            embedding_model: std::env::var("EMBEDDING_MODEL")
+                .unwrap_or("text-embedding-3-small".into()),
+            embedding_api_key,
+            embedding_timeout_secs: std::env::var("EMBEDDING_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(30),
+            embedding_dimension: std::env::var("EMBEDDING_DIMENSION")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(1536),
         }
     }
 }

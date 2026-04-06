@@ -59,11 +59,17 @@ pub async fn upsert_point(
     id: Uuid,
     vector: Vec<f32>,
     template: &str,
+    vendor: &str,
+    dedup_key: &str,
 ) -> Result<()> {
     let point = QdrantPoint {
         id,
         vector,
-        payload: json!({ "template": template }),
+        payload: json!({
+            "template": template,
+            "vendor": vendor,
+            "dedup_key": dedup_key
+        }),
     };
 
     let url = format!("{}/collections/{}/points?wait=true", base_url, collection);
@@ -115,12 +121,21 @@ pub async fn fetch_existing_templates(
             .context("invalid Qdrant scroll response: missing result.points")?;
 
         for point in points {
+            if let Some(dedup_key) = point
+                .get("payload")
+                .and_then(|p| p.get("dedup_key"))
+                .and_then(|t| t.as_str())
+            {
+                templates.push(dedup_key.to_string());
+                continue;
+            }
+
             if let Some(template) = point
                 .get("payload")
                 .and_then(|p| p.get("template"))
                 .and_then(|t| t.as_str())
             {
-                templates.push(template.to_string());
+                templates.push(format!("unknown::{template}"));
             }
         }
 

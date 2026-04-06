@@ -1,0 +1,19 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart netai backend
+  ansible.builtin.systemd_service:
+    name: netai-backend
+    state: restarted
+
+- name: Restart netai log ingestor
+  ansible.builtin.systemd_service:
+    name: netai-log-ingestor
+    state: restarted
+
+- name: Reload nginx
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded

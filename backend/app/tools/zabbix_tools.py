@@ -51,11 +51,31 @@ _FAKE_ZABBIX_HOSTS: dict[str, dict[str, Any]] = {
             },
         ],
         "metrics": {
-            "cpu.util": {"value": 41.3, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "memory.util": {"value": 68.1, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "net.if.in[wan1]": {"value": 520.2, "unit": "Mbps", "last_clock": "2026-03-17T20:55:00Z"},
-            "net.if.out[wan1]": {"value": 469.1, "unit": "Mbps", "last_clock": "2026-03-17T20:55:00Z"},
-            "icmppingloss": {"value": 0.0, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
+            "cpu.util": {
+                "value": 41.3,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "memory.util": {
+                "value": 68.1,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "net.if.in[wan1]": {
+                "value": 520.2,
+                "unit": "Mbps",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "net.if.out[wan1]": {
+                "value": 469.1,
+                "unit": "Mbps",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "icmppingloss": {
+                "value": 0.0,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
         },
         "problems": [
             {
@@ -105,11 +125,31 @@ _FAKE_ZABBIX_HOSTS: dict[str, dict[str, Any]] = {
             },
         ],
         "metrics": {
-            "cpu.util": {"value": 52.7, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "memory.util": {"value": 61.4, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "temperature": {"value": 43.2, "unit": "C", "last_clock": "2026-03-17T20:55:00Z"},
-            "net.if.in[Port-Channel10]": {"value": 23100, "unit": "Mbps", "last_clock": "2026-03-17T20:55:00Z"},
-            "net.if.out[Port-Channel10]": {"value": 21880, "unit": "Mbps", "last_clock": "2026-03-17T20:55:00Z"},
+            "cpu.util": {
+                "value": 52.7,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "memory.util": {
+                "value": 61.4,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "temperature": {
+                "value": 43.2,
+                "unit": "C",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "net.if.in[Port-Channel10]": {
+                "value": 23100,
+                "unit": "Mbps",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "net.if.out[Port-Channel10]": {
+                "value": 21880,
+                "unit": "Mbps",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
         },
         "problems": [],
     },
@@ -150,11 +190,31 @@ _FAKE_ZABBIX_HOSTS: dict[str, dict[str, Any]] = {
             },
         ],
         "metrics": {
-            "cpu.util": {"value": 76.4, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "memory.util": {"value": 73.8, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "bgp.peer.count.down": {"value": 1, "unit": "peers", "last_clock": "2026-03-17T20:55:00Z"},
-            "net.if.in[ae2]": {"value": 18210, "unit": "Mbps", "last_clock": "2026-03-17T20:55:00Z"},
-            "net.if.out[ae2]": {"value": 17605, "unit": "Mbps", "last_clock": "2026-03-17T20:55:00Z"},
+            "cpu.util": {
+                "value": 76.4,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "memory.util": {
+                "value": 73.8,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "bgp.peer.count.down": {
+                "value": 1,
+                "unit": "peers",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "net.if.in[ae2]": {
+                "value": 18210,
+                "unit": "Mbps",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "net.if.out[ae2]": {
+                "value": 17605,
+                "unit": "Mbps",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
         },
         "problems": [
             {
@@ -179,7 +239,11 @@ _FAKE_ZABBIX_HOSTS: dict[str, dict[str, Any]] = {
         "status": "maintenance",
         "maintenance": True,
         "groups": ["Wireless", "Controllers", "SFO"],
-        "tags": {"environment": "prod", "role": "wireless-controller", "tier": "medium"},
+        "tags": {
+            "environment": "prod",
+            "role": "wireless-controller",
+            "tier": "medium",
+        },
         "availability": {"agent": "unknown", "snmp": "unknown", "icmp": "down"},
         "interfaces": [
             {
@@ -194,10 +258,26 @@ _FAKE_ZABBIX_HOSTS: dict[str, dict[str, Any]] = {
             }
         ],
         "metrics": {
-            "cpu.util": {"value": 0.0, "unit": "%", "last_clock": "2026-03-17T20:30:00Z"},
-            "memory.util": {"value": 0.0, "unit": "%", "last_clock": "2026-03-17T20:30:00Z"},
-            "ap.count.connected": {"value": 0, "unit": "APs", "last_clock": "2026-03-17T20:30:00Z"},
-            "icmpping": {"value": 0, "unit": "bool", "last_clock": "2026-03-17T20:30:00Z"},
+            "cpu.util": {
+                "value": 0.0,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:30:00Z",
+            },
+            "memory.util": {
+                "value": 0.0,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:30:00Z",
+            },
+            "ap.count.connected": {
+                "value": 0,
+                "unit": "APs",
+                "last_clock": "2026-03-17T20:30:00Z",
+            },
+            "icmpping": {
+                "value": 0,
+                "unit": "bool",
+                "last_clock": "2026-03-17T20:30:00Z",
+            },
         },
         "problems": [
             {
@@ -247,10 +327,26 @@ _FAKE_ZABBIX_HOSTS: dict[str, dict[str, Any]] = {
             },
         ],
         "metrics": {
-            "cpu.util": {"value": 23.8, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "memory.util": {"value": 49.2, "unit": "%", "last_clock": "2026-03-17T20:55:00Z"},
-            "temperature": {"value": 38.9, "unit": "C", "last_clock": "2026-03-17T20:55:00Z"},
-            "net.if.errors[Gig1/0/47]": {"value": 152, "unit": "errors", "last_clock": "2026-03-17T20:55:00Z"},
+            "cpu.util": {
+                "value": 23.8,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "memory.util": {
+                "value": 49.2,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "temperature": {
+                "value": 38.9,
+                "unit": "C",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
+            "net.if.errors[Gig1/0/47]": {
+                "value": 152,
+                "unit": "errors",
+                "last_clock": "2026-03-17T20:55:00Z",
+            },
         },
         "problems": [
             {
@@ -290,10 +386,26 @@ _FAKE_ZABBIX_HOSTS: dict[str, dict[str, Any]] = {
             }
         ],
         "metrics": {
-            "cpu.util": {"value": 0.0, "unit": "%", "last_clock": "2026-03-17T20:50:00Z"},
-            "memory.util": {"value": 0.0, "unit": "%", "last_clock": "2026-03-17T20:50:00Z"},
-            "icmpping": {"value": 0, "unit": "bool", "last_clock": "2026-03-17T20:50:00Z"},
-            "vpn.tunnel.up": {"value": 0, "unit": "tunnels", "last_clock": "2026-03-17T20:50:00Z"},
+            "cpu.util": {
+                "value": 0.0,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:50:00Z",
+            },
+            "memory.util": {
+                "value": 0.0,
+                "unit": "%",
+                "last_clock": "2026-03-17T20:50:00Z",
+            },
+            "icmpping": {
+                "value": 0,
+                "unit": "bool",
+                "last_clock": "2026-03-17T20:50:00Z",
+            },
+            "vpn.tunnel.up": {
+                "value": 0,
+                "unit": "tunnels",
+                "last_clock": "2026-03-17T20:50:00Z",
+            },
         },
         "problems": [
             {
@@ -373,7 +485,9 @@ KNOWN_FAKE_DEVICES: list[dict[str, Any]] = [
 @tool(name="zabbix.list_hosts")
 def list_zabbix_hosts(
     status: Annotated[str | None, "Optional status filter: up/down/maintenance"] = None,
-    group: Annotated[str | None, "Optional group filter (example: Switches, Firewalls)"] = None,
+    group: Annotated[
+        str | None, "Optional group filter (example: Switches, Firewalls)"
+    ] = None,
 ) -> dict[str, Any]:
     """List fake Zabbix hosts with optional status/group filters."""
     status_lc = _normalize(status)
@@ -404,7 +518,10 @@ def get_host_status(
     """Get a host status summary including availability and active problem counts."""
     host = _resolve_host(hostname_or_ip)
     if not host:
-        return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": KNOWN_FAKE_DEVICES}
+        return {
+            "error": f"host_not_found:{hostname_or_ip}",
+            "known_devices": KNOWN_FAKE_DEVICES,
+        }
 
     active_problems = [p for p in host["problems"] if p["status"] == "active"]
     highest_severity = "information"
@@ -429,7 +546,10 @@ def get_host_inventory(
     """Get static inventory information for a host."""
     host = _resolve_host(hostname_or_ip)
     if not host:
-        return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": KNOWN_FAKE_DEVICES}
+        return {
+            "error": f"host_not_found:{hostname_or_ip}",
+            "known_devices": KNOWN_FAKE_DEVICES,
+        }
     return {
         **_host_brief(host),
         "vendor": host["vendor"],
@@ -449,14 +569,18 @@ def get_host_interfaces(
     """Return host interface status details."""
     host = _resolve_host(hostname_or_ip)
     if not host:
-        return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": KNOWN_FAKE_DEVICES}
+        return {
+            "error": f"host_not_found:{hostname_or_ip}",
+            "known_devices": KNOWN_FAKE_DEVICES,
+        }
 
     interfaces = host["interfaces"]
     if only_problematic:
         interfaces = [
             iface
             for iface in interfaces
-            if iface["oper_status"] in {"down", "degraded"} or iface["error_rate_pct"] > 0.1
+            if iface["oper_status"] in {"down", "degraded"}
+            or iface["error_rate_pct"] > 0.1
         ]
     return {"hostname": host["hostname"], "ip": host["ip"], "interfaces": interfaces}
 
@@ -472,7 +596,10 @@ def get_host_metrics(
     """Get latest fake metric values for a host."""
     host = _resolve_host(hostname_or_ip)
     if not host:
-        return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": KNOWN_FAKE_DEVICES}
+        return {
+            "error": f"host_not_found:{hostname_or_ip}",
+            "known_devices": KNOWN_FAKE_DEVICES,
+        }
 
     metrics = host["metrics"]
     if metric_keys:
@@ -507,7 +634,10 @@ def get_trigger_events(
     if hostname_or_ip:
         host = _resolve_host(hostname_or_ip)
         if not host:
-            return {"error": f"host_not_found:{hostname_or_ip}", "known_devices": KNOWN_FAKE_DEVICES}
+            return {
+                "error": f"host_not_found:{hostname_or_ip}",
+                "known_devices": KNOWN_FAKE_DEVICES,
+            }
         hosts = [host]
     else:
         hosts = list(_FAKE_ZABBIX_HOSTS.values())

@@ -1,0 +1,44 @@
+from typing import cast
+
+from haystack.components.agents import Agent
+from haystack.tools import ComponentTool, Tool
+
+from app.llm import llm
+from app.tools.bitbucket_tools import (
+    clone_bitbucket_repo,
+    get_bitbucket_device_configuration,
+    get_bitbucket_device_file_info,
+    get_bitbucket_recent_commits,
+    list_bitbucket_devices,
+)
+
+BITBUCKET_SPECIALIST_PROMPT = """
+You are a Bitbucket specialist agent.
+
+Use Bitbucket tools to inspect repositories, commits, and device configuration artifacts.
+Answer with evidence from tool output and keep responses concise.
+"""
+
+bitbucket_tools: list[Tool] = [
+    cast(Tool, clone_bitbucket_repo),
+    cast(Tool, list_bitbucket_devices),
+    cast(Tool, get_bitbucket_device_file_info),
+    cast(Tool, get_bitbucket_device_configuration),
+    cast(Tool, get_bitbucket_recent_commits),
+]
+
+bitbucket_agent = Agent(
+    chat_generator=llm,
+    system_prompt=BITBUCKET_SPECIALIST_PROMPT,
+    tools=bitbucket_tools,
+)
+
+bitbucket_specialist_tool = ComponentTool(
+    component=bitbucket_agent,
+    name="bitbucket_agent",
+    description=(
+        "Configuration history specialist. Use for repository/device config lookups, "
+        "file diffs, commit timelines, and change provenance in Bitbucket."
+    ),
+    outputs_to_string={"source": "last_message"},
+)

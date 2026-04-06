@@ -9,6 +9,10 @@ pub struct SyslogEventRow {
     pub event_id: String,
     pub ts_unix: i64,
     pub hostname: String,
+    pub vendor: String,
+    pub facility: String,
+    pub severity: i16,
+    pub event_code: String,
     pub raw_message: String,
     pub normalized_message: String,
     pub template: String,
@@ -31,6 +35,10 @@ pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
                 event_id String,
                 ts_unix Int64,
                 hostname String,
+                vendor LowCardinality(String),
+                facility LowCardinality(String),
+                severity Int16,
+                event_code String,
                 raw_message String,
                 normalized_message String,
                 template String,
@@ -40,6 +48,28 @@ pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
             ORDER BY (ts_unix, hostname, event_id)
             ",
         )
+        .execute()
+        .await?;
+
+    // Backward compatibility for existing deployments created before vendor columns existed.
+    client
+        .query(
+            "ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS vendor LowCardinality(String) DEFAULT ''",
+        )
+        .execute()
+        .await?;
+    client
+        .query(
+            "ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS facility LowCardinality(String) DEFAULT ''",
+        )
+        .execute()
+        .await?;
+    client
+        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS severity Int16 DEFAULT -1")
+        .execute()
+        .await?;
+    client
+        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS event_code String DEFAULT ''")
         .execute()
         .await?;
 

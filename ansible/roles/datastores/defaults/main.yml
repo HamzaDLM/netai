@@ -1,0 +1,29 @@
+---
+# Redis
+netai_redis_enabled: true
+netai_redis_bind: 127.0.0.1
+netai_redis_port: 6379
+netai_redis_password: ""
+
+# ClickHouse
+netai_clickhouse_enabled: true
+netai_clickhouse_host: 127.0.0.1
+netai_clickhouse_http_port: 8123
+netai_clickhouse_native_port: 9000
+netai_clickhouse_db: netops
+netai_clickhouse_user: admin
+netai_clickhouse_password: admin
+
+# Qdrant
+netai_qdrant_enabled: true
+netai_qdrant_version: v1.16.3
+netai_qdrant_repo_url: https://github.com/qdrant/qdrant.git
+netai_qdrant_user: qdrant
+netai_qdrant_group: qdrant
+netai_qdrant_src_dir: /opt/qdrant/src
+netai_qdrant_config_dir: /etc/qdrant
+netai_qdrant_data_dir: /var/lib/qdrant
+netai_qdrant_log_dir: /var/log/qdrant
+netai_qdrant_http_port: 6333
+netai_qdrant_grpc_port: 6334
+netai_qdrant_p2p_port: 6335

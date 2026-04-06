@@ -224,22 +224,50 @@ def _diff_for_file(repo_path: str | Path, file_path: str, commit_hash: str) -> s
     )
 
 
-def _file_content_at_ref(repo_path: str | Path, file_path: str, ref: str = "HEAD") -> str:
+def _file_content_at_ref(
+    repo_path: str | Path, file_path: str, ref: str = "HEAD"
+) -> str:
     """Read file content at a specific git ref."""
     return _run_git(["show", f"{ref}:{file_path}"], repo_path=repo_path)
 
 
 _SANITIZE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     # Fortinet-style
-    (re.compile(r'(?i)(\bset\s+(?:password|passwd|secret|psksecret|private-key)\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
+    (
+        re.compile(
+            r'(?i)(\bset\s+(?:password|passwd|secret|psksecret|private-key)\s+)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
     # Cisco IOS/NX-OS and Arista EOS style
-    (re.compile(r'(?i)(\busername\s+\S+\s+(?:password|secret)\s+\d*\s*)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
+    (
+        re.compile(
+            r'(?i)(\busername\s+\S+\s+(?:password|secret)\s+\d*\s*)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
     (re.compile(r'(?i)(\benable\s+secret\s+\d*\s*)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
     (re.compile(r'(?i)(\bsnmp-server\s+community\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (re.compile(r'(?i)(\bsnmp-server\s+user\s+\S+\s+\S+\s+auth\s+\S+\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (re.compile(r'(?i)(\bsnmp-server\s+user\s+\S+.*\bpriv\s+\S+\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (re.compile(r'(?i)(\b(?:radius-server|tacacs-server)\s+key\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (re.compile(r'(?i)(\b(?:radius-server|tacacs-server)\s+host\s+\S+\s+key\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
+    (
+        re.compile(
+            r'(?i)(\bsnmp-server\s+user\s+\S+\s+\S+\s+auth\s+\S+\s+)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
+    (
+        re.compile(r'(?i)(\bsnmp-server\s+user\s+\S+.*\bpriv\s+\S+\s+)(?:"[^"]*"|\S+)'),
+        r"\1<redacted>",
+    ),
+    (
+        re.compile(r'(?i)(\b(?:radius-server|tacacs-server)\s+key\s+)(?:"[^"]*"|\S+)'),
+        r"\1<redacted>",
+    ),
+    (
+        re.compile(
+            r'(?i)(\b(?:radius-server|tacacs-server)\s+host\s+\S+\s+key\s+)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
     (re.compile(r'(?i)(\bkey-string\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
     # Juniper, ADVA, Metamako and other hierarchical network CLIs
     # Juniper-style
@@ -249,12 +277,32 @@ _SANITIZE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r'(?i)(\bcommunity\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
     (re.compile(r'(?i)(\bntp-key\s+\d+\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
     # F5 BIG-IP tmsh/uCS snippets
-    (re.compile(r'(?i)(\b(?:tmsh\s+)?modify\s+auth\s+user\s+\S+\s+password\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (re.compile(r'(?i)(\b(?:tmsh\s+)?create\s+auth\s+user\s+\S+\s+password\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
+    (
+        re.compile(
+            r'(?i)(\b(?:tmsh\s+)?modify\s+auth\s+user\s+\S+\s+password\s+)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
+    (
+        re.compile(
+            r'(?i)(\b(?:tmsh\s+)?create\s+auth\s+user\s+\S+\s+password\s+)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
     # VMware/Opengear/Oracle/Riverbed text configs typically expose key-value secrets
-    (re.compile(r'(?i)((?:rootpw|bindpw|shared[-_]?secret|auth[-_]?token)\s*[:=]\s*)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
+    (
+        re.compile(
+            r'(?i)((?:rootpw|bindpw|shared[-_]?secret|auth[-_]?token)\s*[:=]\s*)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
     # Generic key-value
-    (re.compile(r'(?i)((?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
+    (
+        re.compile(
+            r'(?i)((?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*)(?:"[^"]*"|\S+)'
+        ),
+        r"\1<redacted>",
+    ),
 ]
 
 
@@ -431,9 +479,7 @@ def get_bitbucket_recent_commits(
 ) -> dict[str, Any]:
     """Return latest commits and which device files each commit changed."""
     try:
-        commits = _get_recent_commits_with_devices(
-            _resolved_repo_path(), limit=limit
-        )
+        commits = _get_recent_commits_with_devices(_resolved_repo_path(), limit=limit)
     except BitbucketToolError as exc:
         return _error("bitbucket_get_recent_commits", exc)
 

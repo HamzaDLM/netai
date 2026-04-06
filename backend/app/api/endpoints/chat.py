@@ -13,7 +13,6 @@ from app.api.models.chat import (
     Feedback,
     Message,
     ToolCall,
-    MessageRole,
 )
 from app.api.schemas.chat import (
     ConversationCreate,
@@ -23,15 +22,13 @@ from app.api.schemas.chat import (
     MessageCreate,
     MessageResponse,
 )
-from app.workflows.agent_orchestrator import CapabilityRouter
 from app.workflows.agent_runner import run_agent, run_agent_stream
-from app.agents.generators import llm
+from backend.app.llm import llm
 from app.db.session import SessionLocal
 from app.observability import langfuse_client
 from app.prompts import TITLE_GENERATION_PROMPT
 
 router = APIRouter(prefix="/llm", tags=["chat"])
-workflow = CapabilityRouter()
 
 
 def _derive_tool_source(tool_name: str | None) -> str | None:
@@ -342,7 +339,6 @@ async def ask_llm_stream(
                 conversation_id=conversation_id,
                 question=payload.content,
             ):
-
                 if event["type"] == "token":
                     token = event["token"]
                     assistant_tokens.append(token)
@@ -382,7 +378,6 @@ async def ask_llm_stream(
         assistant_message_id = assistant_message.id
 
         for tool in tools_called:
-
             tool_call = ToolCall(
                 message_id=assistant_message_id,
                 tool_name=tool["name"],

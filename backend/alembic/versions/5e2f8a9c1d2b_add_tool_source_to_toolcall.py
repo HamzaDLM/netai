@@ -22,7 +22,9 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Upgrade schema."""
     with op.batch_alter_table("toolcall", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("tool_source", sa.String(length=50), nullable=True))
+        batch_op.add_column(
+            sa.Column("tool_source", sa.String(length=50), nullable=True)
+        )
 
     # Best-effort backfill from namespaced tool names like "zabbix.get_host_status"
     op.execute(
@@ -40,4 +42,3 @@ def downgrade() -> None:
     """Downgrade schema."""
     with op.batch_alter_table("toolcall", schema=None) as batch_op:
         batch_op.drop_column("tool_source")
-

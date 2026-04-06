@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use crate::types::LogTemplate;
+use uuid::Uuid;
 
 pub fn build_template(normalized: String) -> LogTemplate {
     LogTemplate {

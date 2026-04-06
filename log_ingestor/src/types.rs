@@ -6,6 +6,8 @@ pub struct IncomingSyslog {
     pub syslog_timestamp: i64,
     pub syslog_hostname: String,
     pub syslog_message: String,
+    #[serde(default)]
+    pub vendor: Option<String>,
 }
 
 #[derive(Debug, Clone)]

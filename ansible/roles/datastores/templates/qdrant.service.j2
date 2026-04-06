@@ -1,0 +1,18 @@
+[Unit]
+Description=Qdrant Vector Database
+After=network.target
+
+[Service]
+Type=simple
+User={{ netai_qdrant_user }}
+Group={{ netai_qdrant_group }}
+ExecStart=/usr/local/bin/qdrant --config-path {{ netai_qdrant_config_dir }}/config.yaml
+Restart=always
+RestartSec=5
+LimitNOFILE=1048576
+WorkingDirectory={{ netai_qdrant_data_dir }}
+StandardOutput=append:{{ netai_qdrant_log_dir }}/qdrant.log
+StandardError=append:{{ netai_qdrant_log_dir }}/qdrant.err.log
+
+[Install]
+WantedBy=multi-user.target

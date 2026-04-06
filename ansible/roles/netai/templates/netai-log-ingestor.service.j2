@@ -1,0 +1,19 @@
+[Unit]
+Description=NetAI log ingestor
+After=network.target
+
+[Service]
+Type=simple
+User={{ netai_user }}
+Group={{ netai_group }}
+WorkingDirectory={{ netai_release_dir }}
+Environment=PATH={{ netai_home }}/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile={{ netai_release_dir }}/backend/.env
+ExecStart={{ netai_release_dir }}/target/release/log_ingestor
+Restart=always
+RestartSec=5
+StandardOutput=append:{{ netai_log_dir }}/log_ingestor.log
+StandardError=append:{{ netai_log_dir }}/log_ingestor.err.log
+
+[Install]
+WantedBy=multi-user.target

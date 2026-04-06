@@ -42,14 +42,6 @@ Grafana <- Prometheus dashboards
 Langfuse (optional tracing)
 ```
 
-## Tech Stack
-
-- Frontend: Vue 3, TypeScript, Vite, Pinia
-- Backend: FastAPI, SQLAlchemy, Alembic, Haystack
-- Ingestion: Rust (`log_ingestor`), Kafka
-- Data stores: ClickHouse, Qdrant, SQLite
-- Observability: Prometheus, Grafana, Langfuse
-
 ## Repository Structure
 
 ```text

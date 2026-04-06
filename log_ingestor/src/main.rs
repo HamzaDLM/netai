@@ -47,14 +47,14 @@ async fn main() -> Result<()> {
         &config.kafka_topic,
         &config.kafka_group_id,
         move |log| {
-        let pipeline_clone = pipeline_clone.clone();
-        tokio::spawn(async move {
-            if let Err(err) = pipeline_clone.process(log).await {
-                error!("pipeline processing error: {err:#}");
-            }
-        });
-        Ok(())
-    },
+            let pipeline_clone = pipeline_clone.clone();
+            tokio::spawn(async move {
+                if let Err(err) = pipeline_clone.process(log).await {
+                    error!("pipeline processing error: {err:#}");
+                }
+            });
+            Ok(())
+        },
     )
     .await?;
 

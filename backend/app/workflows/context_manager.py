@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from haystack.dataclasses import ChatMessage
 from sqlalchemy import select, update
 
-from app.agents.generators import llm
+from backend.app.llm import llm
 from app.api.models.chat import ConversationSummary, Message, MessageRole
 from app.core.config import project_settings
 from app.db.session import SessionLocal
@@ -44,7 +44,11 @@ def _estimate_tokens(messages: list[ChatMessage]) -> int:
 
 
 def _to_chat_message(message: Message) -> ChatMessage:
-    role = message.role.value if isinstance(message.role, MessageRole) else str(message.role)
+    role = (
+        message.role.value
+        if isinstance(message.role, MessageRole)
+        else str(message.role)
+    )
     if role == MessageRole.assistant.value:
         return ChatMessage.from_assistant(message.content)
     if role == MessageRole.system.value:
@@ -62,9 +66,7 @@ def _format_messages_for_summary(messages: list[Message]) -> str:
     return "\n".join(lines).strip()
 
 
-async def _latest_summary(
-    *, conversation_id: int
-) -> ConversationSummary | None:
+async def _latest_summary(*, conversation_id: int) -> ConversationSummary | None:
     async with SessionLocal() as db:
         stmt = (
             select(ConversationSummary)
@@ -147,10 +149,7 @@ async def compact_conversation_context(
                 "Update the summary to reflect the full conversation so far."
             )
         else:
-            user_prompt = (
-                "Summarize the following conversation:\n"
-                f"{messages_text}"
-            )
+            user_prompt = "Summarize the following conversation:\n" f"{messages_text}"
 
         llm_result = await asyncio.to_thread(
             llm.run,
@@ -229,11 +228,15 @@ async def build_conversation_context(
                         f"{latest_summary.content}"
                     )
                 )
-            tail = recent_messages[-keep_recent:] if keep_recent > 0 else recent_messages
+            tail = (
+                recent_messages[-keep_recent:] if keep_recent > 0 else recent_messages
+            )
             prompt_messages.extend(_to_chat_message(message) for message in tail)
             estimated_tokens = _estimate_tokens(prompt_messages)
 
-    used_percent = int(round((estimated_tokens / context_limit) * 100)) if context_limit > 0 else 0
+    used_percent = (
+        int(round((estimated_tokens / context_limit) * 100)) if context_limit > 0 else 0
+    )
     used_percent = max(0, min(100, used_percent))
     left_tokens = max(context_limit - estimated_tokens, 0)
     left_percent = max(0, min(100, 100 - used_percent))

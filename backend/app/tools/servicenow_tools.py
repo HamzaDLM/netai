@@ -252,7 +252,10 @@ def _sort_incidents(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _sort_changes(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(
         records,
-        key=lambda row: (_RISK_ORDER.get(_normalize(row.get("risk")), 99), row.get("start_at", "")),
+        key=lambda row: (
+            _RISK_ORDER.get(_normalize(row.get("risk")), 99),
+            row.get("start_at", ""),
+        ),
     )
 
 
@@ -276,8 +279,12 @@ def get_known_cis() -> list[dict[str, Any]]:
 
 @tool(name="servicenow.list_incidents")
 def list_incidents(
-    state: Annotated[str | None, "Optional state filter: new/in_progress/on_hold/resolved"] = None,
-    priority: Annotated[str | None, "Optional priority filter: e.g. 1 - Critical"] = None,
+    state: Annotated[
+        str | None, "Optional state filter: new/in_progress/on_hold/resolved"
+    ] = None,
+    priority: Annotated[
+        str | None, "Optional priority filter: e.g. 1 - Critical"
+    ] = None,
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
     service: Annotated[str | None, "Optional business service filter"] = None,
     only_major: Annotated[bool, "Only major incidents"] = False,
@@ -293,7 +300,9 @@ def list_incidents(
             continue
         if priority and _normalize(incident["priority"]) != _normalize(priority):
             continue
-        if assignment_group and _normalize(incident["assignment_group"]) != _normalize(assignment_group):
+        if assignment_group and _normalize(incident["assignment_group"]) != _normalize(
+            assignment_group
+        ):
             continue
         if service and _normalize(incident["service"]) != _normalize(service):
             continue
@@ -319,11 +328,21 @@ def get_incident(
         if _normalize(incident["number"]) == lookup:
             item = _enrich_with_ci(incident)
             linked_problem = next(
-                (p for p in _FAKE_PROBLEMS if _normalize(p["number"]) == _normalize(incident.get("related_problem"))),
+                (
+                    p
+                    for p in _FAKE_PROBLEMS
+                    if _normalize(p["number"])
+                    == _normalize(incident.get("related_problem"))
+                ),
                 None,
             )
             linked_change = next(
-                (c for c in _FAKE_CHANGES if _normalize(c["number"]) == _normalize(incident.get("related_change"))),
+                (
+                    c
+                    for c in _FAKE_CHANGES
+                    if _normalize(c["number"])
+                    == _normalize(incident.get("related_change"))
+                ),
                 None,
             )
             if linked_problem:
@@ -349,8 +368,12 @@ def get_incident(
 
 @tool(name="servicenow.list_change_requests")
 def list_change_requests(
-    state: Annotated[str | None, "Optional state filter: new/scheduled/implement/closed"] = None,
-    risk: Annotated[str | None, "Optional risk filter: critical/high/moderate/low"] = None,
+    state: Annotated[
+        str | None, "Optional state filter: new/scheduled/implement/closed"
+    ] = None,
+    risk: Annotated[
+        str | None, "Optional risk filter: critical/high/moderate/low"
+    ] = None,
     service: Annotated[str | None, "Optional business service filter"] = None,
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
     limit: Annotated[int, "Maximum number of changes to return"] = 20,
@@ -367,7 +390,9 @@ def list_change_requests(
             continue
         if service and _normalize(change["service"]) != _normalize(service):
             continue
-        if assignment_group and _normalize(change["assignment_group"]) != _normalize(assignment_group):
+        if assignment_group and _normalize(change["assignment_group"]) != _normalize(
+            assignment_group
+        ):
             continue
         items.append(_enrich_with_ci(change))
 
@@ -397,7 +422,9 @@ def get_change_request(
 
 @tool(name="servicenow.list_problems")
 def list_problems(
-    state: Annotated[str | None, "Optional state filter: investigating/known_error/resolved"] = None,
+    state: Annotated[
+        str | None, "Optional state filter: investigating/known_error/resolved"
+    ] = None,
     priority: Annotated[str | None, "Optional priority filter"] = None,
     service: Annotated[str | None, "Optional business service filter"] = None,
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
@@ -415,7 +442,9 @@ def list_problems(
             continue
         if service and _normalize(problem["service"]) != _normalize(service):
             continue
-        if assignment_group and _normalize(problem["assignment_group"]) != _normalize(assignment_group):
+        if assignment_group and _normalize(problem["assignment_group"]) != _normalize(
+            assignment_group
+        ):
             continue
         items.append(_enrich_with_ci(problem))
 
@@ -445,7 +474,9 @@ def get_problem(
 
 @tool(name="servicenow.list_cis")
 def list_cis(
-    ci_class: Annotated[str | None, "Optional class filter: network_firewall/network_switch/..."] = None,
+    ci_class: Annotated[
+        str | None, "Optional class filter: network_firewall/network_switch/..."
+    ] = None,
     site: Annotated[str | None, "Optional site filter"] = None,
     service: Annotated[str | None, "Optional service filter"] = None,
     install_status: Annotated[str | None, "Optional install status filter"] = None,
@@ -465,7 +496,9 @@ def list_cis(
             continue
         if service and _normalize(ci["service"]) != _normalize(service):
             continue
-        if install_status and _normalize(ci["install_status"]) != _normalize(install_status):
+        if install_status and _normalize(ci["install_status"]) != _normalize(
+            install_status
+        ):
             continue
         if q:
             haystack = f'{ci["name"]} {ci["ip_address"]} {ci["owned_by_group"]} {ci["service"]}'.lower()
@@ -499,19 +532,29 @@ def get_ci(
                 break
 
     if not matched:
-        return {"error": f"ci_not_found:{ci_name_or_sys_id}", "known_cis": KNOWN_FAKE_CIS}
+        return {
+            "error": f"ci_not_found:{ci_name_or_sys_id}",
+            "known_cis": KNOWN_FAKE_CIS,
+        }
 
     ci_sys_id = matched["sys_id"]
     open_incidents = [
         row
         for row in _FAKE_INCIDENTS
-        if row.get("ci_sys_id") == ci_sys_id and _normalize(row.get("state")) not in {"resolved", "closed"}
+        if row.get("ci_sys_id") == ci_sys_id
+        and _normalize(row.get("state")) not in {"resolved", "closed"}
     ]
-    open_changes = [row for row in _FAKE_CHANGES if row.get("ci_sys_id") == ci_sys_id and _normalize(row.get("state")) != "closed"]
+    open_changes = [
+        row
+        for row in _FAKE_CHANGES
+        if row.get("ci_sys_id") == ci_sys_id
+        and _normalize(row.get("state")) != "closed"
+    ]
     open_problems = [
         row
         for row in _FAKE_PROBLEMS
-        if row.get("ci_sys_id") == ci_sys_id and _normalize(row.get("state")) not in {"resolved", "closed"}
+        if row.get("ci_sys_id") == ci_sys_id
+        and _normalize(row.get("state")) not in {"resolved", "closed"}
     ]
 
     return {
@@ -538,19 +581,36 @@ def get_service_summary(
     if not service_lc:
         return {"error": "service_required"}
 
-    incidents = [row for row in _FAKE_INCIDENTS if _normalize(row["service"]) == service_lc]
+    incidents = [
+        row for row in _FAKE_INCIDENTS if _normalize(row["service"]) == service_lc
+    ]
     changes = [row for row in _FAKE_CHANGES if _normalize(row["service"]) == service_lc]
-    problems = [row for row in _FAKE_PROBLEMS if _normalize(row["service"]) == service_lc]
-    cis = [row for row in _FAKE_CIS.values() if _normalize(row["service"]) == service_lc]
+    problems = [
+        row for row in _FAKE_PROBLEMS if _normalize(row["service"]) == service_lc
+    ]
+    cis = [
+        row for row in _FAKE_CIS.values() if _normalize(row["service"]) == service_lc
+    ]
 
     if not incidents and not changes and not problems and not cis:
         known_services = sorted({row["service"] for row in _FAKE_CIS.values()})
-        return {"error": f"service_not_found:{service}", "known_services": known_services}
+        return {
+            "error": f"service_not_found:{service}",
+            "known_services": known_services,
+        }
 
-    active_incidents = [row for row in incidents if _normalize(row.get("state")) not in {"resolved", "closed"}]
+    active_incidents = [
+        row
+        for row in incidents
+        if _normalize(row.get("state")) not in {"resolved", "closed"}
+    ]
     major_incidents = [row for row in active_incidents if row.get("major_incident")]
     open_changes = [row for row in changes if _normalize(row.get("state")) != "closed"]
-    open_problems = [row for row in problems if _normalize(row.get("state")) not in {"resolved", "closed"}]
+    open_problems = [
+        row
+        for row in problems
+        if _normalize(row.get("state")) not in {"resolved", "closed"}
+    ]
 
     return {
         "service": service,
@@ -561,7 +621,11 @@ def get_service_summary(
             "open_changes": len(open_changes),
             "open_problems": len(open_problems),
         },
-        "active_incident_numbers": [row["number"] for row in _sort_incidents(active_incidents)],
+        "active_incident_numbers": [
+            row["number"] for row in _sort_incidents(active_incidents)
+        ],
         "open_change_numbers": [row["number"] for row in _sort_changes(open_changes)],
-        "open_problem_numbers": [row["number"] for row in _sort_incidents(open_problems)],
+        "open_problem_numbers": [
+            row["number"] for row in _sort_incidents(open_problems)
+        ],
     }

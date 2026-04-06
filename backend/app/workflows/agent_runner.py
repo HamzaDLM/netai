@@ -3,7 +3,7 @@ import json
 from time import perf_counter
 from typing import Any, AsyncIterator
 
-from app.agents.network import network_agent
+from app.agents.orchestrator_agent import orchestrator_agent
 from app.workflows.context_manager import build_conversation_context
 
 
@@ -189,17 +189,14 @@ async def _run_agent(
     run_in_thread: bool = False,
 ) -> Any:
     try:
-        # Keep a single call path for normal and streaming execution so behavior stays aligned.
+        # Single source of truth for routing/delegation: orchestrator agent.
         kwargs: dict[str, Any] = {"messages": messages}
         if streaming_callback is not None:
-            # Haystack chat generators invoke this callback for each streamed chunk.
             kwargs["streaming_callback"] = streaming_callback
 
         if run_in_thread:
-            # Agent.run is synchronous for this generator; run it in a worker thread so
-            # the async endpoint can keep yielding SSE events while generation is in progress.
-            return await asyncio.to_thread(network_agent.run, **kwargs)
-        return await _maybe_await(network_agent.run(**kwargs))
+            return await asyncio.to_thread(orchestrator_agent.run, **kwargs)
+        return await _maybe_await(orchestrator_agent.run(**kwargs))
     except TypeError:
         raise Exception("problem with agent message type")
 

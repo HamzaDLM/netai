@@ -2,14 +2,14 @@ from typing import cast
 
 from haystack.tools import Tool, Toolset
 
-from app.tools.bitbucket import (
+from app.tools.bitbucket_tools import (
     clone_bitbucket_repo,
     get_bitbucket_device_configuration,
     get_bitbucket_device_file_info,
     get_bitbucket_recent_commits,
     list_bitbucket_devices,
 )
-from app.tools.datamodel import (
+from app.tools.datamodel_tools import (
     get_device as get_datamodel_device,
     get_known_fake_devices as get_known_fake_datamodel_devices,
     get_neighbors,
@@ -17,7 +17,7 @@ from app.tools.datamodel import (
     list_devices as list_datamodel_devices,
     list_links,
 )
-from app.tools.servicenow import (
+from app.tools.servicenow_tools import (
     get_change_request,
     get_ci,
     get_incident,
@@ -30,7 +30,7 @@ from app.tools.servicenow import (
     list_problems,
 )
 
-from app.tools.suzieq import (
+from app.tools.suzieq_tools import (
     check_control_plane_health,
     get_arp_nd,
     get_bgp_sessions,
@@ -44,29 +44,16 @@ from app.tools.suzieq import (
     infrastructure_summary,
     list_namespaces,
 )
-from app.tools.zabbix import (
+from app.tools.zabbix_tools import (
     get_host_interfaces,
     get_host_inventory,
     get_host_metrics,
     get_host_status,
-    get_known_fake_devices,
+    get_known_fake_devices as get_known_fake_zabbix_devices,
     get_problem_summary,
     get_trigger_events,
     list_zabbix_hosts,
 )
-
-zabbix_tools: list[Tool] = [
-    cast(Tool, list_zabbix_hosts),
-    cast(Tool, get_known_fake_devices),
-    cast(Tool, get_host_status),
-    cast(Tool, get_host_inventory),
-    cast(Tool, get_host_interfaces),
-    cast(Tool, get_host_metrics),
-    cast(Tool, get_trigger_events),
-    cast(Tool, get_problem_summary),
-]
-
-zabbix_toolset = Toolset(zabbix_tools)
 
 bitbucket_tools: list[Tool] = [
     cast(Tool, clone_bitbucket_repo),
@@ -120,3 +107,16 @@ suzieq_tools: list[Tool] = [
 ]
 
 suzieq_toolset = Toolset(suzieq_tools)
+
+zabbix_tools: list[Tool] = [
+    cast(Tool, list_zabbix_hosts),
+    cast(Tool, get_known_fake_zabbix_devices),
+    cast(Tool, get_host_status),
+    cast(Tool, get_host_inventory),
+    cast(Tool, get_host_interfaces),
+    cast(Tool, get_host_metrics),
+    cast(Tool, get_trigger_events),
+    cast(Tool, get_problem_summary),
+]
+
+zabbix_toolset = Toolset(zabbix_tools)

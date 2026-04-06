@@ -1,0 +1,17 @@
+---
+- name: Deploy NetAI on bare-metal Ubuntu
+  hosts: all
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    - name: Ensure this playbook runs only on Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_distribution == "Ubuntu"
+        fail_msg: "This deployment currently supports Ubuntu only."
+
+  roles:
+    - role: base
+    - role: datastores
+    - role: netai

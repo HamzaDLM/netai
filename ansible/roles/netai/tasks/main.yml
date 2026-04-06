@@ -1,0 +1,189 @@
+---
+- name: Validate required deploy variables
+  ansible.builtin.assert:
+    that:
+      - netai_git_repo | length > 0
+      - netai_git_branch | length > 0
+    fail_msg: "Set netai_git_repo and netai_git_branch (Tower vars are recommended)."
+
+- name: Ensure netai group exists
+  ansible.builtin.group:
+    name: "{{ netai_group }}"
+    state: present
+
+- name: Ensure netai user exists
+  ansible.builtin.user:
+    name: "{{ netai_user }}"
+    group: "{{ netai_group }}"
+    shell: /bin/bash
+    create_home: true
+    state: present
+
+- name: Ensure deployment directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner | default(netai_user) }}"
+    group: "{{ item.group | default(netai_group) }}"
+    mode: "{{ item.mode | default('0755') }}"
+  loop:
+    - { path: "{{ netai_install_root }}" }
+    - { path: "{{ netai_release_dir }}" }
+    - { path: "{{ netai_ui_dist_dir }}" }
+    - { path: "{{ netai_log_dir }}", owner: root, group: root, mode: "0755" }
+
+- name: Install uv for deploy user
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -x "$HOME/.local/bin/uv" ]; then
+      curl -LsSf https://astral.sh/uv/install.sh | sh
+    fi
+  args:
+    executable: /bin/bash
+
+- name: Install rustup for deploy user
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+      curl https://sh.rustup.rs -sSf | sh -s -- -y
+    fi
+    "$HOME/.cargo/bin/rustup" default stable
+  args:
+    executable: /bin/bash
+
+- name: Checkout project repository
+  become_user: "{{ netai_user }}"
+  ansible.builtin.git:
+    repo: "{{ netai_git_repo }}"
+    version: "{{ netai_git_branch }}"
+    dest: "{{ netai_release_dir }}"
+    force: true
+    update: true
+
+- name: Render backend environment file
+  ansible.builtin.template:
+    src: backend.env.j2
+    dest: "{{ netai_release_dir }}/backend/.env"
+    owner: "{{ netai_user }}"
+    group: "{{ netai_group }}"
+    mode: "0640"
+  no_log: true
+  notify: Restart netai backend
+
+- name: Render UI production environment file
+  ansible.builtin.copy:
+    dest: "{{ netai_release_dir }}/ui/.env.production"
+    owner: "{{ netai_user }}"
+    group: "{{ netai_group }}"
+    mode: "0644"
+    content: |
+      {% for item in netai_ui_env | dict2items %}
+      {{ item.key }}={{ item.value }}
+      {% endfor %}
+
+- name: Install backend dependencies and run migrations
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    export PATH="$HOME/.local/bin:$PATH"
+    cd "{{ netai_release_dir }}/backend"
+    uv python install 3.13
+    uv sync
+    uv run alembic upgrade head
+  args:
+    executable: /bin/bash
+
+- name: Build UI
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    cd "{{ netai_release_dir }}/ui"
+    npm ci
+    npm run build
+  args:
+    executable: /bin/bash
+
+- name: Sync UI assets to served directory
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    rsync -a --delete "{{ netai_release_dir }}/ui/dist/" "{{ netai_ui_dist_dir }}/"
+  args:
+    executable: /bin/bash
+
+- name: Build log ingestor binary
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    export PATH="$HOME/.cargo/bin:$PATH"
+    cd "{{ netai_release_dir }}"
+    cargo build --release --manifest-path log_ingestor/Cargo.toml
+  args:
+    executable: /bin/bash
+  when: netai_enable_log_ingestor | bool
+
+- name: Install netai backend systemd service
+  ansible.builtin.template:
+    src: netai-backend.service.j2
+    dest: /etc/systemd/system/netai-backend.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart netai backend
+
+- name: Install netai log ingestor systemd service
+  ansible.builtin.template:
+    src: netai-log-ingestor.service.j2
+    dest: /etc/systemd/system/netai-log-ingestor.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: netai_enable_log_ingestor | bool
+  notify:
+    - Reload systemd
+    - Restart netai log ingestor
+
+- name: Ensure netai backend service is enabled and started
+  ansible.builtin.systemd_service:
+    name: netai-backend
+    enabled: true
+    state: started
+
+- name: Ensure netai log ingestor service is enabled and started
+  ansible.builtin.systemd_service:
+    name: netai-log-ingestor
+    enabled: true
+    state: started
+  when: netai_enable_log_ingestor | bool
+
+- name: Install nginx site for netai
+  ansible.builtin.template:
+    src: netai-nginx.conf.j2
+    dest: /etc/nginx/sites-available/netai.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Reload nginx
+
+- name: Enable nginx site
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/netai.conf
+    dest: /etc/nginx/sites-enabled/netai.conf
+    state: link
+  notify: Reload nginx
+
+- name: Disable default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: Reload nginx
+
+- name: Ensure nginx service is enabled and started
+  ansible.builtin.systemd_service:
+    name: nginx
+    enabled: true
+    state: started

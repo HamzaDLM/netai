@@ -1,0 +1,12 @@
+log_level: INFO
+
+storage:
+  storage_path: {{ netai_qdrant_data_dir }}
+
+service:
+  http_port: {{ netai_qdrant_http_port }}
+  grpc_port: {{ netai_qdrant_grpc_port }}
+
+cluster:
+  p2p:
+    port: {{ netai_qdrant_p2p_port }}
