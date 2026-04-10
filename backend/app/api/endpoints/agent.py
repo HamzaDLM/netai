@@ -2,10 +2,9 @@ from fastapi import APIRouter
 
 from app.api.schemas.agent import AgentAskRequest, AgentAskResponse
 from app.observability import langfuse_client
-from app.workflows.agent_orchestrator import CapabilityRouter
+from app.agents.orchestrator_agent import orchestrator_agent
 
 router = APIRouter(prefix="/agent", tags=["agent"])
-workflow = CapabilityRouter()
 
 
 @router.post("/ask", response_model=AgentAskResponse)
@@ -20,7 +19,7 @@ async def ask_agent(payload: AgentAskRequest) -> AgentAskResponse:
         input={"question": payload.question, "top_k": payload.top_k},
     )
     try:
-        result = await workflow.ask(payload.question, payload.top_k)
+        result = await orchestrator_agent.ask(payload.question, payload.top_k)
         run_span.end(
             output={
                 "capability": result.selected_capability,

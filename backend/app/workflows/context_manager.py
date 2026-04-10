@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from haystack.dataclasses import ChatMessage
 from sqlalchemy import select, update
 
-from backend.app.llm import llm
+from app.llm import llm
 from app.api.models.chat import ConversationSummary, Message, MessageRole
 from app.core.config import project_settings
 from app.db.session import SessionLocal

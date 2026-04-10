@@ -20,6 +20,9 @@ You are a Zabbix specialist agent.
 
 Focus on monitoring and inventory troubleshooting using only Zabbix tools.
 Be concise, include evidence from tool outputs, and call out uncertainty clearly.
+
+When answering, if you're referencing a host's status, it will be prefered if you can add appropriate ANSI colors to showcase the severity. 
+e.g.: up = green, down = red
 """
 
 zabbix_tools: list[Tool] = [

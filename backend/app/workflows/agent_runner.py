@@ -176,6 +176,15 @@ def _extract_tool_calls(result: Any) -> list[dict]:
     return calls
 
 
+def _extract_specialist_name(tool_name: str | None) -> str:
+    if not tool_name:
+        return "unknown"
+    name = tool_name.strip().lower()
+    if name.endswith("_specialist"):
+        return name.removesuffix("_specialist")
+    return name
+
+
 async def _maybe_await(value: Any) -> Any:
     if asyncio.iscoroutine(value):
         return await value
@@ -239,10 +248,17 @@ async def run_agent_stream(
     context = await build_conversation_context(conversation_id=conversation_id)
     messages = context.messages
     yield {"type": "context_metrics", **context.metrics()}
+    yield {
+        "type": "thinking",
+        "agent": "orchestrator",
+        "status": "received",
+        "message": "Orchestrator received the message and started planning.",
+    }
 
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
     streamed_any_token = False
+    emitted_running_heartbeat = False
 
     def _streaming_callback(chunk: Any) -> None:
         # Called from the worker thread. We forward token content into an asyncio Queue
@@ -262,6 +278,12 @@ async def run_agent_stream(
             run_in_thread=True,
         )
     )
+    yield {
+        "type": "thinking",
+        "agent": "orchestrator",
+        "status": "running",
+        "message": "Orchestrator is delegating work to specialists.",
+    }
 
     while True:
         # Stop only when generation finished and there are no pending streamed events.
@@ -271,6 +293,14 @@ async def run_agent_stream(
             # Poll queue with a timeout so we can periodically re-check task completion.
             event = await asyncio.wait_for(queue.get(), timeout=0.1)
         except asyncio.TimeoutError:
+            if not emitted_running_heartbeat:
+                emitted_running_heartbeat = True
+                yield {
+                    "type": "thinking",
+                    "agent": "orchestrator",
+                    "status": "running",
+                    "message": "Still processing specialist responses...",
+                }
             continue
         if event.get("type") == "token":
             streamed_any_token = True
@@ -287,20 +317,70 @@ async def run_agent_stream(
         for token in _tokenize(answer):
             yield {"type": "token", "token": token}
 
-    for tool in tools:
-        # Tool events are emitted after completion because tool calls/results are extracted
-        # from the final Haystack message state.
-        tool_event = {
-            "type": "tool_call",
-            "name": tool["name"],
-            "arguments": tool.get("arguments"),
-            "result": tool.get("result"),
+    specialist_calls = [
+        tool
+        for tool in tools
+        if str(tool.get("name", "")).strip().lower().endswith("_specialist")
+    ]
+    if specialist_calls:
+        yield {
+            "type": "orchestrator_plan",
+            "plan": "Delegate to specialist agents based on intent, then synthesize final answer.",
+            "specialists": [
+                _extract_specialist_name(str(tool.get("name")))
+                for tool in specialist_calls
+            ],
+        }
+
+    for tool in specialist_calls:
+        specialist = _extract_specialist_name(str(tool.get("name")))
+        prompt_payload = tool.get("arguments")
+        result_payload = tool.get("result")
+        yield {
+            "type": "thinking",
+            "agent": specialist,
+            "status": "running",
+            "message": f"{specialist} specialist is processing delegated task.",
+        }
+
+        yield {
+            "type": "specialist_prompt",
+            "specialist": specialist,
+            "prompt": prompt_payload,
+        }
+        yield {
+            "type": "specialist_thought",
+            "specialist": specialist,
+            "thought": result_payload,
+        }
+        yield {
+            "type": "specialist_tool_call",
+            "specialist": specialist,
+            "tool_name": str(tool.get("name") or "unknown_tool"),
+            "arguments": prompt_payload,
             "evidence": tool.get("evidence") or [],
         }
-        yield tool_event
-        if tool.get("result") is not None:
+        if result_payload is not None:
             yield {
-                "type": "tool_result",
-                "name": tool["name"],
-                "result": tool.get("result"),
+                "type": "specialist_tool_result",
+                "specialist": specialist,
+                "tool_name": str(tool.get("name") or "unknown_tool"),
+                "result": result_payload,
             }
+        yield {
+            "type": "thinking",
+            "agent": specialist,
+            "status": "done",
+            "message": f"{specialist} specialist finished.",
+        }
+
+    yield {
+        "type": "thinking",
+        "agent": "orchestrator",
+        "status": "done",
+        "message": "Orchestrator finished synthesis.",
+    }
+    yield {
+        "type": "leader_conclusion",
+        "answer": answer,
+    }

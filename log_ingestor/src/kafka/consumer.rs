@@ -8,6 +8,8 @@ use rdkafka::{
 };
 use tokio::time::{Duration, sleep};
 
+const PAYLOAD_PREVIEW_BYTES: usize = 256;
+
 pub fn create_stream_consumer(brokers: &str, group_id: &str) -> Result<StreamConsumer> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", group_id)
@@ -53,7 +55,17 @@ pub async fn start_consumer(
             let log: IncomingSyslog = match serde_json::from_slice(payload) {
                 Ok(log) => log,
                 Err(err) => {
-                    warn!("dropping malformed Kafka payload on topic '{topic}': {err:#}");
+                    let utf8_preview = utf8_preview(payload, PAYLOAD_PREVIEW_BYTES);
+                    let hex_preview = hex_preview(payload, PAYLOAD_PREVIEW_BYTES);
+                    warn!(
+                        "dropping malformed Kafka payload on topic '{topic}' \
+                         (partition={}, offset={}, key_len={}, payload_len={}): {err:#}; \
+                         payload_utf8_preview={utf8_preview:?}; payload_hex_preview=\"{hex_preview}\"",
+                        msg.partition(),
+                        msg.offset(),
+                        msg.key().map_or(0, |key| key.len()),
+                        payload.len()
+                    );
                     continue;
                 }
             };
@@ -65,4 +77,26 @@ pub async fn start_consumer(
     }
 
     Ok(())
+}
+
+fn utf8_preview(bytes: &[u8], max_bytes: usize) -> String {
+    let end = bytes.len().min(max_bytes);
+    let mut s = String::from_utf8_lossy(&bytes[..end]).to_string();
+    if bytes.len() > max_bytes {
+        s.push_str(" …<truncated>");
+    }
+    s
+}
+
+fn hex_preview(bytes: &[u8], max_bytes: usize) -> String {
+    let end = bytes.len().min(max_bytes);
+    let mut out = bytes[..end]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    if bytes.len() > max_bytes {
+        out.push_str(" …<truncated>");
+    }
+    out
 }

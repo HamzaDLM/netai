@@ -26,9 +26,9 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
-    BACKEND_CORS_ORIGINS: Annotated[
-        list[AnyUrl] | str, BeforeValidator(parse_cors)
-    ] = []
+    BACKEND_CORS_ORIGINS: Annotated[list[AnyUrl] | str, BeforeValidator(parse_cors)] = (
+        []
+    )
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     LOG_QA_EVENT_TOP_K: int = 20
     LOG_QA_LOOKBACK_SECONDS: int = 86_400
     LOG_QA_PROVIDER: Literal["gemini", "openai"] = "gemini"
-    LOG_QA_MODEL: str = "gemini-3-flash"
+    LOG_QA_MODEL: str = "gemini-2.5-flash-lite"
 
     GEMINI_MODEL: str = "GEMINI_MODEL"
     GEMINI_API_KEY: str | None = None
@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     SERVICENOW_PASSWORD: str = ""
     SERVICENOW_TIMEOUT_SECONDS: float = 12.0
 
-    LANGFUSE_ENABLED: bool = True
+    LANGFUSE_ENABLED: bool = False
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_BASE_URL: str = "http://localhost:3002"

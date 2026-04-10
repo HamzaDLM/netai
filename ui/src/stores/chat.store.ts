@@ -180,6 +180,21 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				})
 			}
 
+			const pushMetaToolCall = (
+				assistant: Message,
+				toolName: string,
+				result: Record<string, unknown> | undefined
+			) => {
+				assistant.tool_calls.push({
+					id: nextId(),
+					tool_name: toolName,
+					tool_source: extractSource(toolName),
+					arguments: {},
+					result,
+					evidence_items: [],
+				})
+			}
+
 			await chatService.askLLMStream(
 				selectedConversation.value.id,
 				{ content: userQuestion },
@@ -217,6 +232,73 @@ export const useChatStore = defineStore('chat', function chatStore() {
 							result: payload.result,
 							evidence_items: [],
 						})
+					},
+					onThinking: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						pushMetaToolCall(assistant, `${payload.agent}.thinking`, {
+							status: payload.status,
+							message: payload.message,
+						})
+					},
+					onOrchestratorPlan: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						pushMetaToolCall(assistant, 'orchestrator.plan', {
+							plan: payload.plan,
+							specialists: payload.specialists,
+						})
+					},
+					onSpecialistPrompt: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						pushMetaToolCall(assistant, `${payload.specialist}.prompt`, payload.prompt)
+					},
+					onSpecialistThought: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						pushMetaToolCall(assistant, `${payload.specialist}.thought`, payload.thought)
+					},
+					onSpecialistToolCall: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						assistant.tool_calls.push({
+							id: nextId(),
+							tool_name: payload.tool_name ?? `${payload.specialist}.tool_call`,
+							tool_source: payload.specialist,
+							arguments: payload.arguments ?? {},
+							result: undefined,
+							evidence_items: toEvidence(payload.evidence),
+						})
+					},
+					onSpecialistToolResult: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						const existing = [...assistant.tool_calls].reverse().find(
+							tool =>
+								tool.tool_name === payload.tool_name &&
+								(tool.tool_source ?? '') === payload.specialist &&
+								tool.result == null
+						)
+						if (existing) {
+							existing.result = payload.result
+							return
+						}
+						assistant.tool_calls.push({
+							id: nextId(),
+							tool_name: payload.tool_name ?? `${payload.specialist}.tool_result`,
+							tool_source: payload.specialist,
+							arguments: {},
+							result: payload.result,
+							evidence_items: [],
+						})
+					},
+					onLeaderConclusion: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						if (!assistant.content && payload.answer) {
+							assistant.content = payload.answer
+						}
 					},
 					onDone: messageId => {
 						const assistant = getAssistantMessage()

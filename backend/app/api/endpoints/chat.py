@@ -23,7 +23,7 @@ from app.api.schemas.chat import (
     MessageResponse,
 )
 from app.workflows.agent_runner import run_agent, run_agent_stream
-from backend.app.llm import llm
+from app.llm import llm
 from app.db.session import SessionLocal
 from app.observability import langfuse_client
 from app.prompts import TITLE_GENERATION_PROMPT
@@ -355,6 +355,38 @@ async def ask_llm_stream(
 
                 elif event["type"] == "tool_result":
                     yield f"event: tool_result\ndata: {json.dumps(event)}\n\n"
+                elif event["type"] == "thinking":
+                    yield f"event: thinking\ndata: {json.dumps(event)}\n\n"
+                elif event["type"] == "orchestrator_plan":
+                    yield f"event: orchestrator_plan\ndata: {json.dumps(event)}\n\n"
+                elif event["type"] == "specialist_prompt":
+                    yield f"event: specialist_prompt\ndata: {json.dumps(event)}\n\n"
+                elif event["type"] == "specialist_thought":
+                    yield f"event: specialist_thought\ndata: {json.dumps(event)}\n\n"
+                elif event["type"] == "specialist_tool_call":
+                    normalized_call = {
+                        "name": event.get("tool_name") or event.get("name") or "unknown_tool",
+                        "tool_source": event.get("specialist"),
+                        "arguments": event.get("arguments"),
+                        "result": None,
+                        "evidence": event.get("evidence") or [],
+                    }
+                    tools_called.append(normalized_call)
+                    yield f"event: specialist_tool_call\ndata: {json.dumps(event)}\n\n"
+                elif event["type"] == "specialist_tool_result":
+                    tool_name = event.get("tool_name")
+                    specialist = event.get("specialist")
+                    for existing in reversed(tools_called):
+                        if (
+                            existing.get("name") == tool_name
+                            and existing.get("tool_source") == specialist
+                            and existing.get("result") is None
+                        ):
+                            existing["result"] = event.get("result")
+                            break
+                    yield f"event: specialist_tool_result\ndata: {json.dumps(event)}\n\n"
+                elif event["type"] == "leader_conclusion":
+                    yield f"event: leader_conclusion\ndata: {json.dumps(event)}\n\n"
         except Exception as exc:
             stream_span.end(output={"error": str(exc)})
             trace.end(output={"error": str(exc)})

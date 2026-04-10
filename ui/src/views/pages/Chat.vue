@@ -6,6 +6,7 @@ import ChatListTool from '@/components/chat/ChatListTool.vue';
 import ConfigDiffViewer from '@/components/chat/ConfigDiffViewer.vue';
 import ChatActions from '@/components/chat/ChatActions.vue';
 import Button from '@/components/ui/button/Button.vue';
+import { ButtonGroup } from '@/components/ui/button-group'
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
 import { useChatStore } from '@/stores/chat.store';
 import type { Message, ToolCall } from '@/types/chat.type';
@@ -29,6 +30,7 @@ const chatInputValue = ref('')
 const chatTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const maxChatInputHeight = 220
 const isSidebarCollapsed = ref(false)
+const debugMode = ref(false)
 
 type DiffLineType = 'context' | 'added' | 'removed' | 'meta'
 type DiffLine = {
@@ -304,6 +306,18 @@ function toggleSidebar() {
     isSidebarCollapsed.value = !isSidebarCollapsed.value
 }
 
+function onDebugButton1() {
+    // Placeholder for future implementation
+}
+
+function onDebugButton2() {
+    // Placeholder for future implementation
+}
+
+function onDebugButton3() {
+    // Placeholder for future implementation
+}
+
 async function loadConnectorStatus() {
     // TODO: Replace with backend healthcheck endpoint when available.
     // Example: const data = await api.get('/connectors/health')
@@ -364,6 +378,15 @@ onBeforeUnmount(() => {
             <!-- Main section -->
             <div class="relative flex flex-col h-full min-h-0"
                 :class="isSidebarCollapsed ? 'col-span-11' : 'col-span-10'">
+                <div class="absolute z-20 flex items-center gap-2 top-4 right-6">
+                    <ButtonGroup>
+                        <ButtonGroup>
+                            <Button variant="outline" @click="debugMode = !debugMode">Debug ({{ debugMode ? 'on' : 'off'
+                            }})</Button>
+                        </ButtonGroup>
+                    </ButtonGroup>
+
+                </div>
                 <!-- Chat dialogue -->
                 <div ref="chatDialogueRef" @scroll="updateScrollState"
                     class="flex flex-col flex-1 min-h-0 p-10 px-20 overflow-y-auto">
@@ -380,7 +403,12 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
                     <div v-else class="flex flex-col gap-6 mt-auto">
-                        <div v-for="message in chatStore.messages" class="">
+                        <div v-if="debugMode" v-for="message in chatStore.messages">
+                            <pre>
+                                {{ message }}
+                            </pre>
+                        </div>
+                        <div v-else v-for="message in chatStore.messages" class="">
                             <!-- Assistant message -->
                             <div v-if="message.role == 'assistant'">
                                 <!-- Toolcalls -->
