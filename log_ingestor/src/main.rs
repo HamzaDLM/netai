@@ -3,6 +3,7 @@ mod embedding;
 mod kafka;
 mod pipeline;
 mod processing;
+mod serde_helpers;
 mod storage;
 mod types;
 
