@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clickhouse::Client as ClickHouseClient;
 use log::debug;
+use once_cell::sync::Lazy;
+use regex::Regex;
 use reqwest::Client;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
@@ -21,13 +23,20 @@ use crate::{
         qdrant::{ensure_collection_exists, fetch_existing_templates, upsert_point},
     },
     types::IncomingSyslog,
+    vendor_cache::VendorCache,
 };
+
+static IPV4_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b")
+        .expect("valid ipv4 regex")
+});
 
 pub struct Pipeline {
     dedup: TemplateDeduplicator,
     embedder: EmbeddingClient,
     http: Client,
     clickhouse: ClickHouseClient,
+    vendor_cache: VendorCache,
     config: Arc<Config>,
 }
 
@@ -43,6 +52,7 @@ impl Pipeline {
                 &config.clickhouse_user,
                 &config.clickhouse_password,
             ),
+            vendor_cache: VendorCache::new(config.clone()),
             config,
         };
     }
@@ -76,21 +86,36 @@ impl Pipeline {
         Ok(())
     }
 
+    pub async fn refresh_vendor_cache(&self) {
+        self.vendor_cache.warmup(&self.http).await;
+    }
+
     pub async fn process(&self, log: IncomingSyslog) -> Result<()> {
         debug!("processing log: {}", log.syslog_message);
         let parsed = parse_syslog(&log);
         let normalized = normalize_message(&parsed);
         debug!("normalized result: {}", normalized);
+
+        let source_ip = extract_ip(&log.syslog_message);
+        let vendor = match self
+            .vendor_cache
+            .resolve_vendor(&log.syslog_hostname, source_ip.as_deref())
+            .await
+        {
+            Some(vendor) if !vendor.trim().is_empty() => vendor,
+            _ => parsed.vendor.clone(),
+        };
+
         let template = build_template(normalized.clone());
         debug!("template result: {}", template.template);
-        let dedup_key = format!("{}::{}", parsed.vendor, template.template);
+        let dedup_key = format!("{}::{}", vendor, template.template);
         let template_fingerprint = fingerprint_template(&template.template);
 
         let event_row = SyslogEventRow {
             event_id: Uuid::new_v4().to_string(),
             ts_unix: log.syslog_timestamp,
             hostname: log.syslog_hostname.clone(),
-            vendor: parsed.vendor.clone(),
+            vendor: vendor.clone(),
             facility: parsed.facility.clone().unwrap_or_default(),
             severity: parsed.severity.map(i16::from).unwrap_or(-1),
             event_code: parsed.event_code.clone().unwrap_or_default(),
@@ -118,7 +143,7 @@ impl Pipeline {
             template.id,
             vector,
             &template.template,
-            &parsed.vendor,
+            &vendor,
             &dedup_key,
         )
         .await?;
@@ -131,4 +156,8 @@ fn fingerprint_template(template: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     template.hash(&mut hasher);
     hasher.finish()
+}
+
+fn extract_ip(message: &str) -> Option<String> {
+    IPV4_RE.find(message).map(|m| m.as_str().to_string())
 }

@@ -93,6 +93,15 @@ fn detect_vendor(log: &IncomingSyslog) -> String {
         return "cisco".to_string();
     }
 
+    if message.contains("big-ip")
+        || message.contains("bigip")
+        || message.contains("tmm[")
+        || hostname.starts_with("f5-")
+        || hostname.contains("bigip")
+    {
+        return "f5".to_string();
+    }
+
     if hostname.contains("arista") || message.contains("eos") {
         return "arista".to_string();
     }
@@ -110,8 +119,84 @@ fn normalize_vendor_label(value: &str) -> String {
         "pan" | "paloalto" | "pa" => "palo_alto".to_string(),
         "fortigate" | "fortios" => "fortinet".to_string(),
         "cisco_ios" | "cisco_nxos" | "cisco_xr" => "cisco".to_string(),
+        "f5_bigip" | "bigip" => "f5".to_string(),
         "hp_aruba" => "aruba".to_string(),
         "" => "unknown".to_string(),
         other => other.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn incoming(message: &str, hostname: &str, vendor: Option<&str>) -> IncomingSyslog {
+        IncomingSyslog {
+            syslog_timestamp: 1_700_000_000,
+            syslog_hostname: hostname.to_string(),
+            syslog_message: message.to_string(),
+            vendor: vendor.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn parses_cisco_prefix_and_vendor_alias() {
+        let log = incoming(
+            "%LINK-3-UPDOWN: Interface GigabitEthernet1/0/1, changed state to down",
+            "router-core-1",
+            Some("cisco-ios"),
+        );
+
+        let parsed = parse_syslog(&log);
+
+        assert_eq!(parsed.vendor, "cisco");
+        assert_eq!(parsed.facility.as_deref(), Some("LINK"));
+        assert_eq!(parsed.severity, Some(3));
+        assert_eq!(parsed.event_code.as_deref(), Some("UPDOWN"));
+        assert_eq!(
+            parsed.message,
+            "Interface GigabitEthernet1/0/1, changed state to down"
+        );
+    }
+
+    #[test]
+    fn detects_fortinet_from_kv_message() {
+        let log = incoming(
+            r#"date=2026-04-12 time=10:15:30 devname="FGT01" type="traffic" srcip=10.0.0.10"#,
+            "edge-fw-1",
+            None,
+        );
+
+        let parsed = parse_syslog(&log);
+        assert_eq!(parsed.vendor, "fortinet");
+    }
+
+    #[test]
+    fn detects_arista_from_hostname() {
+        let log = incoming("Port-Channel1 is up", "arista-leaf-01", None);
+        let parsed = parse_syslog(&log);
+        assert_eq!(parsed.vendor, "arista");
+    }
+
+    #[test]
+    fn detects_juniper_from_message() {
+        let log = incoming(
+            "RT_FLOW_SESSION_CREATE: session created 10.0.0.1/2222->8.8.8.8/53",
+            "branch-srx-1",
+            None,
+        );
+        let parsed = parse_syslog(&log);
+        assert_eq!(parsed.vendor, "juniper");
+    }
+
+    #[test]
+    fn detects_f5_from_bigip_indicators() {
+        let log = incoming(
+            "tmm[12345]: 01260013:5: Pool /Common/web members available",
+            "f5-ltm-1",
+            None,
+        );
+        let parsed = parse_syslog(&log);
+        assert_eq!(parsed.vendor, "f5");
     }
 }

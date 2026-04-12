@@ -23,3 +23,23 @@ impl TemplateDeduplicator {
         self.seen.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::TemplateDeduplicator;
+
+    #[test]
+    fn tracks_first_seen_template() {
+        let dedup = TemplateDeduplicator::new();
+        assert!(dedup.is_new("vendor::template-a"));
+        assert!(!dedup.is_new("vendor::template-a"));
+    }
+
+    #[test]
+    fn mark_seen_preloads_key() {
+        let dedup = TemplateDeduplicator::new();
+        dedup.mark_seen("vendor::template-b".to_string());
+        assert!(!dedup.is_new("vendor::template-b"));
+        assert_eq!(dedup.len(), 1);
+    }
+}

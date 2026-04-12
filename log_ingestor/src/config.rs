@@ -13,11 +13,21 @@ pub struct Config {
     pub embedding_api_key: Option<String>,
     pub embedding_timeout_secs: u64,
     pub embedding_dimension: u64,
+    pub redis_url: Option<String>,
+    pub vendor_lookup_url: Option<String>,
+    pub vendor_refresh_secs: u64,
+    pub vendor_cache_prefix: String,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         let embedding_api_key = std::env::var("EMBEDDING_API_KEY")
+            .ok()
+            .and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
+        let redis_url = std::env::var("REDIS_URL")
+            .ok()
+            .and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
+        let vendor_lookup_url = std::env::var("VENDOR_LOOKUP_URL")
             .ok()
             .and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
 
@@ -45,6 +55,14 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(1536),
+            redis_url,
+            vendor_lookup_url,
+            vendor_refresh_secs: std::env::var("VENDOR_REFRESH_SECS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(900),
+            vendor_cache_prefix: std::env::var("VENDOR_CACHE_PREFIX")
+                .unwrap_or("vendor_cache".into()),
         }
     }
 }

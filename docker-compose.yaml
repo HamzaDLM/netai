@@ -58,6 +58,15 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7
+    container_name: netai_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -99,12 +108,17 @@ services:
       KAFKA_GROUP_ID: log-ingestor
       CLICKHOUSE_URL: http://clickhouse:8123
       QDRANT_URL: http://qdrant:6333
+      REDIS_URL: redis://redis:6379/
+      VENDOR_LOOKUP_URL: ${VENDOR_LOOKUP_URL:-}
+      VENDOR_REFRESH_SECS: ${VENDOR_REFRESH_SECS:-900}
     depends_on:
       clickhouse:
         condition: service_healthy
       kafka:
         condition: service_started
       qdrant:
+        condition: service_started
+      redis:
         condition: service_started
     restart: unless-stopped
 
@@ -171,6 +185,7 @@ volumes:
   qdrant_data:
   clickhouse_data:
   clickhouse_logs:
+  redis_data:
   backend_data:
   prometheus_data:
   grafana_data:

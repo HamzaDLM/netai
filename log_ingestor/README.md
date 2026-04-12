@@ -50,11 +50,22 @@ Rust Kafka consumer that ingests syslogs, normalizes them, stores all events in 
 - `EMBEDDING_TIMEOUT_SECS` (default: `30`)
 - `EMBEDDING_DIMENSION` (default: `1536`)
 
+### Vendor Cache / Lookup
+- `REDIS_URL` (optional; when reachable Redis is used, otherwise in-memory fallback is used)
+- `VENDOR_LOOKUP_URL` (optional; API endpoint returning vendor mapping entries)
+- `VENDOR_REFRESH_SECS` (default: `900`)
+- `VENDOR_CACHE_PREFIX` (default: `vendor_cache`)
+
+Expected lookup API payload formats:
+- `[{ "ip": "10.0.0.1", "hostname": "edge-01", "vendor": "cisco" }, ...]`
+- or `{ "items": [{ "ip": "...", "hostname": "...", "vendor": "..." }, ...] }`
+
 ## Notes
 
 - ClickHouse schema is auto-created and auto-migrated for added metadata columns.
 - If embedding endpoint is unavailable or returns wrong dimension, new template upserts fail for that event.
 - Ingestion still writes raw/normalized event rows to ClickHouse before template vectorization.
+- Vendor cache refresh is best-effort. Failed vendor API calls or Redis errors are logged and ingestion continues.
 
 ## Run
 
@@ -66,9 +77,6 @@ cargo run --manifest-path log_ingestor/Cargo.toml
 
 ## TODO
 
-- [ ] Implement hostname -> vendor enrichment with a two-layer cache:
-  - L1 in-process memory cache for very fast lookups
-  - L2 Redis cache as shared/source-of-truth fallback
-- [ ] Add background refresh + negative caching strategy for unknown hostnames.
+- [ ] Add negative caching strategy for unknown hostnames.
 - [ ] Add parser/normalizer test corpus per vendor (Cisco, Fortinet, Juniper, Palo Alto, Arista, Aruba).
 - [ ] Add metrics for parse confidence, unknown vendor rate, and raw-like template ratio.

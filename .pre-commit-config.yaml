@@ -5,22 +5,25 @@ fail_fast: false
 repos:
   - repo: local
     hooks:
+      
+      # Backend Service
+
       - id: mypy-backend
-        name: Mypy Check (backend)
+        name: Mypy Check
         entry: bash -lc 'cd backend && uv run mypy app tests'
         language: system
         pass_filenames: false
         files: ^backend/
 
       - id: ruff-imports-backend
-        name: Ruff Import Formatting (backend)
+        name: Ruff Import Formatting
         entry: bash -lc 'cd backend && uv run ruff check --select I --fix .'
         language: system
         pass_filenames: false
         files: ^backend/
 
       - id: ruff-format-backend
-        name: Ruff Formatting (backend)
+        name: Ruff Formatting
         entry: bash -lc 'cd backend && uv run ruff format .'
         language: system
         pass_filenames: false
@@ -32,3 +35,28 @@ repos:
         language: system
         pass_filenames: false
         files: ^backend/
+
+      # Log Ingestor Service
+
+      - id: cargo-check-log-ingestor
+        name: Cargo Check
+        entry: bash -lc 'cd log_ingestor && cargo check'
+        language: system
+        pass_filenames: false
+        files: ^log_ingestor/
+
+      - id: cargo-test-log-ingestor
+        name: Cargo Test
+        entry: bash -lc 'cd log_ingestor && cargo test --quiet'
+        language: system
+        pass_filenames: false
+        files: ^log_ingestor/
+
+      # Frontend Service
+
+      - id: ui-build
+        name: UI Build (TypeScript Check)
+        entry: bash -lc 'cd ui && npm run build'
+        language: system
+        pass_filenames: false
+        files: ^ui/

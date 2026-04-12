@@ -1,21 +1,13 @@
-mod config;
-mod embedding;
-mod kafka;
-mod pipeline;
-mod processing;
-mod serde_helpers;
-mod storage;
-mod types;
-
 use anyhow::Result;
-use config::Config;
-use kafka::consumer::start_consumer;
-use kafka::lag::print_lag_periodically;
 use log::error;
-use pipeline::Pipeline;
+use log_ingestor::config::Config;
+use log_ingestor::kafka::consumer::start_consumer;
+use log_ingestor::kafka::lag::print_lag_periodically;
+use log_ingestor::pipeline::Pipeline;
 use std::sync::Arc;
+use tokio::time::{self, Duration};
 
-use crate::kafka::consumer::create_stream_consumer;
+use log_ingestor::kafka::consumer::create_stream_consumer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -33,6 +25,18 @@ async fn main() -> Result<()> {
 
     // Ensure collection exists before consuming
     pipeline.ensure_collection().await?;
+    pipeline.refresh_vendor_cache().await;
+
+    // Refresh vendor lookup cache periodically; never fail ingestion on warmup issues.
+    let refresh_pipeline = pipeline.clone();
+    let refresh_interval = Duration::from_secs(config.vendor_refresh_secs.max(30));
+    tokio::spawn(async move {
+        let mut ticker = time::interval(refresh_interval);
+        loop {
+            ticker.tick().await;
+            refresh_pipeline.refresh_vendor_cache().await;
+        }
+    });
 
     // spawn the lag printer task
     let consumer = create_stream_consumer(&config.kafka_brokers, &config.kafka_group_id)?;

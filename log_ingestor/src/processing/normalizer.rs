@@ -98,3 +98,78 @@ fn normalize_palo_alto(input: &str) -> String {
         .collect::<Vec<_>>()
         .join(",")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::processing::parser::ParsedSyslog;
+
+    fn parsed(vendor: &str, message: &str) -> ParsedSyslog {
+        ParsedSyslog {
+            vendor: vendor.to_string(),
+            message: message.to_string(),
+            facility: None,
+            severity: None,
+            event_code: None,
+        }
+    }
+
+    #[test]
+    fn normalizes_cisco_like_message() {
+        let input = parsed(
+            "cisco",
+            "%BGP-5-ADJCHANGE: neighbor 10.10.10.10 on GigabitEthernet1/0/1 changed state",
+        );
+        let output = normalize_message(&input);
+
+        assert!(output.contains("%BGP-<NUM>-ADJCHANGE"));
+        assert!(output.contains("<IFACE>"));
+        assert!(output.contains("<IP>"));
+    }
+
+    #[test]
+    fn normalizes_fortinet_kv_fields() {
+        let input = parsed(
+            "fortinet",
+            r#"srcip=10.0.0.1 dstip=8.8.8.8 srcport=54321 policyid=77 eventtime=1712345678"#,
+        );
+        let output = normalize_message(&input);
+
+        assert!(output.contains("srcip=<IP>"));
+        assert!(output.contains("dstip=<IP>"));
+        assert!(output.contains("srcport=<PORT>"));
+        assert!(output.contains("policyid=<ID>"));
+        assert!(output.contains("eventtime=<TIME>"));
+    }
+
+    #[test]
+    fn normalizes_juniper_event_marker() {
+        let input = parsed(
+            "juniper",
+            "RT_FLOW: session close from ge-0/0/0.0 to 192.0.2.10",
+        );
+        let output = normalize_message(&input);
+
+        assert!(output.contains("<JUNOS_EVENT>"));
+        assert!(output.contains("<IP>"));
+    }
+
+    #[test]
+    fn normalizes_palo_alto_csv_spacing() {
+        let input = parsed("palo_alto", "x,  y , z ");
+        let output = normalize_message(&input);
+        assert_eq!(output, "x,y,z");
+    }
+
+    #[test]
+    fn normalizes_f5_with_generic_placeholders() {
+        let input = parsed(
+            "f5",
+            "tmm[12345]: Connection from 10.20.30.40:443 to 172.16.0.11:8080",
+        );
+        let output = normalize_message(&input);
+
+        assert!(output.contains("<IP>"));
+        assert!(output.contains("<NUM>"));
+    }
+}
