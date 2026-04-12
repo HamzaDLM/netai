@@ -1,0 +1,6 @@
+{"question": "Check syslog for flapping interfaces on edge routers", "expected_specialist": "syslog"}
+{"question": "Show zabbix trigger events for host edge-01", "expected_specialist": "zabbix"}
+{"question": "Are BGP sessions healthy in suzieq for namespace dc1?", "expected_specialist": "suzieq"}
+{"question": "List open ServiceNow incidents tied to CI edge-01", "expected_specialist": "servicenow"}
+{"question": "Which topology neighbors does core-sw-01 have?", "expected_specialist": "datamodel"}
+{"question": "Is this configuration vulnerable to known CVEs?", "expected_specialist": "security"}

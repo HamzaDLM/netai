@@ -4,10 +4,10 @@ from dataclasses import dataclass
 from haystack.dataclasses import ChatMessage
 from sqlalchemy import select, update
 
-from app.llm import llm
 from app.api.models.chat import ConversationSummary, Message, MessageRole
 from app.core.config import project_settings
 from app.db.session import SessionLocal
+from app.llm import llm
 from app.prompts import SUMMARIZING_PROMPT
 
 RECENT_MESSAGE_WINDOW = 10
@@ -66,7 +66,7 @@ def _format_messages_for_summary(messages: list[Message]) -> str:
     return "\n".join(lines).strip()
 
 
-async def _latest_summary(*, conversation_id: int) -> ConversationSummary | None:
+async def _latest_summary(*, conversation_id: str) -> ConversationSummary | None:
     async with SessionLocal() as db:
         stmt = (
             select(ConversationSummary)
@@ -79,7 +79,7 @@ async def _latest_summary(*, conversation_id: int) -> ConversationSummary | None
 
 
 async def _recent_messages_after_summary(
-    *, conversation_id: int, up_to_message_id: int | None
+    *, conversation_id: str, up_to_message_id: int | None
 ) -> list[Message]:
     async with SessionLocal() as db:
         stmt = (
@@ -97,7 +97,7 @@ async def _recent_messages_after_summary(
 
 async def compact_conversation_context(
     *,
-    conversation_id: int,
+    conversation_id: str,
     keep_recent: int = RECENT_MESSAGE_WINDOW,
 ) -> bool:
     async with SessionLocal() as db:
@@ -149,7 +149,7 @@ async def compact_conversation_context(
                 "Update the summary to reflect the full conversation so far."
             )
         else:
-            user_prompt = "Summarize the following conversation:\n" f"{messages_text}"
+            user_prompt = f"Summarize the following conversation:\n{messages_text}"
 
         llm_result = await asyncio.to_thread(
             llm.run,
@@ -181,7 +181,7 @@ async def compact_conversation_context(
 
 async def build_conversation_context(
     *,
-    conversation_id: int,
+    conversation_id: str,
     keep_recent: int = RECENT_MESSAGE_WINDOW,
 ) -> BuiltContext:
     context_limit = project_settings.LLM_CONTEXT_WINDOW

@@ -1,10 +1,14 @@
+from typing import cast
+
 from haystack.components.agents import Agent
+from haystack.tools import Tool
 
 from app.agents.bitbucket_agent import bitbucket_specialist_tool
 from app.agents.datamodel_agent import datamodel_specialist_tool
 from app.agents.security_agent import security_specialist_tool
 from app.agents.servicenow_agent import servicenow_specialist_tool
 from app.agents.suzieq_agent import suzieq_specialist_tool
+from app.agents.syslog_agent import syslog_specialist_tool
 from app.agents.zabbix_agent import zabbix_specialist_tool
 from app.llm import llm
 
@@ -14,6 +18,7 @@ SPECIALIST_DESCRIPTIONS: dict[str, str] = {
     "bitbucket": "Repository-backed configuration and change-history analysis.",
     "servicenow": "Operational process and CMDB context from ServiceNow records.",
     "datamodel": "Static infrastructure topology and neighbor relationship analysis.",
+    "syslog": "Network syslog evidence and incident patterns from ClickHouse/Qdrant.",
     "security": "Network/security assistant.",
 }
 
@@ -33,6 +38,7 @@ Specialists available:
 - bitbucket_specialist: {SPECIALIST_DESCRIPTIONS["bitbucket"]}
 - servicenow_specialist: {SPECIALIST_DESCRIPTIONS["servicenow"]}
 - datamodel_specialist: {SPECIALIST_DESCRIPTIONS["datamodel"]}
+- syslog_specialist: {SPECIALIST_DESCRIPTIONS["syslog"]}
 - security_specialist: {SPECIALIST_DESCRIPTIONS["security"]}
 
 Routing policy:
@@ -45,77 +51,12 @@ orchestrator_agent = Agent(
     chat_generator=llm,
     system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
     tools=[
-        zabbix_specialist_tool,
-        suzieq_specialist_tool,
-        bitbucket_specialist_tool,
-        servicenow_specialist_tool,
-        datamodel_specialist_tool,
-        security_specialist_tool,
+        cast(Tool, zabbix_specialist_tool),
+        cast(Tool, suzieq_specialist_tool),
+        cast(Tool, bitbucket_specialist_tool),
+        cast(Tool, servicenow_specialist_tool),
+        cast(Tool, datamodel_specialist_tool),
+        cast(Tool, syslog_specialist_tool),
+        cast(Tool, security_specialist_tool),
     ],
 )
-
-# _ROUTE_KEYWORDS: dict[str, set[str]] = {
-#     "zabbix": {"zabbix", "trigger", "problem event", "host status", "monitoring"},
-#     "suzieq": {
-#         "suzieq",
-#         "bgp",
-#         "ospf",
-#         "lldp",
-#         "route",
-#         "arp",
-#         "mac table",
-#         "path",
-#     },
-#     "bitbucket": {
-#         "bitbucket",
-#         "repo",
-#         "repository",
-#         "commit",
-#         "pull request",
-#         "branch",
-#     },
-#     "servicenow": {"servicenow", "incident", "change request", "problem", "cmdb", "ci"},
-#     "datamodel": {"topology", "neighbor", "datamodel", "device inventory", "link"},
-# }
-
-
-# def _extract_latest_user_question(messages: list[Any]) -> str:
-#     for message in reversed(messages):
-#         role = getattr(message, "role", None)
-#         text = getattr(message, "text", None)
-#         if isinstance(text, str) and text.strip():
-#             if role is None or str(role).lower().endswith("user"):
-#                 return text.strip()
-#     return ""
-
-
-# def select_specialist_name(messages: list[Any]) -> str:
-#     question = _extract_latest_user_question(messages).lower()
-#     if not question:
-#         return "network"
-
-#     scores = {name: 0 for name in _ROUTE_KEYWORDS}
-#     for name, keywords in _ROUTE_KEYWORDS.items():
-#         for keyword in keywords:
-#             if keyword in question:
-#                 scores[name] += 1
-
-#     selected, score = max(scores.items(), key=lambda item: item[1])
-#     if score == 0:
-#         return "network"
-#     return selected
-
-
-# def run_orchestrated(messages: list[Any]) -> tuple[str, Any]:
-#     selected = select_specialist_name(messages)
-#     if selected == "zabbix":
-#         return selected, zabbix_agent.run(messages=messages)
-#     if selected == "suzieq":
-#         return selected, suzieq_agent.run(messages=messages)
-#     if selected == "bitbucket":
-#         return selected, bitbucket_agent.run(messages=messages)
-#     if selected == "servicenow":
-#         return selected, servicenow_agent.run(messages=messages)
-#     if selected == "datamodel":
-#         return selected, datamodel_agent.run(messages=messages)
-#     return "network", network_agent.run(messages=messages)

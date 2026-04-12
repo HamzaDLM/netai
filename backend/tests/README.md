@@ -1,13 +1,20 @@
-# Backend Test Scaffold
+# Backend Tests
 
-This folder is the starting point for backend tests.
+Test suite is organized by scope:
 
-## Layout
+- `tools/`: tool-focused tests.
+- `unit/`: fast unit tests for agents, workflows, models, and endpoint helpers.
+- `integration/`: API + persistence behavior using an isolated sqlite test DB.
+- `evals/`: deterministic quality/routing/grounding eval harness and datasets.
+- `factories/`: lightweight DB object factories used by tests.
 
-- `tools/`: unit tests focused on tool behavior (input filtering, normalization, output schema, error paths).
+## Running
 
-## Conventions
+From `backend/`:
 
-- Keep tests deterministic and local-first.
-- Prefer fake/static tool modules for unit tests.
-- Add integration tests separately when external APIs are required.
+```bash
+uv run pytest tests/unit -q
+uv run pytest tests/integration -q
+uv run pytest tests/evals -q
+uv run pytest tests -q
+```

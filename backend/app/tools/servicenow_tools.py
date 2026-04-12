@@ -2,7 +2,6 @@ from typing import Annotated, Any
 
 from haystack.tools import tool
 
-
 _PRIORITY_ORDER = {
     "1 - critical": 1,
     "2 - high": 2,
@@ -271,13 +270,13 @@ KNOWN_FAKE_CIS: list[dict[str, Any]] = [
 ]
 
 
-@tool(name="servicenow.get_known_cis")
+@tool(name="servicenow.get_known_cis")  # type: ignore[operator]
 def get_known_cis() -> list[dict[str, Any]]:
     """Return canonical fake ServiceNow CMDB CI list."""
     return KNOWN_FAKE_CIS
 
 
-@tool(name="servicenow.list_incidents")
+@tool(name="servicenow.list_incidents")  # type: ignore[operator]
 def list_incidents(
     state: Annotated[
         str | None, "Optional state filter: new/in_progress/on_hold/resolved"
@@ -315,7 +314,7 @@ def list_incidents(
     return {"count": len(result), "incidents": result}
 
 
-@tool(name="servicenow.get_incident")
+@tool(name="servicenow.get_incident")  # type: ignore[operator]
 def get_incident(
     incident_number: Annotated[str, "Incident number, e.g. INC0010421"],
 ) -> dict[str, Any]:
@@ -366,7 +365,7 @@ def get_incident(
     }
 
 
-@tool(name="servicenow.list_change_requests")
+@tool(name="servicenow.list_change_requests")  # type: ignore[operator]
 def list_change_requests(
     state: Annotated[
         str | None, "Optional state filter: new/scheduled/implement/closed"
@@ -401,7 +400,7 @@ def list_change_requests(
     return {"count": len(result), "changes": result}
 
 
-@tool(name="servicenow.get_change_request")
+@tool(name="servicenow.get_change_request")  # type: ignore[operator]
 def get_change_request(
     change_number: Annotated[str, "Change number, e.g. CHG0007721"],
 ) -> dict[str, Any]:
@@ -420,7 +419,7 @@ def get_change_request(
     }
 
 
-@tool(name="servicenow.list_problems")
+@tool(name="servicenow.list_problems")  # type: ignore[operator]
 def list_problems(
     state: Annotated[
         str | None, "Optional state filter: investigating/known_error/resolved"
@@ -453,7 +452,7 @@ def list_problems(
     return {"count": len(result), "problems": result}
 
 
-@tool(name="servicenow.get_problem")
+@tool(name="servicenow.get_problem")  # type: ignore[operator]
 def get_problem(
     problem_number: Annotated[str, "Problem number, e.g. PRB000381"],
 ) -> dict[str, Any]:
@@ -472,7 +471,7 @@ def get_problem(
     }
 
 
-@tool(name="servicenow.list_cis")
+@tool(name="servicenow.list_cis")  # type: ignore[operator]
 def list_cis(
     ci_class: Annotated[
         str | None, "Optional class filter: network_firewall/network_switch/..."
@@ -501,7 +500,7 @@ def list_cis(
         ):
             continue
         if q:
-            haystack = f'{ci["name"]} {ci["ip_address"]} {ci["owned_by_group"]} {ci["service"]}'.lower()
+            haystack = f"{ci['name']} {ci['ip_address']} {ci['owned_by_group']} {ci['service']}".lower()
             if q not in haystack:
                 continue
         items.append(ci)
@@ -510,7 +509,7 @@ def list_cis(
     return {"count": len(result), "cis": result}
 
 
-@tool(name="servicenow.get_ci")
+@tool(name="servicenow.get_ci")  # type: ignore[operator]
 def get_ci(
     ci_name_or_sys_id: Annotated[str, "CI hostname/name or sys_id"],
 ) -> dict[str, Any]:
@@ -526,7 +525,7 @@ def get_ci(
             break
     if matched is None:
         for ci in _FAKE_CIS.values():
-            haystack = f'{ci["name"]} {ci["ip_address"]} {ci["service"]}'.lower()
+            haystack = f"{ci['name']} {ci['ip_address']} {ci['service']}".lower()
             if lookup in haystack:
                 matched = ci
                 break
@@ -572,7 +571,7 @@ def get_ci(
     }
 
 
-@tool(name="servicenow.get_service_summary")
+@tool(name="servicenow.get_service_summary")  # type: ignore[operator]
 def get_service_summary(
     service: Annotated[str, "Business service name, e.g. WAN-Edge"],
 ) -> dict[str, Any]:

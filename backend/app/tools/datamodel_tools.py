@@ -2,7 +2,6 @@ from typing import Annotated, Any
 
 from haystack.tools import tool
 
-
 _FAKE_DEVICES: dict[str, dict[str, Any]] = {
     "par-core-rtr-01": {
         "hostname": "par-core-rtr-01",
@@ -416,7 +415,7 @@ def _resolve_device(hostname_or_ip: str) -> dict[str, Any] | None:
             return device
 
     for device in _FAKE_DEVICES.values():
-        haystack = f'{device["hostname"]} {device["mgmt_ip"]} {device["site"]} {device["role"]}'.lower()
+        haystack = f"{device['hostname']} {device['mgmt_ip']} {device['site']} {device['role']}".lower()
         if lookup in haystack:
             return device
     return None
@@ -428,7 +427,7 @@ def _link_with_site(link: dict[str, Any]) -> dict[str, Any]:
     link_site = (
         a_device["site"]
         if a_device["site"] == b_device["site"]
-        else f'{a_device["site"]}<->{b_device["site"]}'
+        else f"{a_device['site']}<->{b_device['site']}"
     )
     return {**link, "site": link_site}
 
@@ -444,13 +443,13 @@ KNOWN_FAKE_DEVICES: list[dict[str, Any]] = [
 ]
 
 
-@tool(name="datamodel.get_known_devices")
+@tool(name="datamodel.get_known_devices")  # type: ignore[operator]
 def get_known_fake_devices() -> list[dict[str, Any]]:
     """Return the fake infra device catalog shared by datamodel tools."""
     return KNOWN_FAKE_DEVICES
 
 
-@tool(name="datamodel.list_devices")
+@tool(name="datamodel.list_devices")  # type: ignore[operator]
 def list_devices(
     site: Annotated[str | None, "Optional site filter, e.g. Paris-DC1"] = None,
     role: Annotated[str | None, "Optional role filter, e.g. spine, core-router"] = None,
@@ -475,7 +474,7 @@ def list_devices(
     return {"count": len(devices), "devices": devices}
 
 
-@tool(name="datamodel.get_device")
+@tool(name="datamodel.get_device")  # type: ignore[operator]
 def get_device(
     hostname_or_ip: Annotated[str, "Target device hostname or management IP"],
 ) -> dict[str, Any]:
@@ -505,7 +504,7 @@ def get_device(
     }
 
 
-@tool(name="datamodel.list_links")
+@tool(name="datamodel.list_links")  # type: ignore[operator]
 def list_links(
     site: Annotated[
         str | None,
@@ -531,7 +530,7 @@ def list_links(
     return {"count": len(links), "links": links}
 
 
-@tool(name="datamodel.get_neighbors")
+@tool(name="datamodel.get_neighbors")  # type: ignore[operator]
 def get_neighbors(
     hostname_or_ip: Annotated[str, "Target device hostname or management IP"],
     only_up: Annotated[bool, "If true, include only links with status=up"] = False,
@@ -582,7 +581,7 @@ def get_neighbors(
     }
 
 
-@tool(name="datamodel.get_topology")
+@tool(name="datamodel.get_topology")  # type: ignore[operator]
 def get_topology(
     site: Annotated[
         str | None,

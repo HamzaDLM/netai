@@ -5,10 +5,10 @@ from haystack.tracing.logging_tracer import LoggingTracer
 from haystack_integrations.components.generators.google_genai import (
     GoogleGenAIChatGenerator,
 )
-
-from app.core.config import project_settings
 from rich.logging import RichHandler  # ← This is the key addition
 from rich.traceback import install as install_rich_traceback
+
+from app.core.config import project_settings
 
 install_rich_traceback(show_locals=False)  # set True during heavy debugging
 

@@ -3,9 +3,10 @@ import json
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
+from haystack.dataclasses import ChatMessage
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
-from haystack.dataclasses import ChatMessage
+
 from app.api.deps import AsyncSessionDep, CheckUserSSODep
 from app.api.models.chat import (
     Conversation,
@@ -16,17 +17,17 @@ from app.api.models.chat import (
 )
 from app.api.schemas.chat import (
     ConversationCreate,
-    ConversationResponse,
     ConversationMessagesResponse,
+    ConversationResponse,
     FeedbackCreate,
     MessageCreate,
     MessageResponse,
 )
-from app.workflows.agent_runner import run_agent, run_agent_stream
-from app.llm import llm
 from app.db.session import SessionLocal
+from app.llm import llm
 from app.observability import langfuse_client
 from app.prompts import TITLE_GENERATION_PROMPT
+from app.workflows.agent_runner import run_agent, run_agent_stream
 
 router = APIRouter(prefix="/llm", tags=["chat"])
 
@@ -71,7 +72,7 @@ def _normalize_evidence_entries(tool: dict) -> list[dict]:
 
 
 async def _generate_title_if_missing(
-    conversation_id: int,
+    conversation_id: str,
     user_question: str,
     assistant_content: str,
 ) -> None:
@@ -163,7 +164,7 @@ async def list_conversations(db: AsyncSessionDep):
     "/conversation/{conversation_id}", response_model=ConversationMessagesResponse
 )
 async def get_conversation(
-    conversation_id: int,
+    conversation_id: str,
     db: AsyncSessionDep,
 ):
     stmt = (
@@ -188,7 +189,7 @@ async def get_conversation(
 
 @router.post("/conversation/{conversation_id}/message", response_model=MessageResponse)
 async def ask_llm(
-    conversation_id: int,
+    conversation_id: str,
     payload: MessageCreate,
     db: AsyncSessionDep,
 ):
@@ -309,7 +310,7 @@ async def ask_llm(
 
 @router.post("/conversation/{conversation_id}/message/stream")
 async def ask_llm_stream(
-    conversation_id: int,
+    conversation_id: str,
     payload: MessageCreate,
     db: AsyncSessionDep,
 ):
@@ -365,7 +366,9 @@ async def ask_llm_stream(
                     yield f"event: specialist_thought\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "specialist_tool_call":
                     normalized_call = {
-                        "name": event.get("tool_name") or event.get("name") or "unknown_tool",
+                        "name": event.get("tool_name")
+                        or event.get("name")
+                        or "unknown_tool",
                         "tool_source": event.get("specialist"),
                         "arguments": event.get("arguments"),
                         "result": None,
@@ -507,7 +510,7 @@ async def submit_feedback(
 
 @router.patch("/conversation/{conversation_id}", response_model=ConversationResponse)
 async def rename_conversation(
-    conversation_id: int,
+    conversation_id: str,
     payload: ConversationCreate,
     db: AsyncSessionDep,
 ):
@@ -531,7 +534,7 @@ async def rename_conversation(
     "/conversation/mark/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 async def mark_deleted_conversation(
-    conversation_id: int,
+    conversation_id: str,
     db: AsyncSessionDep,
 ):
     raise NotImplementedError
@@ -541,7 +544,7 @@ async def mark_deleted_conversation(
     "/conversation/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT
 )
 async def delete_conversation(
-    conversation_id: int,
+    conversation_id: str,
     db: AsyncSessionDep,
 ):
     stmt = select(Conversation).where(Conversation.id == conversation_id)

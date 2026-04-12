@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import Response
 from fastapi.routing import APIRoute
@@ -9,7 +10,6 @@ from starlette.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import project_settings
 from app.observability import langfuse_client
-import uvicorn
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:

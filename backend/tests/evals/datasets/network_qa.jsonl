@@ -1,0 +1,3 @@
+{"question": "Is edge-01 up?", "answer": "Based on evidence from tool output, edge-01 is up.", "required_terms": ["edge-01", "up"], "evidence_required": true}
+{"question": "What protocol is unstable?", "answer": "Evidence indicates BGP instability on core-sw-01.", "required_terms": ["bgp", "instability"], "evidence_required": true}
+{"question": "Summarize findings", "answer": "Summary: link utilization increased but no outage.", "required_terms": ["summary", "utilization"], "evidence_required": false}

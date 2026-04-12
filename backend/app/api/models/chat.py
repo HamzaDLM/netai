@@ -1,22 +1,32 @@
 import enum
+import secrets
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Enum,
     ForeignKey,
     String,
     Text,
 )
-from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
 
 
+def _generate_conversation_hash_id() -> str:
+    # URL-safe, short, and non-sequential identifier for public/API usage.
+    return secrets.token_urlsafe(12)
+
+
 class Conversation(Base):
-    id: Mapped[int] = mapped_column(primary_key=True)  # TODO use hash ids instead
+    id: Mapped[str] = mapped_column(
+        String(32),
+        primary_key=True,
+        default=_generate_conversation_hash_id,
+    )
     title: Mapped[str | None] = mapped_column(String(255))
     user_id: Mapped[int] = mapped_column(index=True)
     messages: Mapped[list["Message"]] = relationship(
@@ -38,8 +48,8 @@ class MessageRole(str, enum.Enum):
 class Message(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("conversation.id"), index=True
+    conversation_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("conversation.id"), index=True
     )
     role: Mapped[MessageRole] = mapped_column(Enum(MessageRole))
     content: Mapped[str] = mapped_column(Text)
@@ -109,11 +119,9 @@ class Feedback(Base):
 
 
 class ConversationSummary(Base):
-    __tablename__ = "conversation_summaries"
-
     id: Mapped[int] = mapped_column(primary_key=True)
-    conversation_id: Mapped[int] = mapped_column(
-        ForeignKey("conversation.id"), index=True
+    conversation_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("conversation.id"), index=True
     )
     content: Mapped[str] = mapped_column(Text)
     up_to_message_id: Mapped[int] = mapped_column(index=True)

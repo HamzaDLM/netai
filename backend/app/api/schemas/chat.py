@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from pydantic import BaseModel
+
 from app.api.models.chat import MessageRole
 
 
@@ -45,7 +46,7 @@ class ConversationCreate(BaseModel):
 
 
 class ConversationResponse(BaseModel):
-    id: int
+    id: str
     title: str | None
     created_at: datetime
     updated_at: datetime

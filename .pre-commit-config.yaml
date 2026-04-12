@@ -1,0 +1,34 @@
+minimum_pre_commit_version: "3.6.0"
+default_stages: [pre-commit]
+fail_fast: false
+
+repos:
+  - repo: local
+    hooks:
+      - id: mypy-backend
+        name: Mypy Check (backend)
+        entry: bash -lc 'cd backend && uv run mypy app tests'
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: ruff-imports-backend
+        name: Ruff Import Formatting (backend)
+        entry: bash -lc 'cd backend && uv run ruff check --select I --fix .'
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: ruff-format-backend
+        name: Ruff Formatting (backend)
+        entry: bash -lc 'cd backend && uv run ruff format .'
+        language: system
+        pass_filenames: false
+        files: ^backend/
+
+      - id: pytest-backend
+        name: Run Backend Tests
+        entry: bash -lc 'cd backend && uv run pytest tests -q'
+        language: system
+        pass_filenames: false
+        files: ^backend/

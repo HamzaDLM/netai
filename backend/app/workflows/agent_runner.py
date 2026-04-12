@@ -3,7 +3,10 @@ import json
 from time import perf_counter
 from typing import Any, AsyncIterator
 
+from haystack.dataclasses import ChatMessage
+
 from app.agents.orchestrator_agent import orchestrator_agent
+from app.prompts import FORMATTING_PROMPT
 from app.workflows.context_manager import build_conversation_context
 
 
@@ -69,7 +72,7 @@ def _extract_tool_calls(result: Any) -> list[dict]:
         for message in messages:
             tool_calls = getattr(message, "tool_calls", None) or []
             for tool_call in tool_calls:
-                call = {
+                call: dict[str, Any] = {
                     "name": getattr(tool_call, "tool_name", "unknown_tool"),
                     "arguments": getattr(tool_call, "arguments", None),
                     "result": None,
@@ -210,6 +213,12 @@ async def _run_agent(
         raise Exception("problem with agent message type")
 
 
+def _with_runtime_formatting_prompt(messages: list[Any]) -> list[Any]:
+    if not FORMATTING_PROMPT.strip():
+        return messages
+    return [*messages, ChatMessage.from_system(FORMATTING_PROMPT)]
+
+
 def _tokenize(text: str) -> list[str]:
     if not text:
         return []
@@ -225,9 +234,10 @@ def _tokenize(text: str) -> list[str]:
     return tokens
 
 
-async def run_agent(*, conversation_id: int, question: str) -> dict:
+async def run_agent(*, conversation_id: str, question: str) -> dict:
+    _ = question
     context = await build_conversation_context(conversation_id=conversation_id)
-    messages = context.messages
+    messages = _with_runtime_formatting_prompt(context.messages)
 
     start = perf_counter()
     result = await _run_agent(messages)
@@ -243,10 +253,11 @@ async def run_agent(*, conversation_id: int, question: str) -> dict:
 
 
 async def run_agent_stream(
-    *, conversation_id: int, question: str
+    *, conversation_id: str, question: str
 ) -> AsyncIterator[dict]:
+    _ = question
     context = await build_conversation_context(conversation_id=conversation_id)
-    messages = context.messages
+    messages = _with_runtime_formatting_prompt(context.messages)
     yield {"type": "context_metrics", **context.metrics()}
     yield {
         "type": "thinking",

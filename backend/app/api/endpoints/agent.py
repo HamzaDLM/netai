@@ -1,8 +1,9 @@
 from fastapi import APIRouter
+from haystack.dataclasses import ChatMessage
 
+from app.agents.orchestrator_agent import orchestrator_agent
 from app.api.schemas.agent import AgentAskRequest, AgentAskResponse
 from app.observability import langfuse_client
-from app.agents.orchestrator_agent import orchestrator_agent
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -19,19 +20,31 @@ async def ask_agent(payload: AgentAskRequest) -> AgentAskResponse:
         input={"question": payload.question, "top_k": payload.top_k},
     )
     try:
-        result = await orchestrator_agent.ask(payload.question, payload.top_k)
+        result = orchestrator_agent.run(
+            messages=[ChatMessage.from_user(payload.question)]
+        )
+        answer = ""
+        replies = result.get("replies") if isinstance(result, dict) else None
+        if isinstance(replies, list) and replies:
+            first = replies[0]
+            answer = str(
+                getattr(first, "text", "") or getattr(first, "content", "") or ""
+            )
+        if not answer:
+            answer = str(result)
+
         run_span.end(
             output={
-                "capability": result.selected_capability,
-                "fallback_used": result.fallback_used,
-                "evidence_count": len(result.evidence),
+                "capability": "orchestrator",
+                "fallback_used": False,
+                "evidence_count": 0,
             }
         )
         trace.end(
             output={
-                "capability": result.selected_capability,
-                "fallback_used": result.fallback_used,
-                "evidence_count": len(result.evidence),
+                "capability": "orchestrator",
+                "fallback_used": False,
+                "evidence_count": 0,
             }
         )
     except Exception as exc:
@@ -40,11 +53,11 @@ async def ask_agent(payload: AgentAskRequest) -> AgentAskResponse:
         raise
 
     return AgentAskResponse(
-        answer=result.answer,
-        selected_capability=result.selected_capability,
-        confidence=result.confidence,
-        fallback_used=result.fallback_used,
-        filters=result.filters,
-        evidence=result.evidence,
-        execution_trace=result.execution_trace,
+        answer=answer,
+        selected_capability="orchestrator",
+        confidence=1.0,
+        fallback_used=False,
+        filters={},
+        evidence=[],
+        execution_trace=[],
     )

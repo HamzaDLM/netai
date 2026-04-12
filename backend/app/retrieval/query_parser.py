@@ -1,7 +1,6 @@
 import re
 from dataclasses import dataclass
 
-
 IPV4_RE = re.compile(
     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
 )

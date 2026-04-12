@@ -35,8 +35,8 @@ pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
                 event_id String,
                 ts_unix Int64,
                 hostname String,
-                vendor LowCardinality(String),
-                facility LowCardinality(String),
+                vendor String,
+                facility String,
                 severity Int16,
                 event_code String,
                 raw_message String,
@@ -53,15 +53,11 @@ pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
 
     // Backward compatibility for existing deployments created before vendor columns existed.
     client
-        .query(
-            "ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS vendor LowCardinality(String) DEFAULT ''",
-        )
+        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS vendor String")
         .execute()
         .await?;
     client
-        .query(
-            "ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS facility LowCardinality(String) DEFAULT ''",
-        )
+        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS facility String")
         .execute()
         .await?;
     client
@@ -69,7 +65,7 @@ pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
         .execute()
         .await?;
     client
-        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS event_code String DEFAULT ''")
+        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS event_code String")
         .execute()
         .await?;
 

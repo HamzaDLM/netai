@@ -6,7 +6,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
-from app.workflows.log_qa import LogQAWorkflow
+from app.tools.syslog_tool import syslog_qa_engine
 
 console = Console()
 
@@ -17,8 +17,6 @@ def parse_args() -> argparse.Namespace:
 
 
 async def run_cli() -> None:
-    workflow = LogQAWorkflow()
-
     console.print(
         Panel(
             "Ask questions about ingested syslogs. Type [bold]q[/bold] to quit.",
@@ -35,7 +33,11 @@ async def run_cli() -> None:
         console.print(Panel(question, title="Question", border_style="blue"))
 
         try:
-            result = await workflow.ask(question=question)
+            result = await asyncio.to_thread(
+                syslog_qa_engine.ask,
+                question=question,
+                top_k=None,
+            )
             console.print(Panel(result.answer, title="Answer", border_style="green"))
         except Exception as exc:
             console.print(Panel(str(exc), title="Error", border_style="red"))

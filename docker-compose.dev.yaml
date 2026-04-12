@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
@@ -164,7 +162,14 @@ services:
 
   langfuse-redis:
     image: redis:7
-    command: ["redis-server", "--requirepass", "myredissecret", "--maxmemory-policy", "noeviction"]
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "myredissecret",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "myredissecret", "ping"]
       interval: 3s

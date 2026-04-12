@@ -1,5 +1,7 @@
-from fastapi import Request
 from dataclasses import dataclass
+
+from fastapi import Request
+
 from app.api.models.users import UserRole
 
 

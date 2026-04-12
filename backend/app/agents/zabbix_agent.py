@@ -9,7 +9,6 @@ from app.tools.zabbix_tools import (
     get_host_inventory,
     get_host_metrics,
     get_host_status,
-    get_known_fake_devices,
     get_problem_summary,
     get_trigger_events,
     list_zabbix_hosts,
@@ -27,7 +26,6 @@ e.g.: up = green, down = red
 
 zabbix_tools: list[Tool] = [
     cast(Tool, list_zabbix_hosts),
-    cast(Tool, get_known_fake_devices),
     cast(Tool, get_host_status),
     cast(Tool, get_host_inventory),
     cast(Tool, get_host_interfaces),

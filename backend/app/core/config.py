@@ -26,11 +26,11 @@ class Settings(BaseSettings):
     FRONTEND_HOST: str = "http://localhost:5173"
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
-    BACKEND_CORS_ORIGINS: Annotated[list[AnyUrl] | str, BeforeValidator(parse_cors)] = (
-        []
-    )
+    BACKEND_CORS_ORIGINS: Annotated[
+        list[AnyUrl] | str, BeforeValidator(parse_cors)
+    ] = []
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field  # type: ignore[misc]
     @property
     def all_cors_origins(self) -> list[str]:
         return [str(origin).rstrip("/") for origin in self.BACKEND_CORS_ORIGINS] + [
@@ -68,7 +68,7 @@ class Settings(BaseSettings):
 
     LLM_CONTEXT_WINDOW: int = 100_000
 
-    @computed_field
+    @computed_field  # type: ignore[misc]
     @property
     def get_gemini_api(self) -> str:
         if not self.GEMINI_API_KEY:
