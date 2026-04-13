@@ -58,9 +58,12 @@ async def test_stream_specialist_tool_calls_are_persisted(
     payload = convo_resp.json()
     assistant = [m for m in payload["messages"] if m["role"] == "assistant"][0]
 
-    assert len(assistant["tool_calls"]) == 1
-    tool_call = assistant["tool_calls"][0]
-    assert tool_call["tool_name"] == "syslog_specialist"
-    assert tool_call["result"] == {"summary": "flaps found"}
-    assert len(tool_call["evidence_items"]) == 1
-    assert "flaps" in tool_call["evidence_items"][0]["content_snippet"]
+    assert len(assistant["agent_runs"]) == 1
+    run = assistant["agent_runs"][0]
+    assert run["status"] == "completed"
+    events = run["events"]
+    assert len(events) == 2
+    assert events[0]["event_type"] == "specialist_tool_call"
+    assert events[1]["event_type"] == "specialist_tool_result"
+    assert events[1]["payload"]["result"] == {"summary": "flaps found"}
+    assert "flaps" in events[0]["payload"]["evidence"][0]["content"]

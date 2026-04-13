@@ -76,6 +76,7 @@ services:
       - ./backend/.env
     environment:
       FRONTEND_HOST: http://localhost:5173
+      BACKEND_GIT_SHA: ${BACKEND_GIT_SHA:-dev}
       CLICKHOUSE_URL: http://clickhouse:8123
       QDRANT_URL: http://qdrant:6333
       SQLALCHEMY_URL: sqlite+aiosqlite:///./data/netai_local.db
@@ -128,54 +129,14 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_BASE_URL: /api/v1
+        VITE_UI_VERSION: ${VITE_UI_VERSION:-}
+        VITE_UI_GIT_SHA: ${VITE_UI_GIT_SHA:-dev}
     container_name: netai_ui
     depends_on:
       backend:
         condition: service_started
     ports:
       - "5173:80"
-    restart: unless-stopped
-
-  prometheus:
-    image: prom/prometheus:v2.54.1
-    container_name: netai_prometheus
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --storage.tsdb.path=/prometheus
-    depends_on:
-      backend:
-        condition: service_started
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-
-  grafana:
-    image: grafana/grafana:11.2.0
-    container_name: netai_grafana
-    depends_on:
-      - prometheus
-    ports:
-      - "3000:3000"
-    environment:
-      GF_SECURITY_ADMIN_USER: admin
-      GF_SECURITY_ADMIN_PASSWORD: admin
-      GF_USERS_ALLOW_SIGN_UP: "false"
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-
-  uptime_kuma:
-    image: louislam/uptime-kuma:1
-    container_name: netai_uptime_kuma
-    ports:
-      - "3001:3001"
-    volumes:
-      - uptime_kuma_data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
 volumes:
@@ -187,6 +148,3 @@ volumes:
   clickhouse_logs:
   redis_data:
   backend_data:
-  prometheus_data:
-  grafana_data:
-  uptime_kuma_data:

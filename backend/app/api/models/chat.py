@@ -59,8 +59,9 @@ class Message(Base):
     token_output: Mapped[int | None]
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     conversation: Mapped["Conversation"] = relationship(back_populates="messages")
-    tool_calls: Mapped[list["ToolCall"]] = relationship(
-        back_populates="message",
+    agent_runs: Mapped[list["AgentRun"]] = relationship(
+        back_populates="assistant_message",
+        foreign_keys="AgentRun.assistant_message_id",
         cascade="all, delete-orphan",
     )
     feedback: Mapped[list["Feedback"]] = relationship(
@@ -69,38 +70,48 @@ class Message(Base):
     )
 
 
-class ToolCallStatus(str, enum.Enum):
-    success = "success"
-    error = "error"
+class AgentRunStatus(str, enum.Enum):
+    running = "running"
+    completed = "completed"
+    failed = "failed"
 
 
-class ToolCall(Base):
+class AgentRun(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
-
-    message_id: Mapped[int] = mapped_column(ForeignKey("message.id"), index=True)
-    tool_name: Mapped[str] = mapped_column(String(100))
-    tool_source: Mapped[str | None] = mapped_column(String(50))
-    arguments: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
-    latency_ms: Mapped[int | None]
-    status: Mapped[ToolCallStatus | None] = mapped_column(Enum(ToolCallStatus))
-    message: Mapped["Message"] = relationship(back_populates="tool_calls")
-    evidence_items: Mapped[list["Evidence"]] = relationship(
-        back_populates="tool_call",
+    conversation_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("conversation.id"), index=True
+    )
+    user_message_id: Mapped[int] = mapped_column(ForeignKey("message.id"), index=True)
+    assistant_message_id: Mapped[int | None] = mapped_column(
+        ForeignKey("message.id"), index=True
+    )
+    status: Mapped[AgentRunStatus] = mapped_column(Enum(AgentRunStatus))
+    final_answer: Mapped[str | None] = mapped_column(Text)
+    context_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
+    ended_at: Mapped[datetime | None]
+    conversation: Mapped["Conversation"] = relationship()
+    assistant_message: Mapped["Message"] = relationship(
+        back_populates="agent_runs",
+        foreign_keys=[assistant_message_id],
+    )
+    events: Mapped[list["AgentEvent"]] = relationship(
+        back_populates="run",
+        order_by="AgentEvent.event_sequence",
         cascade="all, delete-orphan",
     )
 
 
-class Evidence(Base):
+class AgentEvent(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
-
-    tool_call_id: Mapped[int] = mapped_column(ForeignKey("toolcall.id"), index=True)
-    source_type: Mapped[str] = mapped_column(String(50))
-    source_ref: Mapped[str | None] = mapped_column(String(255))
-    content_snippet: Mapped[str] = mapped_column(Text)
-    score: Mapped[float | None]
-    timestamp: Mapped[datetime | None]
-    tool_call: Mapped["ToolCall"] = relationship(back_populates="evidence_items")
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_run.id"), index=True)
+    event_sequence: Mapped[int] = mapped_column(index=True)
+    event_type: Mapped[str] = mapped_column(String(64))
+    actor_type: Mapped[str | None] = mapped_column(String(32))
+    actor_name: Mapped[str | None] = mapped_column(String(64))
+    correlation_id: Mapped[str | None] = mapped_column(String(100))
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    run: Mapped["AgentRun"] = relationship(back_populates="events")
 
 
 class FeedbackRating(str, enum.Enum):
@@ -110,7 +121,6 @@ class FeedbackRating(str, enum.Enum):
 
 class Feedback(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
-
     message_id: Mapped[int] = mapped_column(ForeignKey("message.id"), index=True)
     user_id: Mapped[int] = mapped_column(index=True)
     rating: Mapped[FeedbackRating] = mapped_column(Enum(FeedbackRating))

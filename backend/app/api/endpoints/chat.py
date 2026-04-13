@@ -9,11 +9,12 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import AsyncSessionDep, CheckUserSSODep
 from app.api.models.chat import (
+    AgentEvent,
+    AgentRun,
+    AgentRunStatus,
     Conversation,
-    Evidence,
     Feedback,
     Message,
-    ToolCall,
 )
 from app.api.schemas.chat import (
     ConversationCreate,
@@ -32,43 +33,23 @@ from app.workflows.agent_runner import run_agent, run_agent_stream
 router = APIRouter(prefix="/llm", tags=["chat"])
 
 
-def _derive_tool_source(tool_name: str | None) -> str | None:
-    if not tool_name:
-        return None
-    name = tool_name.strip()
-    if not name:
-        return None
-    if "." in name:
-        prefix = name.split(".", 1)[0].strip().lower()
-        return prefix or None
-    return None
-
-
-def _normalize_evidence_entries(tool: dict) -> list[dict]:
-    evidence = tool.get("evidence") or []
-    if evidence:
-        return evidence
-
-    result = tool.get("result")
-    if result is None:
-        return []
-
-    snippet = json.dumps(result, ensure_ascii=True, default=str)
-    if len(snippet) > 1500:
-        snippet = snippet[:1500] + "...(truncated)"
-
-    tool_name = tool.get("name")
-    tool_source = _derive_tool_source(tool_name)
-    source_type = tool_source or "tool_result"
-
-    return [
-        {
-            "type": source_type,
-            "ref": tool_name,
-            "content": snippet,
-            "score": None,
-        }
-    ]
+def _event_actor(event: dict) -> tuple[str | None, str | None]:
+    event_type = str(event.get("type", "")).strip()
+    if not event_type:
+        return None, None
+    if event_type.startswith("specialist_"):
+        return "specialist", str(event.get("specialist") or "unknown")
+    if event_type == "orchestrator_plan":
+        return "orchestrator", "orchestrator"
+    if event_type == "thinking":
+        agent = str(event.get("agent") or "orchestrator")
+        actor_type = "orchestrator" if agent == "orchestrator" else "specialist"
+        return actor_type, agent
+    if event_type in {"tool_call", "tool_result"}:
+        return "tool", str(event.get("name") or "unknown_tool")
+    if event_type == "leader_conclusion":
+        return "orchestrator", "orchestrator"
+    return "system", event_type
 
 
 async def _generate_title_if_missing(
@@ -172,8 +153,8 @@ async def get_conversation(
         .where(Conversation.id == conversation_id)
         .options(
             selectinload(Conversation.messages)
-            .selectinload(Message.tool_calls)
-            .selectinload(ToolCall.evidence_items)
+            .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.events)
         )
     )
 
@@ -207,8 +188,9 @@ async def ask_llm(
     )
 
     db.add(user_message)
+    await db.flush()
+    user_message_id = user_message.id
     await db.commit()
-    await db.refresh(user_message)
 
     agent_span = trace.span("chat.agent_run", input={"question": payload.content})
     try:
@@ -219,7 +201,7 @@ async def ask_llm(
         )
         agent_span.end(
             output={
-                "tool_calls": len(agent_result.get("tools", [])),
+                "events": len(agent_result.get("events", [])),
                 "context_metrics": agent_result.get("context_metrics"),
             }
         )
@@ -245,37 +227,41 @@ async def ask_llm(
     await db.flush()
     assistant_message_id = assistant_message.id
 
-    # store tool_calls + evidence
-    for tool in agent_result["tools"]:
-        tool_call = ToolCall(
-            message_id=assistant_message_id,
-            tool_name=tool["name"],
-            tool_source=_derive_tool_source(tool.get("name")),
-            arguments=tool["arguments"],
-            result=tool["result"],
-            latency_ms=tool.get("latency_ms"),
-        )
+    run = AgentRun(
+        conversation_id=conversation_id,
+        user_message_id=user_message_id,
+        assistant_message_id=assistant_message_id,
+        status=AgentRunStatus.completed,
+        final_answer=assistant_content,
+        context_metrics=(
+            agent_result.get("context_metrics")
+            if isinstance(agent_result.get("context_metrics"), dict)
+            else None
+        ),
+    )
+    db.add(run)
+    await db.flush()
 
-        db.add(tool_call)
-        await db.flush()
-
-        for ev in _normalize_evidence_entries(tool):
-            evidence = Evidence(
-                tool_call_id=tool_call.id,
-                source_type=ev.get("type", "tool_result"),
-                source_ref=ev.get("ref"),
-                content_snippet=str(ev.get("content", "")),
-                score=ev.get("score"),
+    for event_sequence, event in enumerate(agent_result.get("events", []), start=1):
+        actor_type, actor_name = _event_actor(event)
+        db.add(
+            AgentEvent(
+                run_id=run.id,
+                event_sequence=event_sequence,
+                event_type=str(event.get("type") or "unknown"),
+                actor_type=actor_type,
+                actor_name=actor_name,
+                payload=event,
+                correlation_id=None,
             )
-
-            db.add(evidence)
+        )
 
     db_span = trace.span("chat.persist_assistant_message")
     await db.commit()
     db_span.end(
         output={
             "assistant_message_id": assistant_message_id,
-            "tool_calls": len(agent_result.get("tools", [])),
+            "events": len(agent_result.get("events", [])),
         }
     )
     await _generate_title_if_missing(
@@ -287,7 +273,7 @@ async def ask_llm(
     hydrated_stmt = (
         select(Message)
         .where(Message.id == assistant_message_id)
-        .options(selectinload(Message.tool_calls).selectinload(ToolCall.evidence_items))
+        .options(selectinload(Message.agent_runs).selectinload(AgentRun.events))
     )
     hydrated_result = await db.execute(hydrated_stmt)
     hydrated_message = hydrated_result.scalar_one_or_none()
@@ -295,7 +281,7 @@ async def ask_llm(
         trace.end(
             output={
                 "assistant_message_id": assistant_message_id,
-                "tool_calls": len(hydrated_message.tool_calls or []),
+                "agent_runs": len(hydrated_message.agent_runs or []),
                 "context_metrics": agent_result.get("context_metrics"),
             }
         )
@@ -327,11 +313,13 @@ async def ask_llm_stream(
     )
 
     db.add(user_message)
+    await db.flush()
+    user_message_id = user_message.id
     await db.commit()
 
     async def event_generator():
         assistant_tokens: list[str] = []
-        tools_called = []
+        run_events: list[dict] = []
         context_metrics: dict | None = None
         stream_span = trace.span("chat.stream_agent_run")
 
@@ -348,47 +336,26 @@ async def ask_llm_stream(
                 elif event["type"] == "context_metrics":
                     context_metrics = event
                     yield f"event: context_metrics\ndata: {json.dumps(event)}\n\n"
-
-                elif event["type"] == "tool_call":
-                    tools_called.append(event)
-
-                    yield f"event: tool_call\ndata: {json.dumps(event)}\n\n"
-
-                elif event["type"] == "tool_result":
-                    yield f"event: tool_result\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "thinking":
+                    run_events.append(event)
                     yield f"event: thinking\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "orchestrator_plan":
+                    run_events.append(event)
                     yield f"event: orchestrator_plan\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "specialist_prompt":
+                    run_events.append(event)
                     yield f"event: specialist_prompt\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "specialist_thought":
+                    run_events.append(event)
                     yield f"event: specialist_thought\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "specialist_tool_call":
-                    normalized_call = {
-                        "name": event.get("tool_name")
-                        or event.get("name")
-                        or "unknown_tool",
-                        "tool_source": event.get("specialist"),
-                        "arguments": event.get("arguments"),
-                        "result": None,
-                        "evidence": event.get("evidence") or [],
-                    }
-                    tools_called.append(normalized_call)
+                    run_events.append(event)
                     yield f"event: specialist_tool_call\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "specialist_tool_result":
-                    tool_name = event.get("tool_name")
-                    specialist = event.get("specialist")
-                    for existing in reversed(tools_called):
-                        if (
-                            existing.get("name") == tool_name
-                            and existing.get("tool_source") == specialist
-                            and existing.get("result") is None
-                        ):
-                            existing["result"] = event.get("result")
-                            break
+                    run_events.append(event)
                     yield f"event: specialist_tool_result\ndata: {json.dumps(event)}\n\n"
                 elif event["type"] == "leader_conclusion":
+                    run_events.append(event)
                     yield f"event: leader_conclusion\ndata: {json.dumps(event)}\n\n"
         except Exception as exc:
             stream_span.end(output={"error": str(exc)})
@@ -412,41 +379,46 @@ async def ask_llm_stream(
         await db.flush()
         assistant_message_id = assistant_message.id
 
-        for tool in tools_called:
-            tool_call = ToolCall(
-                message_id=assistant_message_id,
-                tool_name=tool["name"],
-                tool_source=_derive_tool_source(tool.get("name")),
-                arguments=tool["arguments"],
-                result=tool.get("result"),
-            )
+        run = AgentRun(
+            conversation_id=conversation_id,
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
+            status=AgentRunStatus.completed,
+            final_answer=assistant_content,
+            context_metrics=context_metrics
+            if isinstance(context_metrics, dict)
+            else None,
+        )
+        db.add(run)
+        await db.flush()
 
-            db.add(tool_call)
-            await db.flush()
-
-            for ev in _normalize_evidence_entries(tool):
-                evidence = Evidence(
-                    tool_call_id=tool_call.id,
-                    source_type=ev.get("type", "tool_result"),
-                    source_ref=ev.get("ref"),
-                    content_snippet=str(ev.get("content", "")),
-                    score=ev.get("score"),
+        for event_sequence, event in enumerate(run_events, start=1):
+            actor_type, actor_name = _event_actor(event)
+            db.add(
+                AgentEvent(
+                    run_id=run.id,
+                    event_sequence=event_sequence,
+                    event_type=str(event.get("type") or "unknown"),
+                    actor_type=actor_type,
+                    actor_name=actor_name,
+                    payload=event,
+                    correlation_id=None,
                 )
-                db.add(evidence)
+            )
 
         await db.commit()
         stream_span.end(
             output={
                 "assistant_message_id": assistant_message_id,
                 "token_count_chars": len(assistant_content),
-                "tool_calls": len(tools_called),
+                "events": len(run_events),
                 "context_metrics": context_metrics,
             }
         )
         trace.end(
             output={
                 "assistant_message_id": assistant_message_id,
-                "tool_calls": len(tools_called),
+                "events": len(run_events),
                 "context_metrics": context_metrics,
             }
         )
@@ -467,27 +439,6 @@ async def ask_llm_stream(
         event_generator(),
         media_type="text/event-stream",
     )
-
-
-@router.get("/tool_call/{tool_call_id}")
-async def get_tool_call(
-    tool_call_id: int,
-    db: AsyncSessionDep,
-):
-    stmt = (
-        select(ToolCall)
-        .where(ToolCall.id == tool_call_id)
-        .options(selectinload(ToolCall.evidence_items))
-    )
-
-    result = await db.execute(stmt)
-
-    tool_call = result.scalar_one_or_none()
-
-    if not tool_call:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
-
-    return tool_call
 
 
 @router.post("/messages/{message_id}/feedback")

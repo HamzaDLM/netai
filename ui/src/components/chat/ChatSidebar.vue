@@ -45,10 +45,10 @@ const emit = defineEmits<{
 // Rename logic
 
 const renameDialogOpen = ref(false)
-const pendingRenameId = ref<number | null>(null)
+const pendingRenameId = ref<string | null>(null)
 const newTitle = ref("")
 
-function openRenameDialog(conversation_id: number, title: string) {
+function openRenameDialog(conversation_id: string, title: string) {
     renameDialogOpen.value = true
     pendingRenameId.value = conversation_id
     newTitle.value = title
@@ -71,9 +71,9 @@ function resetRename() {
 // Deletion logic
 
 const deleteDialogOpen = ref(false)
-const pendingDeleteId = ref<number | null>(null)
+const pendingDeleteId = ref<string | null>(null)
 
-function openDeleteDialog(conversation_id: number) {
+function openDeleteDialog(conversation_id: string) {
     pendingDeleteId.value = conversation_id
     deleteDialogOpen.value = true
 }

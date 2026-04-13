@@ -1,279 +1,306 @@
 from typing import Annotated, Any
 
+import httpx
 from haystack.tools import tool
 
-_PRIORITY_ORDER = {
-    "1 - critical": 1,
-    "2 - high": 2,
-    "3 - moderate": 3,
-    "4 - low": 4,
-    "5 - planning": 5,
+from app.core.config import project_settings
+
+INCIDENT_STATE_MAP = {
+    "new": "1",
+    "in_progress": "2",
+    "on_hold": "3",
+    "resolved": "6",
+    "closed": "7",
+    "canceled": "8",
+}
+CHANGE_STATE_MAP = {
+    "new": "-5",
+    "assess": "-4",
+    "authorize": "-3",
+    "scheduled": "-2",
+    "implement": "-1",
+    "review": "0",
+    "closed": "3",
+    "canceled": "4",
+}
+RISK_MAP = {"critical": "1", "high": "2", "moderate": "3", "low": "4"}
+INSTALL_STATUS_MAP = {
+    "in_service": "1",
+    "retired": "7",
+    "maintenance": "4",
 }
 
-_RISK_ORDER = {"critical": 1, "high": 2, "moderate": 3, "low": 4}
 
-_FAKE_CIS: dict[str, dict[str, Any]] = {
-    "ci-001": {
-        "sys_id": "ci-001",
-        "name": "edge-fw-par-01",
-        "ci_class": "network_firewall",
-        "ip_address": "10.10.1.1",
-        "site": "Paris-DC1",
-        "service": "WAN-Edge",
-        "environment": "prod",
-        "install_status": "in_service",
-        "owned_by_group": "NetSec",
-    },
-    "ci-002": {
-        "sys_id": "ci-002",
-        "name": "core-sw-par-01",
-        "ci_class": "network_switch",
-        "ip_address": "10.10.1.11",
-        "site": "Paris-DC1",
-        "service": "DC-Core",
-        "environment": "prod",
-        "install_status": "in_service",
-        "owned_by_group": "Network-Core",
-    },
-    "ci-003": {
-        "sys_id": "ci-003",
-        "name": "dist-rtr-nyc-01",
-        "ci_class": "network_router",
-        "ip_address": "10.20.1.1",
-        "site": "NYC-DC1",
-        "service": "WAN-Transit",
-        "environment": "prod",
-        "install_status": "in_service",
-        "owned_by_group": "Network-Backbone",
-    },
-    "ci-004": {
-        "sys_id": "ci-004",
-        "name": "wlc-sfo-01",
-        "ci_class": "wireless_controller",
-        "ip_address": "10.30.1.20",
-        "site": "SFO-Campus",
-        "service": "Campus-Wifi",
-        "environment": "prod",
-        "install_status": "maintenance",
-        "owned_by_group": "Network-Access",
-    },
-}
-
-_FAKE_INCIDENTS: list[dict[str, Any]] = [
-    {
-        "number": "INC0010421",
-        "state": "in_progress",
-        "priority": "1 - Critical",
-        "impact": "high",
-        "urgency": "high",
-        "major_incident": True,
-        "short_description": "BGP instability on NYC transit edge",
-        "description": "Transit peer flapping causes intermittent packet loss for east coast sites.",
-        "service": "WAN-Transit",
-        "assignment_group": "Network-Backbone",
-        "assigned_to": "Carla Diaz",
-        "opened_at": "2026-03-29T08:42:00Z",
-        "updated_at": "2026-03-31T18:20:00Z",
-        "ci_sys_id": "ci-003",
-        "related_problem": "PRB000381",
-        "related_change": "CHG0007721",
-    },
-    {
-        "number": "INC0010435",
-        "state": "new",
-        "priority": "2 - High",
-        "impact": "high",
-        "urgency": "medium",
-        "major_incident": False,
-        "short_description": "Access port errors increasing on core-sw-par-01",
-        "description": "CRC and input errors seen on TenGig1/0/48 during peak load.",
-        "service": "DC-Core",
-        "assignment_group": "Network-Core",
-        "assigned_to": "",
-        "opened_at": "2026-03-31T07:10:00Z",
-        "updated_at": "2026-03-31T09:44:00Z",
-        "ci_sys_id": "ci-002",
-        "related_problem": "",
-        "related_change": "",
-    },
-    {
-        "number": "INC0010452",
-        "state": "on_hold",
-        "priority": "3 - Moderate",
-        "impact": "medium",
-        "urgency": "medium",
-        "major_incident": False,
-        "short_description": "Intermittent VPN session drops at Paris edge",
-        "description": "Investigating whether timeout policy mismatch causes tunnel renegotiation.",
-        "service": "WAN-Edge",
-        "assignment_group": "NetSec",
-        "assigned_to": "Alice Martin",
-        "opened_at": "2026-03-30T15:24:00Z",
-        "updated_at": "2026-03-31T16:02:00Z",
-        "ci_sys_id": "ci-001",
-        "related_problem": "PRB000390",
-        "related_change": "CHG0007738",
-    },
-    {
-        "number": "INC0010460",
-        "state": "resolved",
-        "priority": "4 - Low",
-        "impact": "low",
-        "urgency": "low",
-        "major_incident": False,
-        "short_description": "Controller maintenance notification for wlc-sfo-01",
-        "description": "Planned reboot completed, APs have rejoined as expected.",
-        "service": "Campus-Wifi",
-        "assignment_group": "Network-Access",
-        "assigned_to": "Ravi Patel",
-        "opened_at": "2026-03-27T12:00:00Z",
-        "updated_at": "2026-03-27T13:05:00Z",
-        "ci_sys_id": "ci-004",
-        "related_problem": "",
-        "related_change": "CHG0007702",
-    },
-]
-
-_FAKE_CHANGES: list[dict[str, Any]] = [
-    {
-        "number": "CHG0007721",
-        "type": "emergency",
-        "state": "implement",
-        "risk": "high",
-        "short_description": "Adjust BGP hold timers for NYC transit peers",
-        "service": "WAN-Transit",
-        "assignment_group": "Network-Backbone",
-        "opened_by": "Carla Diaz",
-        "start_at": "2026-03-31T20:00:00Z",
-        "end_at": "2026-03-31T22:00:00Z",
-        "ci_sys_id": "ci-003",
-        "related_incidents": ["INC0010421"],
-    },
-    {
-        "number": "CHG0007738",
-        "type": "normal",
-        "state": "scheduled",
-        "risk": "moderate",
-        "short_description": "Harden SSH ciphers on Paris edge firewall",
-        "service": "WAN-Edge",
-        "assignment_group": "NetSec",
-        "opened_by": "Alice Martin",
-        "start_at": "2026-04-02T01:00:00Z",
-        "end_at": "2026-04-02T02:00:00Z",
-        "ci_sys_id": "ci-001",
-        "related_incidents": ["INC0010452"],
-    },
-    {
-        "number": "CHG0007702",
-        "type": "standard",
-        "state": "closed",
-        "risk": "low",
-        "short_description": "Wireless controller monthly patch baseline",
-        "service": "Campus-Wifi",
-        "assignment_group": "Network-Access",
-        "opened_by": "Ravi Patel",
-        "start_at": "2026-03-27T11:30:00Z",
-        "end_at": "2026-03-27T12:30:00Z",
-        "ci_sys_id": "ci-004",
-        "related_incidents": ["INC0010460"],
-    },
-]
-
-_FAKE_PROBLEMS: list[dict[str, Any]] = [
-    {
-        "number": "PRB000381",
-        "state": "investigating",
-        "priority": "2 - High",
-        "known_error": False,
-        "short_description": "Recurring transit BGP flap under evening traffic bursts",
-        "root_cause": "",
-        "service": "WAN-Transit",
-        "assignment_group": "Network-Backbone",
-        "opened_at": "2026-03-28T09:05:00Z",
-        "updated_at": "2026-03-31T18:10:00Z",
-        "ci_sys_id": "ci-003",
-        "related_incidents": ["INC0010421"],
-        "related_changes": ["CHG0007721"],
-    },
-    {
-        "number": "PRB000390",
-        "state": "known_error",
-        "priority": "3 - Moderate",
-        "known_error": True,
-        "short_description": "VPN rekey mismatch on legacy branch peers",
-        "root_cause": "IKE policy lifetime mismatch between edge and remote peer profile",
-        "service": "WAN-Edge",
-        "assignment_group": "NetSec",
-        "opened_at": "2026-03-25T10:50:00Z",
-        "updated_at": "2026-03-31T14:02:00Z",
-        "ci_sys_id": "ci-001",
-        "related_incidents": ["INC0010452"],
-        "related_changes": ["CHG0007738"],
-    },
-]
+class ServiceNowToolError(RuntimeError):
+    pass
 
 
-def _normalize(value: str | None) -> str:
+def normalize(value: str | None) -> str:
     return (value or "").strip().lower()
 
 
-def _ci_for(sys_id: str | None) -> dict[str, Any] | None:
-    if not sys_id:
-        return None
-    return _FAKE_CIS.get(sys_id)
+def _string(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    return str(value)
 
 
-def _enrich_with_ci(record: dict[str, Any]) -> dict[str, Any]:
-    ci = _ci_for(record.get("ci_sys_id"))
-    item = dict(record)
-    if ci:
-        item["ci"] = {
-            "sys_id": ci["sys_id"],
-            "name": ci["name"],
-            "ci_class": ci["ci_class"],
-            "service": ci["service"],
-            "site": ci["site"],
-            "install_status": ci["install_status"],
+def _limit(value: int, *, default: int = 20, maximum: int = 100) -> int:
+    if value < 1:
+        return default
+    return min(value, maximum)
+
+
+def _to_priority(priority: str | None) -> str:
+    raw = normalize(priority)
+    if not raw:
+        return ""
+    # Accept "1", "1 - Critical", "critical"
+    if raw[0].isdigit():
+        return raw[0]
+    if raw == "critical":
+        return "1"
+    if raw == "high":
+        return "2"
+    if raw in {"moderate", "medium"}:
+        return "3"
+    if raw == "low":
+        return "4"
+    if raw == "planning":
+        return "5"
+    return raw
+
+
+def _map_filter(value: str | None, mapping: dict[str, str]) -> str:
+    raw = normalize(value)
+    if not raw:
+        return ""
+    return mapping.get(raw, raw)
+
+
+def _join_query(clauses: list[str]) -> str:
+    return "^".join(clause for clause in clauses if clause)
+
+
+class ServiceNowGateway:
+    """Small, readable ServiceNow Table API wrapper used by tools."""
+
+    def __init__(self) -> None:
+        if not project_settings.SERVICENOW_ENABLED:
+            raise ServiceNowToolError("servicenow_disabled")
+        if not project_settings.SERVICENOW_INSTANCE_URL:
+            raise ServiceNowToolError("missing_servicenow_instance_url")
+
+        api_version = normalize(project_settings.SERVICENOW_API_VERSION) or "v2"
+        if api_version != "latest" and not api_version.startswith("v"):
+            raise ServiceNowToolError("invalid_servicenow_api_version")
+
+        base = project_settings.SERVICENOW_INSTANCE_URL.rstrip("/")
+        self.base_url = f"{base}/api/now/{api_version}/table"
+        self.timeout = project_settings.SERVICENOW_TIMEOUT_SECONDS
+
+        self._headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
         }
-    return item
+        self._auth: tuple[str, str] | None = None
+        self._token: str | None = None
+
+        if project_settings.SERVICENOW_ACCESS_TOKEN:
+            self._token = project_settings.SERVICENOW_ACCESS_TOKEN
+            self._headers["Authorization"] = f"Bearer {self._token}"
+        elif (
+            project_settings.SERVICENOW_USERNAME
+            and project_settings.SERVICENOW_PASSWORD
+        ):
+            self._auth = (
+                project_settings.SERVICENOW_USERNAME,
+                project_settings.SERVICENOW_PASSWORD,
+            )
+        else:
+            raise ServiceNowToolError("missing_servicenow_credentials")
+
+    def _request(
+        self,
+        method: str,
+        table: str,
+        *,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self.base_url}/{table}"
+        try:
+            with httpx.Client(
+                timeout=self.timeout, headers=self._headers, auth=self._auth
+            ) as client:
+                response = client.request(method, url, params=params)
+        except Exception as exc:
+            raise ServiceNowToolError(f"http_request_failed:{exc}") from exc
+
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {}
+
+        if response.status_code >= 400:
+            if isinstance(payload, dict):
+                error_body = payload.get("error", {})
+                message = _string(error_body.get("message")) or _string(
+                    payload.get("message")
+                )
+                detail = _string(error_body.get("detail"))
+                joined = f"{message}:{detail}".strip(":")
+            else:
+                joined = response.text
+            raise ServiceNowToolError(f"http_{response.status_code}:{joined}")
+
+        if not isinstance(payload, dict):
+            raise ServiceNowToolError("unexpected_response_shape")
+        return payload
+
+    def query_table(
+        self,
+        table: str,
+        *,
+        query: str = "",
+        fields: list[str] | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {
+            "sysparm_limit": _limit(limit),
+            "sysparm_display_value": "true",
+            "sysparm_exclude_reference_link": "true",
+            "sysparm_suppress_pagination_header": "true",
+        }
+        if query:
+            params["sysparm_query"] = query
+        if fields:
+            params["sysparm_fields"] = ",".join(fields)
+
+        payload = self._request("GET", table, params=params)
+        result = payload.get("result", [])
+        if not isinstance(result, list):
+            return []
+        return [row for row in result if isinstance(row, dict)]
+
+    def get_one_by_query(
+        self,
+        table: str,
+        *,
+        query: str,
+        fields: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        items = self.query_table(table, query=query, fields=fields, limit=1)
+        if not items:
+            return None
+        return items[0]
 
 
-def _sort_incidents(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        records,
-        key=lambda row: (
-            _PRIORITY_ORDER.get(_normalize(row.get("priority")), 99),
-            row.get("updated_at", ""),
-        ),
-    )
+def error_payload(tool_name: str, exc: Exception | str) -> dict[str, Any]:
+    return {"error": f"{tool_name}_failed:{exc}"}
 
 
-def _sort_changes(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(
-        records,
-        key=lambda row: (
-            _RISK_ORDER.get(_normalize(row.get("risk")), 99),
-            row.get("start_at", ""),
-        ),
-    )
+def gateway() -> ServiceNowGateway:
+    # ServiceNow REST API Explorer currently surfaces Table API version `v2`
+    # with support for choosing `latest`; this gateway accepts either.
+    return ServiceNowGateway()
 
 
-KNOWN_FAKE_CIS: list[dict[str, Any]] = [
-    {
-        "sys_id": ci["sys_id"],
-        "name": ci["name"],
-        "ip_address": ci["ip_address"],
-        "service": ci["service"],
-        "site": ci["site"],
+def _ci_brief(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sys_id": _string(row.get("sys_id")),
+        "name": _string(row.get("name")),
+        "ip_address": _string(row.get("ip_address")),
+        "service": _string(row.get("business_service") or row.get("service")),
+        "site": _string(row.get("location")),
+        "ci_class": _string(row.get("sys_class_name")),
+        "install_status": _string(row.get("install_status")),
     }
-    for ci in _FAKE_CIS.values()
-]
+
+
+def _incident_brief(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sys_id": _string(row.get("sys_id")),
+        "number": _string(row.get("number")),
+        "state": _string(row.get("state")),
+        "priority": _string(row.get("priority")),
+        "impact": _string(row.get("impact")),
+        "urgency": _string(row.get("urgency")),
+        "major_incident": normalize(_string(row.get("major_incident_state")))
+        not in {"", "not_major"},
+        "short_description": _string(row.get("short_description")),
+        "description": _string(row.get("description")),
+        "service": _string(row.get("business_service")),
+        "assignment_group": _string(row.get("assignment_group")),
+        "assigned_to": _string(row.get("assigned_to")),
+        "opened_at": _string(row.get("opened_at")),
+        "updated_at": _string(row.get("sys_updated_on")),
+        "ci": _string(row.get("cmdb_ci")),
+        "related_problem": _string(row.get("problem_id")),
+        "related_change": _string(row.get("rfc")),
+    }
+
+
+def _change_brief(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sys_id": _string(row.get("sys_id")),
+        "number": _string(row.get("number")),
+        "type": _string(row.get("type")),
+        "state": _string(row.get("state")),
+        "risk": _string(row.get("risk")),
+        "short_description": _string(row.get("short_description")),
+        "description": _string(row.get("description")),
+        "service": _string(row.get("business_service")),
+        "assignment_group": _string(row.get("assignment_group")),
+        "opened_by": _string(row.get("opened_by")),
+        "start_at": _string(row.get("start_date")),
+        "end_at": _string(row.get("end_date")),
+        "ci": _string(row.get("cmdb_ci")),
+        "updated_at": _string(row.get("sys_updated_on")),
+    }
+
+
+def _problem_brief(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "sys_id": _string(row.get("sys_id")),
+        "number": _string(row.get("number")),
+        "state": _string(row.get("state")),
+        "priority": _string(row.get("priority")),
+        "known_error": normalize(_string(row.get("known_error")))
+        in {"true", "1", "yes"},
+        "short_description": _string(row.get("short_description")),
+        "root_cause": _string(row.get("close_notes")),
+        "service": _string(row.get("business_service")),
+        "assignment_group": _string(row.get("assignment_group")),
+        "opened_at": _string(row.get("opened_at")),
+        "updated_at": _string(row.get("sys_updated_on")),
+        "ci": _string(row.get("cmdb_ci")),
+    }
 
 
 @tool(name="servicenow.get_known_cis")  # type: ignore[operator]
-def get_known_cis() -> list[dict[str, Any]]:
-    """Return canonical fake ServiceNow CMDB CI list."""
-    return KNOWN_FAKE_CIS
+def get_known_cis() -> list[dict[str, Any]] | dict[str, Any]:
+    """Return CI name/IP shortlist from ServiceNow CMDB."""
+    try:
+        rows = gateway().query_table(
+            "cmdb_ci",
+            query="install_status!=7^ORDERBYname",
+            fields=["sys_id", "name", "ip_address", "location", "business_service"],
+            limit=100,
+        )
+        return [
+            {
+                "sys_id": _string(row.get("sys_id")),
+                "name": _string(row.get("name")),
+                "ip_address": _string(row.get("ip_address")),
+                "service": _string(row.get("business_service")),
+                "site": _string(row.get("location")),
+            }
+            for row in rows
+        ]
+    except Exception as exc:
+        return error_payload("get_known_cis", exc)
 
 
 @tool(name="servicenow.list_incidents")  # type: ignore[operator]
@@ -289,80 +316,91 @@ def list_incidents(
     only_major: Annotated[bool, "Only major incidents"] = False,
     limit: Annotated[int, "Maximum number of incidents to return"] = 20,
 ) -> dict[str, Any]:
-    """List incidents with practical filters for triage."""
-    if limit < 1:
-        return {"error": "limit_must_be_positive"}
+    """List ServiceNow incidents with practical triage filters."""
+    try:
+        clauses: list[str] = []
+        state_value = _map_filter(state, INCIDENT_STATE_MAP)
+        if state_value:
+            clauses.append(f"state={state_value}")
+        priority_value = _to_priority(priority)
+        if priority_value:
+            clauses.append(f"priority={priority_value}")
+        if assignment_group:
+            clauses.append(f"assignment_group.nameLIKE{assignment_group.strip()}")
+        if service:
+            clauses.append(f"business_service.nameLIKE{service.strip()}")
+        if only_major:
+            clauses.append("major_incident_state!=not_major")
+        clauses.append("ORDERBYpriority")
+        clauses.append("ORDERBYDESCsys_updated_on")
 
-    items: list[dict[str, Any]] = []
-    for incident in _FAKE_INCIDENTS:
-        if state and _normalize(incident["state"]) != _normalize(state):
-            continue
-        if priority and _normalize(incident["priority"]) != _normalize(priority):
-            continue
-        if assignment_group and _normalize(incident["assignment_group"]) != _normalize(
-            assignment_group
-        ):
-            continue
-        if service and _normalize(incident["service"]) != _normalize(service):
-            continue
-        if only_major and not incident.get("major_incident", False):
-            continue
-        items.append(_enrich_with_ci(incident))
-
-    ordered = _sort_incidents(items)
-    result = ordered[: min(limit, 100)]
-    return {"count": len(result), "incidents": result}
+        rows = gateway().query_table(
+            "incident",
+            query=_join_query(clauses),
+            fields=[
+                "sys_id",
+                "number",
+                "state",
+                "priority",
+                "impact",
+                "urgency",
+                "major_incident_state",
+                "short_description",
+                "description",
+                "business_service",
+                "assignment_group",
+                "assigned_to",
+                "opened_at",
+                "sys_updated_on",
+                "cmdb_ci",
+                "problem_id",
+                "rfc",
+            ],
+            limit=limit,
+        )
+        incidents = [_incident_brief(row) for row in rows]
+        return {"count": len(incidents), "incidents": incidents}
+    except Exception as exc:
+        return error_payload("list_incidents", exc)
 
 
 @tool(name="servicenow.get_incident")  # type: ignore[operator]
 def get_incident(
     incident_number: Annotated[str, "Incident number, e.g. INC0010421"],
 ) -> dict[str, Any]:
-    """Get one incident and its linked records."""
-    lookup = _normalize(incident_number)
-    if not lookup:
+    """Get a single incident by number with linked record hints."""
+    if not incident_number.strip():
         return {"error": "incident_number_required"}
 
-    for incident in _FAKE_INCIDENTS:
-        if _normalize(incident["number"]) == lookup:
-            item = _enrich_with_ci(incident)
-            linked_problem = next(
-                (
-                    p
-                    for p in _FAKE_PROBLEMS
-                    if _normalize(p["number"])
-                    == _normalize(incident.get("related_problem"))
-                ),
-                None,
-            )
-            linked_change = next(
-                (
-                    c
-                    for c in _FAKE_CHANGES
-                    if _normalize(c["number"])
-                    == _normalize(incident.get("related_change"))
-                ),
-                None,
-            )
-            if linked_problem:
-                item["problem"] = {
-                    "number": linked_problem["number"],
-                    "state": linked_problem["state"],
-                    "short_description": linked_problem["short_description"],
-                }
-            if linked_change:
-                item["change_request"] = {
-                    "number": linked_change["number"],
-                    "state": linked_change["state"],
-                    "risk": linked_change["risk"],
-                    "short_description": linked_change["short_description"],
-                }
-            return item
-
-    return {
-        "error": f"incident_not_found:{incident_number}",
-        "available_incidents": [row["number"] for row in _FAKE_INCIDENTS[:10]],
-    }
+    try:
+        row = gateway().get_one_by_query(
+            "incident",
+            query=f"number={incident_number.strip()}",
+            fields=[
+                "sys_id",
+                "number",
+                "state",
+                "priority",
+                "impact",
+                "urgency",
+                "major_incident_state",
+                "short_description",
+                "description",
+                "business_service",
+                "assignment_group",
+                "assigned_to",
+                "opened_at",
+                "sys_updated_on",
+                "cmdb_ci",
+                "problem_id",
+                "rfc",
+            ],
+        )
+        if not row:
+            return {"error": f"incident_not_found:{incident_number}"}
+        return _incident_brief(row)
+    except Exception as exc:
+        return error_payload("get_incident", exc)
 
 
 @tool(name="servicenow.list_change_requests")  # type: ignore[operator]
@@ -377,46 +415,83 @@ def list_change_requests(
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
     limit: Annotated[int, "Maximum number of changes to return"] = 20,
 ) -> dict[str, Any]:
-    """List change requests and related CI context."""
-    if limit < 1:
-        return {"error": "limit_must_be_positive"}
+    """List ServiceNow change requests."""
+    try:
+        clauses: list[str] = []
+        state_value = _map_filter(state, CHANGE_STATE_MAP)
+        if state_value:
+            clauses.append(f"state={state_value}")
+        risk_value = _map_filter(risk, RISK_MAP)
+        if risk_value:
+            clauses.append(f"risk={risk_value}")
+        if service:
+            clauses.append(f"business_service.nameLIKE{service.strip()}")
+        if assignment_group:
+            clauses.append(f"assignment_group.nameLIKE{assignment_group.strip()}")
+        clauses.append("ORDERBYrisk")
+        clauses.append("ORDERBYstart_date")
 
-    items: list[dict[str, Any]] = []
-    for change in _FAKE_CHANGES:
-        if state and _normalize(change["state"]) != _normalize(state):
-            continue
-        if risk and _normalize(change["risk"]) != _normalize(risk):
-            continue
-        if service and _normalize(change["service"]) != _normalize(service):
-            continue
-        if assignment_group and _normalize(change["assignment_group"]) != _normalize(
-            assignment_group
-        ):
-            continue
-        items.append(_enrich_with_ci(change))
+        rows = gateway().query_table(
+            "change_request",
+            query=_join_query(clauses),
+            fields=[
+                "sys_id",
+                "number",
+                "type",
+                "state",
+                "risk",
+                "short_description",
+                "description",
+                "business_service",
+                "assignment_group",
+                "opened_by",
+                "start_date",
+                "end_date",
+                "cmdb_ci",
+                "sys_updated_on",
+            ],
+            limit=limit,
+        )
+        changes = [_change_brief(row) for row in rows]
+        return {"count": len(changes), "changes": changes}
+    except Exception as exc:
+        return error_payload("list_change_requests", exc)
 
-    ordered = _sort_changes(items)
-    result = ordered[: min(limit, 100)]
-    return {"count": len(result), "changes": result}
 
-
-@tool(name="servicenow.get_change_request")  # type: ignore[operator]
+@tool(name="servicenow.get_change_request")  # type: ignore[operator]  # noqa
 def get_change_request(
     change_number: Annotated[str, "Change number, e.g. CHG0007721"],
 ) -> dict[str, Any]:
-    """Get details for one change request."""
-    lookup = _normalize(change_number)
-    if not lookup:
+    """Get one change request by number."""
+    if not change_number.strip():
         return {"error": "change_number_required"}
 
-    for change in _FAKE_CHANGES:
-        if _normalize(change["number"]) == lookup:
-            return _enrich_with_ci(change)
-
-    return {
-        "error": f"change_not_found:{change_number}",
-        "available_changes": [row["number"] for row in _FAKE_CHANGES[:10]],
-    }
+    try:
+        row = gateway().get_one_by_query(
+            "change_request",
+            query=f"number={change_number.strip()}",
+            fields=[
+                "sys_id",
+                "number",
+                "type",
+                "state",
+                "risk",
+                "short_description",
+                "description",
+                "business_service",
+                "assignment_group",
+                "opened_by",
+                "start_date",
+                "end_date",
+                "cmdb_ci",
+                "sys_updated_on",
+            ],
+        )
+        if not row:
+            return {"error": f"change_not_found:{change_number}"}
+        return _change_brief(row)
+    except Exception as exc:
+        return error_payload("get_change_request", exc)
 
 
 @tool(name="servicenow.list_problems")  # type: ignore[operator]
@@ -429,46 +504,78 @@ def list_problems(
     assignment_group: Annotated[str | None, "Optional assignment group filter"] = None,
     limit: Annotated[int, "Maximum number of problems to return"] = 20,
 ) -> dict[str, Any]:
-    """List problem records with optional filters."""
-    if limit < 1:
-        return {"error": "limit_must_be_positive"}
+    """List ServiceNow problem records."""
+    try:
+        clauses: list[str] = []
+        if state:
+            clauses.append(f"state={state.strip()}")
+        priority_value = _to_priority(priority)
+        if priority_value:
+            clauses.append(f"priority={priority_value}")
+        if service:
+            clauses.append(f"business_service.nameLIKE{service.strip()}")
+        if assignment_group:
+            clauses.append(f"assignment_group.nameLIKE{assignment_group.strip()}")
+        clauses.append("ORDERBYpriority")
+        clauses.append("ORDERBYDESCsys_updated_on")
 
-    items: list[dict[str, Any]] = []
-    for problem in _FAKE_PROBLEMS:
-        if state and _normalize(problem["state"]) != _normalize(state):
-            continue
-        if priority and _normalize(problem["priority"]) != _normalize(priority):
-            continue
-        if service and _normalize(problem["service"]) != _normalize(service):
-            continue
-        if assignment_group and _normalize(problem["assignment_group"]) != _normalize(
-            assignment_group
-        ):
-            continue
-        items.append(_enrich_with_ci(problem))
-
-    ordered = _sort_incidents(items)
-    result = ordered[: min(limit, 100)]
-    return {"count": len(result), "problems": result}
+        rows = gateway().query_table(
+            "problem",
+            query=_join_query(clauses),
+            fields=[
+                "sys_id",
+                "number",
+                "state",
+                "priority",
+                "known_error",
+                "short_description",
+                "close_notes",
+                "business_service",
+                "assignment_group",
+                "opened_at",
+                "sys_updated_on",
+                "cmdb_ci",
+            ],
+            limit=limit,
+        )
+        problems = [_problem_brief(row) for row in rows]
+        return {"count": len(problems), "problems": problems}
+    except Exception as exc:
+        return error_payload("list_problems", exc)
 
 
 @tool(name="servicenow.get_problem")  # type: ignore[operator]
 def get_problem(
     problem_number: Annotated[str, "Problem number, e.g. PRB000381"],
 ) -> dict[str, Any]:
-    """Get details for one problem record."""
-    lookup = _normalize(problem_number)
-    if not lookup:
+    """Get one problem record by number."""
+    if not problem_number.strip():
         return {"error": "problem_number_required"}
 
-    for problem in _FAKE_PROBLEMS:
-        if _normalize(problem["number"]) == lookup:
-            return _enrich_with_ci(problem)
-
-    return {
-        "error": f"problem_not_found:{problem_number}",
-        "available_problems": [row["number"] for row in _FAKE_PROBLEMS[:10]],
-    }
+    try:
+        row = gateway().get_one_by_query(
+            "problem",
+            query=f"number={problem_number.strip()}",
+            fields=[
+                "sys_id",
+                "number",
+                "state",
+                "priority",
+                "known_error",
+                "short_description",
+                "close_notes",
+                "business_service",
+                "assignment_group",
+                "opened_at",
+                "sys_updated_on",
+                "cmdb_ci",
+            ],
+        )
+        if not row:
+            return {"error": f"problem_not_found:{problem_number}"}
+        return _problem_brief(row)
+    except Exception as exc:
+        return error_payload("get_problem", exc)
 
 
 @tool(name="servicenow.list_cis")  # type: ignore[operator]
@@ -482,149 +589,170 @@ def list_cis(
     query: Annotated[str | None, "Optional free-text CI query (name/ip/group)"] = None,
     limit: Annotated[int, "Maximum number of CIs to return"] = 50,
 ) -> dict[str, Any]:
-    """List CMDB CIs for network operations context."""
-    if limit < 1:
-        return {"error": "limit_must_be_positive"}
+    """List CIs from CMDB with common filters."""
+    try:
+        clauses: list[str] = []
+        if ci_class:
+            clauses.append(f"sys_class_name={ci_class.strip()}")
+        if site:
+            clauses.append(f"location.nameLIKE{site.strip()}")
+        if service:
+            clauses.append(f"business_service.nameLIKE{service.strip()}")
+        install_value = _map_filter(install_status, INSTALL_STATUS_MAP)
+        if install_value:
+            clauses.append(f"install_status={install_value}")
+        if query:
+            q = query.strip()
+            clauses.append(f"nameLIKE{q}^ORip_addressLIKE{q}^ORfqdnLIKE{q}")
+        clauses.append("ORDERBYname")
 
-    q = _normalize(query)
-    items: list[dict[str, Any]] = []
-    for ci in _FAKE_CIS.values():
-        if ci_class and _normalize(ci["ci_class"]) != _normalize(ci_class):
-            continue
-        if site and _normalize(ci["site"]) != _normalize(site):
-            continue
-        if service and _normalize(ci["service"]) != _normalize(service):
-            continue
-        if install_status and _normalize(ci["install_status"]) != _normalize(
-            install_status
-        ):
-            continue
-        if q:
-            haystack = f"{ci['name']} {ci['ip_address']} {ci['owned_by_group']} {ci['service']}".lower()
-            if q not in haystack:
-                continue
-        items.append(ci)
-
-    result = items[: min(limit, 100)]
-    return {"count": len(result), "cis": result}
+        rows = gateway().query_table(
+            "cmdb_ci",
+            query=_join_query(clauses),
+            fields=[
+                "sys_id",
+                "name",
+                "sys_class_name",
+                "ip_address",
+                "fqdn",
+                "location",
+                "business_service",
+                "install_status",
+                "owned_by",
+            ],
+            limit=limit,
+        )
+        cis = [_ci_brief(row) for row in rows]
+        return {"count": len(cis), "cis": cis}
+    except Exception as exc:
+        return error_payload("list_cis", exc)
 
 
 @tool(name="servicenow.get_ci")  # type: ignore[operator]
 def get_ci(
     ci_name_or_sys_id: Annotated[str, "CI hostname/name or sys_id"],
 ) -> dict[str, Any]:
-    """Get one CI by name or sys_id and include open record counters."""
-    lookup = _normalize(ci_name_or_sys_id)
-    if not lookup:
+    """Get one CI and summarize open incident/change/problem counts."""
+    target = ci_name_or_sys_id.strip()
+    if not target:
         return {"error": "ci_lookup_required"}
 
-    matched = None
-    for ci in _FAKE_CIS.values():
-        if lookup in {_normalize(ci["name"]), _normalize(ci["sys_id"])}:
-            matched = ci
-            break
-    if matched is None:
-        for ci in _FAKE_CIS.values():
-            haystack = f"{ci['name']} {ci['ip_address']} {ci['service']}".lower()
-            if lookup in haystack:
-                matched = ci
-                break
+    try:
+        ci_row = gateway().get_one_by_query(
+            "cmdb_ci",
+            query=f"sys_id={target}^ORname={target}^ORip_address={target}",
+            fields=[
+                "sys_id",
+                "name",
+                "sys_class_name",
+                "ip_address",
+                "fqdn",
+                "location",
+                "business_service",
+                "install_status",
+                "owned_by",
+            ],
+        )
+        if not ci_row:
+            return {"error": f"ci_not_found:{ci_name_or_sys_id}"}
 
-    if not matched:
+        ci_sys_id = _string(ci_row.get("sys_id"))
+        if not ci_sys_id:
+            return {"error": "ci_sys_id_missing"}
+
+        incidents = gateway().query_table(
+            "incident",
+            query=f"cmdb_ci={ci_sys_id}^stateNOT IN6,7,8",
+            fields=["number"],
+            limit=100,
+        )
+        changes = gateway().query_table(
+            "change_request",
+            query=f"cmdb_ci={ci_sys_id}^state!=3^state!=4",
+            fields=["number"],
+            limit=100,
+        )
+        problems = gateway().query_table(
+            "problem",
+            query=f"cmdb_ci={ci_sys_id}^state!=7",
+            fields=["number"],
+            limit=100,
+        )
+
         return {
-            "error": f"ci_not_found:{ci_name_or_sys_id}",
-            "known_cis": KNOWN_FAKE_CIS,
+            **_ci_brief(ci_row),
+            "open_record_summary": {
+                "incidents": len(incidents),
+                "changes": len(changes),
+                "problems": len(problems),
+            },
+            "related_records": {
+                "incidents": [_string(row.get("number")) for row in incidents],
+                "changes": [_string(row.get("number")) for row in changes],
+                "problems": [_string(row.get("number")) for row in problems],
+            },
         }
-
-    ci_sys_id = matched["sys_id"]
-    open_incidents = [
-        row
-        for row in _FAKE_INCIDENTS
-        if row.get("ci_sys_id") == ci_sys_id
-        and _normalize(row.get("state")) not in {"resolved", "closed"}
-    ]
-    open_changes = [
-        row
-        for row in _FAKE_CHANGES
-        if row.get("ci_sys_id") == ci_sys_id
-        and _normalize(row.get("state")) != "closed"
-    ]
-    open_problems = [
-        row
-        for row in _FAKE_PROBLEMS
-        if row.get("ci_sys_id") == ci_sys_id
-        and _normalize(row.get("state")) not in {"resolved", "closed"}
-    ]
-
-    return {
-        **matched,
-        "open_record_summary": {
-            "incidents": len(open_incidents),
-            "changes": len(open_changes),
-            "problems": len(open_problems),
-        },
-        "related_records": {
-            "incidents": [row["number"] for row in open_incidents],
-            "changes": [row["number"] for row in open_changes],
-            "problems": [row["number"] for row in open_problems],
-        },
-    }
+    except Exception as exc:
+        return error_payload("get_ci", exc)
 
 
 @tool(name="servicenow.get_service_summary")  # type: ignore[operator]
 def get_service_summary(
     service: Annotated[str, "Business service name, e.g. WAN-Edge"],
 ) -> dict[str, Any]:
-    """Aggregate incident/problem/change posture for one service."""
-    service_lc = _normalize(service)
-    if not service_lc:
+    """Aggregate service-level ticket posture across incident/change/problem."""
+    target = service.strip()
+    if not target:
         return {"error": "service_required"}
 
-    incidents = [
-        row for row in _FAKE_INCIDENTS if _normalize(row["service"]) == service_lc
-    ]
-    changes = [row for row in _FAKE_CHANGES if _normalize(row["service"]) == service_lc]
-    problems = [
-        row for row in _FAKE_PROBLEMS if _normalize(row["service"]) == service_lc
-    ]
-    cis = [
-        row for row in _FAKE_CIS.values() if _normalize(row["service"]) == service_lc
-    ]
+    try:
+        active_incidents = gateway().query_table(
+            "incident",
+            query=f"business_service.nameLIKE{target}^stateNOT IN6,7,8",
+            fields=["number"],
+            limit=100,
+        )
+        major_incidents = gateway().query_table(
+            "incident",
+            query=f"business_service.nameLIKE{target}^major_incident_state!=not_major^stateNOT IN6,7,8",
+            fields=["number"],
+            limit=100,
+        )
+        open_changes = gateway().query_table(
+            "change_request",
+            query=f"business_service.nameLIKE{target}^state!=3^state!=4",
+            fields=["number"],
+            limit=100,
+        )
+        open_problems = gateway().query_table(
+            "problem",
+            query=f"business_service.nameLIKE{target}^state!=7",
+            fields=["number"],
+            limit=100,
+        )
+        cis = gateway().query_table(
+            "cmdb_ci",
+            query=f"business_service.nameLIKE{target}",
+            fields=["sys_id"],
+            limit=100,
+        )
 
-    if not incidents and not changes and not problems and not cis:
-        known_services = sorted({row["service"] for row in _FAKE_CIS.values()})
         return {
-            "error": f"service_not_found:{service}",
-            "known_services": known_services,
+            "service": target,
+            "summary": {
+                "ci_count": len(cis),
+                "active_incidents": len(active_incidents),
+                "major_incidents": len(major_incidents),
+                "open_changes": len(open_changes),
+                "open_problems": len(open_problems),
+            },
+            "active_incident_numbers": [
+                _string(row.get("number")) for row in active_incidents
+            ],
+            "open_change_numbers": [_string(row.get("number")) for row in open_changes],
+            "open_problem_numbers": [
+                _string(row.get("number")) for row in open_problems
+            ],
         }
-
-    active_incidents = [
-        row
-        for row in incidents
-        if _normalize(row.get("state")) not in {"resolved", "closed"}
-    ]
-    major_incidents = [row for row in active_incidents if row.get("major_incident")]
-    open_changes = [row for row in changes if _normalize(row.get("state")) != "closed"]
-    open_problems = [
-        row
-        for row in problems
-        if _normalize(row.get("state")) not in {"resolved", "closed"}
-    ]
-
-    return {
-        "service": service,
-        "summary": {
-            "ci_count": len(cis),
-            "active_incidents": len(active_incidents),
-            "major_incidents": len(major_incidents),
-            "open_changes": len(open_changes),
-            "open_problems": len(open_problems),
-        },
-        "active_incident_numbers": [
-            row["number"] for row in _sort_incidents(active_incidents)
-        ],
-        "open_change_numbers": [row["number"] for row in _sort_changes(open_changes)],
-        "open_problem_numbers": [
-            row["number"] for row in _sort_incidents(open_problems)
-        ],
-    }
+    except Exception as exc:
+        return error_payload("get_service_summary", exc)

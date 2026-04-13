@@ -3,19 +3,35 @@ from typing import cast
 from haystack.components.agents import Agent
 from haystack.tools import ComponentTool, Tool
 
+from app.core.config import project_settings
 from app.llm import llm
-from app.tools.servicenow_tools import (
-    get_change_request,
-    get_ci,
-    get_incident,
-    get_known_cis,
-    get_problem,
-    get_service_summary,
-    list_change_requests,
-    list_cis,
-    list_incidents,
-    list_problems,
-)
+
+if project_settings.TOOLS_USE_MOCK_DATA:
+    from app.tools._servicenow_tools_mock import (
+        get_change_request,
+        get_ci,
+        get_incident,
+        get_known_cis,
+        get_problem,
+        get_service_summary,
+        list_change_requests,
+        list_cis,
+        list_incidents,
+        list_problems,
+    )
+else:
+    from app.tools.servicenow_tools import (
+        get_change_request,
+        get_ci,
+        get_incident,
+        get_known_cis,
+        get_problem,
+        get_service_summary,
+        list_change_requests,
+        list_cis,
+        list_incidents,
+        list_problems,
+    )
 
 SERVICENOW_SPECIALIST_PROMPT = """
 You are a ServiceNow specialist agent.

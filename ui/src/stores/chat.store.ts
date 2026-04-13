@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { ContextMetrics, Conversation, ConversationMessages, Evidence, Message, MessageRole, ToolCall } from '@/types/chat.type'
+import type { AgentRun, ContextMetrics, Conversation, ConversationMessages, Message, MessageRole } from '@/types/chat.type'
 import chatService from '@/services/chat.service'
 import { toast } from '@/components/ui/toast'
 
@@ -17,7 +17,17 @@ function createMessage(role: MessageRole, content: string): Message {
 		role,
 		content,
 		created_at: new Date().toISOString(),
-		tool_calls: [],
+		agent_runs: [],
+	}
+}
+
+function normalizeConversationMessages(data: ConversationMessages): ConversationMessages {
+	return {
+		...data,
+		messages: (data.messages ?? []).map(message => ({
+			...message,
+			agent_runs: message.agent_runs ?? [],
+		})),
 	}
 }
 
@@ -66,7 +76,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		}
 	}
 
-	async function selectConversation(conversationId: number): Promise<void> {
+	async function selectConversation(conversationId: string): Promise<void> {
 		isSyncing.value = true
 		errorMessage.value = null
 
@@ -75,7 +85,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			if (existing) return
 
 			const result = await chatService.getConversation(conversationId)
-			selectedConversation.value = result.data
+			selectedConversation.value = normalizeConversationMessages(result.data)
 		} catch (err) {
 			errorMessage.value = 'Failed to load conversation'
 			toast({ title: errorMessage.value, variant: 'destructive' })
@@ -86,6 +96,8 @@ export const useChatStore = defineStore('chat', function chatStore() {
 
 	function setSelectedConversation(conversation: ConversationMessages | null): void {
 		selectedConversation.value = conversation
+			? normalizeConversationMessages(conversation)
+			: null
 	}
 
 	async function createConversation(): Promise<void> {
@@ -99,7 +111,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		}
 	}
 
-	async function renameConversation(conversation_id: number, title: string): Promise<void> {
+	async function renameConversation(conversation_id: string, title: string): Promise<void> {
 		try {
 			await chatService.renameConversation(conversation_id, title)
 			conversations.value.map(convo => (convo.id === conversation_id ? { ...convo, title: title } : convo))
@@ -109,7 +121,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		}
 	}
 
-	async function deleteConversation(conversation_id: number): Promise<void> {
+	async function deleteConversation(conversation_id: string): Promise<void> {
 		try {
 			await chatService.deleteConversation(conversation_id)
 			conversations.value.filter(convo => convo.id !== conversation_id)
@@ -159,39 +171,43 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				flushTimer = setTimeout(flushPendingTokens, 16)
 			}
 
-			const extractSource = (toolName?: string): string | undefined => {
-				if (!toolName || !toolName.includes('.')) return undefined
-				const source = toolName.split('.', 1)[0]
-				return source || undefined
-			}
+			const ensureDraftRun = (assistant: Message): AgentRun => {
+				const existing = assistant.agent_runs.at(-1)
+				if (existing) return existing
 
-			const toEvidence = (items: unknown[] | undefined): Evidence[] => {
-				if (!Array.isArray(items)) return []
-				return items.map((item, index) => {
-					const row = item as Record<string, unknown>
-					return {
-						id: Number(row.id ?? nextId() + index),
-						source_type: String(row.type ?? row.source_type ?? 'tool_result'),
-						source_ref: row.ref ? String(row.ref) : row.source_ref ? String(row.source_ref) : undefined,
-						content_snippet: String(row.content ?? row.content_snippet ?? ''),
-						score: typeof row.score === 'number' ? row.score : undefined,
-						timestamp: row.timestamp ? String(row.timestamp) : undefined,
-					}
-				})
-			}
-
-			const pushMetaToolCall = (
-				assistant: Message,
-				toolName: string,
-				result: Record<string, unknown> | undefined
-			) => {
-				assistant.tool_calls.push({
+				const run: AgentRun = {
 					id: nextId(),
-					tool_name: toolName,
-					tool_source: extractSource(toolName),
-					arguments: {},
-					result,
-					evidence_items: [],
+					user_message_id: 0,
+					assistant_message_id: assistant.id,
+					status: 'running',
+					final_answer: undefined,
+					context_metrics: undefined,
+					error: undefined,
+					ended_at: undefined,
+					created_at: new Date().toISOString(),
+					events: [],
+				}
+				assistant.agent_runs.push(run)
+				return run
+			}
+
+			const pushRunEvent = (
+				assistant: Message,
+				eventType: string,
+				payload: Record<string, unknown>,
+				actorName?: string
+			) => {
+				const run = ensureDraftRun(assistant)
+				const event_sequence = (run.events.at(-1)?.event_sequence ?? 0) + 1
+				run.events.push({
+					id: nextId(),
+					event_sequence,
+					event_type: eventType,
+					actor_type: actorName ? 'specialist' : 'orchestrator',
+					actor_name: actorName,
+					correlation_id: undefined,
+					payload,
+					created_at: new Date().toISOString(),
 				})
 			}
 
@@ -203,48 +219,19 @@ export const useChatStore = defineStore('chat', function chatStore() {
 						pendingTokenText += token
 						ensureFlushLoop()
 					},
-					onToolCall: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						const toolCall: ToolCall = {
-							id: nextId(),
-							tool_name: payload.name ?? 'Unnamed',
-							tool_source: extractSource(payload.name),
-							arguments: payload.arguments ?? {},
-							result: payload.result,
-							evidence_items: toEvidence(payload.evidence),
-						}
-						assistant.tool_calls.push(toolCall)
-					},
-					onToolResult: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						const existing = [...assistant.tool_calls].reverse().find(tool => tool.tool_name === payload.name)
-						if (existing) {
-							existing.result = payload.result
-							return
-						}
-						assistant.tool_calls.push({
-							id: nextId(),
-							tool_name: payload.name ?? 'Unnamed',
-							tool_source: extractSource(payload.name),
-							arguments: {},
-							result: payload.result,
-							evidence_items: [],
-						})
-					},
 					onThinking: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushMetaToolCall(assistant, `${payload.agent}.thinking`, {
+						pushRunEvent(assistant, 'thinking', {
+							agent: payload.agent,
 							status: payload.status,
 							message: payload.message,
-						})
+						}, payload.agent)
 					},
 					onOrchestratorPlan: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushMetaToolCall(assistant, 'orchestrator.plan', {
+						pushRunEvent(assistant, 'orchestrator_plan', {
 							plan: payload.plan,
 							specialists: payload.specialists,
 						})
@@ -252,50 +239,48 @@ export const useChatStore = defineStore('chat', function chatStore() {
 					onSpecialistPrompt: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushMetaToolCall(assistant, `${payload.specialist}.prompt`, payload.prompt)
+						pushRunEvent(
+							assistant,
+							'specialist_prompt',
+							{ prompt: payload.prompt },
+							payload.specialist
+						)
 					},
 					onSpecialistThought: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushMetaToolCall(assistant, `${payload.specialist}.thought`, payload.thought)
+						pushRunEvent(
+							assistant,
+							'specialist_thought',
+							{ thought: payload.thought },
+							payload.specialist
+						)
 					},
 					onSpecialistToolCall: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						assistant.tool_calls.push({
-							id: nextId(),
-							tool_name: payload.tool_name ?? `${payload.specialist}.tool_call`,
-							tool_source: payload.specialist,
+						pushRunEvent(assistant, 'specialist_tool_call', {
+							specialist: payload.specialist,
+							tool_name: payload.tool_name,
 							arguments: payload.arguments ?? {},
-							result: undefined,
-							evidence_items: toEvidence(payload.evidence),
+							evidence: payload.evidence ?? [],
 						})
 					},
 					onSpecialistToolResult: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						const existing = [...assistant.tool_calls].reverse().find(
-							tool =>
-								tool.tool_name === payload.tool_name &&
-								(tool.tool_source ?? '') === payload.specialist &&
-								tool.result == null
-						)
-						if (existing) {
-							existing.result = payload.result
-							return
-						}
-						assistant.tool_calls.push({
-							id: nextId(),
-							tool_name: payload.tool_name ?? `${payload.specialist}.tool_result`,
-							tool_source: payload.specialist,
-							arguments: {},
+						pushRunEvent(assistant, 'specialist_tool_result', {
+							specialist: payload.specialist,
+							tool_name: payload.tool_name,
 							result: payload.result,
-							evidence_items: [],
 						})
 					},
 					onLeaderConclusion: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
+						pushRunEvent(assistant, 'leader_conclusion', {
+							answer: payload.answer,
+						})
 						if (!assistant.content && payload.answer) {
 							assistant.content = payload.answer
 						}
@@ -304,6 +289,11 @@ export const useChatStore = defineStore('chat', function chatStore() {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
 						assistant.id = messageId
+						for (const run of assistant.agent_runs) {
+							run.assistant_message_id = messageId
+							if (run.status === 'running') run.status = 'completed'
+							if (!run.ended_at) run.ended_at = new Date().toISOString()
+						}
 						trackedAssistantId = messageId
 						streamingAssistantMessageId.value = messageId
 					},

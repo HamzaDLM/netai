@@ -3,8 +3,13 @@ from typing import cast
 from haystack.components.agents import Agent
 from haystack.tools import ComponentTool, Tool
 
+from app.core.config import project_settings
 from app.llm import llm
-from app.tools.syslog_tool import get_syslog_evidence
+
+if project_settings.TOOLS_USE_MOCK_DATA:
+    from app.tools._syslog_tool_mock import get_syslog_evidence
+else:
+    from app.tools.syslog_tool import get_syslog_evidence
 
 SYSLOG_SPECIALIST_PROMPT = """
 You are a syslog specialist agent focused on network syslog analysis.

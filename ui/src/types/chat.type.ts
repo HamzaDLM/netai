@@ -18,6 +18,30 @@ export interface ToolCall {
 	evidence_items?: Evidence[]
 }
 
+export interface AgentEvent {
+	id: number
+	event_sequence: number
+	event_type: string
+	actor_type?: string
+	actor_name?: string
+	correlation_id?: string
+	payload?: Record<string, unknown>
+	created_at: string
+}
+
+export interface AgentRun {
+	id: number
+	user_message_id: number
+	assistant_message_id?: number
+	status: 'running' | 'completed' | 'failed'
+	final_answer?: string
+	context_metrics?: Record<string, unknown>
+	error?: string
+	ended_at?: string
+	created_at: string
+	events: AgentEvent[]
+}
+
 export interface ContextMetrics {
 	context_window: number
 	used_tokens: number
@@ -35,17 +59,17 @@ export interface Message {
 	role: MessageRole
 	content: string
 	created_at: string
-	tool_calls: ToolCall[]
+	agent_runs: AgentRun[]
 }
 
 export interface Conversation {
-	id: number
+	id: string
 	title: string
 	created_at: string
 }
 
 export interface ConversationMessages {
-	id: number
+	id: string
 	title: string
 	messages: Message[]
 	created_at: string

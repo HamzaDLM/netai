@@ -75,9 +75,7 @@ class Settings(BaseSettings):
             raise Exception("No token provided for Gemini model.")
         return self.GEMINI_API_KEY
 
-    AGENT_ROUTER_ENABLE_LLM: bool = True
-    AGENT_ROUTER_MODEL: str = ""
-    AGENT_ROUTER_CONFIDENCE_THRESHOLD: float = Field(default=0.6, ge=0.0, le=1.0)
+    TOOLS_USE_MOCK_DATA: bool = True
 
     ZABBIX_ENABLED: bool = False
     BITBUCKET_ENABLED: bool = False

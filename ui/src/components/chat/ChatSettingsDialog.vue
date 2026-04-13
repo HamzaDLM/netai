@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
     Dialog,
@@ -15,7 +15,14 @@ import { useGenericStore } from '@/stores/generic.store'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 
 const genericStore = useGenericStore()
-const { codeHighlighter } = storeToRefs(genericStore)
+const {
+    codeHighlighter,
+    uiVersion,
+    uiGitSha,
+    backendVersion,
+    backendGitSha,
+    backendVersionStatus,
+} = storeToRefs(genericStore)
 
 const connectors = ref([
     { id: 'easynet', name: 'Easynet', enabled: true, connected: false },
@@ -48,7 +55,15 @@ const loadConnectorStatus = async () => {
     // Example: const data = await api.get('/connectors/health')
 }
 
+const backendStatusLabel = computed(() => {
+    if (backendVersionStatus.value === 'loading') return 'Refreshing...'
+    if (backendVersionStatus.value === 'error') return 'Last check failed'
+    if (backendVersionStatus.value === 'ready') return 'Up to date'
+    return 'Not checked yet'
+})
+
 onMounted(async () => {
+    await genericStore.ensureBackendVersion()
     await loadConnectorStatus()
 })
 </script>
@@ -78,30 +93,15 @@ onMounted(async () => {
                     <TabsTrigger value="general" class="justify-start w-full text-sm">General</TabsTrigger>
                     <TabsTrigger value="connectors" class="justify-start w-full text-sm">Connectors</TabsTrigger>
                     <TabsTrigger value="appearance" class="justify-start w-full text-sm">Appearance</TabsTrigger>
+                    <TabsTrigger value="about" class="justify-start w-full text-sm">About</TabsTrigger>
                 </TabsList>
                 <div class="flex-1 min-h-0 overflow-hidden">
-                    <TabsContent value="appearance" class="h-full pr-2 space-y-3 overflow-y-auto">
-                        <div class="text-sm text-stone-300">Code highlighter</div>
-                        <Select v-model="codeHighlighter">
-                            <SelectTrigger class="w-full border-stone-700 bg-zinc-900 text-stone-200">
-                                <SelectValue placeholder="Select a highlighter" />
-                            </SelectTrigger>
-                            <SelectContent class="border-stone-700 bg-zinc-900 text-stone-200">
-                                <SelectItem value="kanagawa-dragon">Kanagawa Dragon</SelectItem>
-                                <SelectItem value="nord">Nord</SelectItem>
-                                <SelectItem value="one-dark-pro">One Dark Pro</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <div class="pt-2 text-sm text-stone-300">Preview (Typescript)</div>
-                        <MarkdownRenderer :content="appearancePreviewMarkdown" />
-                    </TabsContent>
                     <TabsContent value="general" class="h-full pr-2 overflow-y-auto text-sm text-stone-400">
-                        General settings placeholder.
+                        <div>General</div>
                     </TabsContent>
+
                     <TabsContent value="connectors" class="h-full pr-2 space-y-3 overflow-y-auto">
-                        <div class="text-sm text-stone-300">
-                            Enabled connectors and live connection status.
-                        </div>
+                        <div class="text-sm text-stone-300">Enabled connectors and live connection status.</div>
                         <div class="space-y-2">
                             <div v-for="connector in connectors" :key="connector.id"
                                 class="flex items-center justify-between px-3 py-2 border rounded-md border-stone-800 bg-zinc-900/30">
@@ -124,6 +124,43 @@ onMounted(async () => {
                         </div>
                         <div class="text-xs text-stone-500">
                             Status data will be loaded from the backend healthcheck endpoint.
+                        </div>
+                    </TabsContent>
+
+                    <TabsContent value="appearance" class="h-full pr-2 space-y-3 overflow-y-auto">
+                        <div class="text-sm text-stone-300">Code highlighter</div>
+                        <Select v-model="codeHighlighter">
+                            <SelectTrigger class="w-full border-stone-700 bg-zinc-900 text-stone-200">
+                                <SelectValue placeholder="Select a highlighter" />
+                            </SelectTrigger>
+                            <SelectContent class="border-stone-700 bg-zinc-900 text-stone-200">
+                                <SelectItem value="kanagawa-dragon">Kanagawa Dragon</SelectItem>
+                                <SelectItem value="nord">Nord</SelectItem>
+                                <SelectItem value="one-dark-pro">One Dark Pro</SelectItem>
+                            </SelectContent>
+                        </Select>
+                        <div class="pt-2 text-sm text-stone-300">Preview (Typescript)</div>
+                        <MarkdownRenderer :content="appearancePreviewMarkdown" />
+                    </TabsContent>
+
+                    <TabsContent value="about" class="h-full pr-2 overflow-y-auto text-sm text-stone-400">
+                        <div class="flex flex-col gap-5">
+                            <p class="flex gap-5 text-stone-200">
+                                <span class="text-stone-400">Developer</span>
+                                HamzaDLM (hamzadlm@email.com)
+                            </p>
+                            <p class="flex gap-5 text-stone-200">
+                                <span class="text-stone-400">UI</span>
+                                {{ uiVersion }} ({{ uiGitSha }})
+                            </p>
+                            <p class="flex gap-5 text-stone-200">
+                                <span class="text-stone-400">API</span>
+                                {{ backendVersion }} ({{ backendGitSha }})
+                            </p>
+                            <p class="flex gap-5 text-stone-200">
+                                <span class="text-stone-400">Status</span>
+                                {{ backendStatusLabel }}
+                            </p>
                         </div>
                     </TabsContent>
                 </div>

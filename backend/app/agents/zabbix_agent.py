@@ -3,16 +3,29 @@ from typing import cast
 from haystack.components.agents import Agent
 from haystack.tools import ComponentTool, Tool
 
+from app.core.config import project_settings
 from app.llm import llm
-from app.tools.zabbix_tools import (
-    get_host_interfaces,
-    get_host_inventory,
-    get_host_metrics,
-    get_host_status,
-    get_problem_summary,
-    get_trigger_events,
-    list_zabbix_hosts,
-)
+
+if project_settings.TOOLS_USE_MOCK_DATA:
+    from app.tools._zabbix_tools_mock import (
+        get_host_interfaces,
+        get_host_inventory,
+        get_host_metrics,
+        get_host_status,
+        get_problem_summary,
+        get_trigger_events,
+        list_zabbix_hosts,
+    )
+else:
+    from app.tools.zabbix_tools import (
+        get_host_interfaces,
+        get_host_inventory,
+        get_host_metrics,
+        get_host_status,
+        get_problem_summary,
+        get_trigger_events,
+        list_zabbix_hosts,
+    )
 
 ZABBIX_SPECIALIST_PROMPT = """
 You are a Zabbix specialist agent.

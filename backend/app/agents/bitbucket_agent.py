@@ -3,14 +3,25 @@ from typing import cast
 from haystack.components.agents import Agent
 from haystack.tools import ComponentTool, Tool
 
+from app.core.config import project_settings
 from app.llm import llm
-from app.tools.bitbucket_tools import (
-    clone_bitbucket_repo,
-    get_bitbucket_device_configuration,
-    get_bitbucket_device_file_info,
-    get_bitbucket_recent_commits,
-    list_bitbucket_devices,
-)
+
+if project_settings.TOOLS_USE_MOCK_DATA:
+    from app.tools._bitbucket_tools_mock import (
+        clone_bitbucket_repo,
+        get_bitbucket_device_configuration,
+        get_bitbucket_device_file_info,
+        get_bitbucket_recent_commits,
+        list_bitbucket_devices,
+    )
+else:
+    from app.tools.bitbucket_tools import (
+        clone_bitbucket_repo,
+        get_bitbucket_device_configuration,
+        get_bitbucket_device_file_info,
+        get_bitbucket_recent_commits,
+        list_bitbucket_devices,
+    )
 
 BITBUCKET_SPECIALIST_PROMPT = """
 You are a Bitbucket specialist agent.

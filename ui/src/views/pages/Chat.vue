@@ -9,7 +9,7 @@ import Button from '@/components/ui/button/Button.vue';
 import { ButtonGroup } from '@/components/ui/button-group'
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
 import { useChatStore } from '@/stores/chat.store';
-import type { Message, ToolCall } from '@/types/chat.type';
+import type { AgentRun, Evidence, Message, ToolCall } from '@/types/chat.type';
 import {
     Tooltip,
     TooltipContent,
@@ -88,6 +88,66 @@ function parseToolResult(toolcall: ToolCall): Record<string, unknown> | null {
     return null
 }
 
+function extractToolCallsFromRuns(runs: AgentRun[] | undefined): ToolCall[] {
+    if (!Array.isArray(runs) || runs.length === 0) return []
+
+    const calls: ToolCall[] = []
+    const pendingByKey = new Map<string, ToolCall>()
+
+    for (const run of runs) {
+        const events = [...(run.events ?? [])].sort(
+            (a, b) => (a.event_sequence ?? 0) - (b.event_sequence ?? 0)
+        )
+        for (const event of events) {
+            const payload = (event.payload ?? {}) as Record<string, unknown>
+            if (event.event_type === 'specialist_tool_call') {
+                const specialist = String(payload.specialist ?? 'unknown')
+                const toolName = String(payload.tool_name ?? 'unknown_tool')
+                const call: ToolCall = {
+                    id: Number(event.id ?? -1),
+                    tool_name: toolName,
+                    tool_source: specialist,
+                    arguments: (payload.arguments as Record<string, unknown>) ?? {},
+                    result: undefined,
+                    evidence_items: Array.isArray(payload.evidence)
+                        ? (payload.evidence as Evidence[]).map((item, index) => {
+                            const row = item as unknown as Record<string, unknown>
+                            return {
+                                id: Number(row.id ?? (index + 1)),
+                                source_type: String(row.type ?? row.source_type ?? 'tool_result'),
+                                source_ref: row.ref ? String(row.ref) : row.source_ref ? String(row.source_ref) : undefined,
+                                content_snippet: String(row.content ?? row.content_snippet ?? ''),
+                                score: typeof row.score === 'number' ? row.score : undefined,
+                                timestamp: row.timestamp ? String(row.timestamp) : undefined,
+                            }
+                        })
+                        : [],
+                }
+                calls.push(call)
+                pendingByKey.set(`${specialist}:${toolName}`, call)
+                continue
+            }
+
+            if (event.event_type === 'specialist_tool_result') {
+                const specialist = String(payload.specialist ?? 'unknown')
+                const toolName = String(payload.tool_name ?? 'unknown_tool')
+                const key = `${specialist}:${toolName}`
+                const existing = pendingByKey.get(key)
+                if (existing) {
+                    existing.result = (payload.result as Record<string, unknown>) ?? {}
+                    pendingByKey.delete(key)
+                }
+            }
+        }
+    }
+
+    return calls
+}
+
+function getMessageToolCalls(message: Message): ToolCall[] {
+    return extractToolCallsFromRuns(message.agent_runs)
+}
+
 function getMessageDiffFiles(toolCalls: ToolCall[] | undefined): DiffFile[] {
     if (!toolCalls?.length) return []
 
@@ -118,7 +178,7 @@ function getMessageTopology(toolCalls: ToolCall[] | undefined): TopologyPayload 
 
 function getMessageRenderSegments(message: Message): MessageRenderSegment[] {
     const content = message.content || ''
-    const diffFiles = getMessageDiffFiles(message.tool_calls)
+    const diffFiles = getMessageDiffFiles(getMessageToolCalls(message))
     const segments: MessageRenderSegment[] = []
     const markerRegex = /\[\[\s*CONFIG_DIFF(?:\s*:\s*(\d+))?\s*\]\]/gi
 
@@ -306,18 +366,6 @@ function toggleSidebar() {
     isSidebarCollapsed.value = !isSidebarCollapsed.value
 }
 
-function onDebugButton1() {
-    // Placeholder for future implementation
-}
-
-function onDebugButton2() {
-    // Placeholder for future implementation
-}
-
-function onDebugButton3() {
-    // Placeholder for future implementation
-}
-
 async function loadConnectorStatus() {
     // TODO: Replace with backend healthcheck endpoint when available.
     // Example: const data = await api.get('/connectors/health')
@@ -382,7 +430,7 @@ onBeforeUnmount(() => {
                     <ButtonGroup>
                         <ButtonGroup>
                             <Button variant="outline" @click="debugMode = !debugMode">Debug ({{ debugMode ? 'on' : 'off'
-                            }})</Button>
+                                }})</Button>
                         </ButtonGroup>
                     </ButtonGroup>
 
@@ -412,7 +460,7 @@ onBeforeUnmount(() => {
                             <!-- Assistant message -->
                             <div v-if="message.role == 'assistant'">
                                 <!-- Toolcalls -->
-                                <ChatListTool :tool-calls="message.tool_calls" />
+                                <ChatListTool :tool-calls="getMessageToolCalls(message)" />
                                 <!-- Response -->
                                 <div class="flex flex-col gap-4">
                                     <template v-for="segment in getMessageRenderSegments(message)" :key="segment.id">
@@ -421,8 +469,8 @@ onBeforeUnmount(() => {
                                         <ConfigDiffViewer v-else :diff-files="segment.diffFiles" />
                                     </template>
                                 </div>
-                                <TopologyMapper v-if="getMessageTopology(message.tool_calls)"
-                                    :topology="getMessageTopology(message.tool_calls) || undefined" />
+                                <TopologyMapper v-if="getMessageTopology(getMessageToolCalls(message))"
+                                    :topology="getMessageTopology(getMessageToolCalls(message)) || undefined" />
                                 <!-- Feedback -->
                                 <ChatActions v-if="!chatStore.isMessageStreaming(message.id)" :message-id="message.id"
                                     :content="message.content" />

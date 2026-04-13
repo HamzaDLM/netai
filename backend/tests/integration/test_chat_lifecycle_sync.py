@@ -12,12 +12,12 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     async def _fake_run_agent(*, conversation_id: str, question: str) -> dict:
         return {
             "answer": f"answer for {conversation_id}: {question}",
-            "tools": [
+            "events": [
                 {
-                    "name": "zabbix.get_host_status",
+                    "type": "specialist_tool_call",
+                    "specialist": "zabbix",
+                    "tool_name": "zabbix.get_host_status",
                     "arguments": {"host": "edge-01"},
-                    "result": {"status": "up"},
-                    "latency_ms": 12,
                     "evidence": [
                         {
                             "type": "zabbix",
@@ -26,7 +26,13 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
                             "score": 0.95,
                         }
                     ],
-                }
+                },
+                {
+                    "type": "specialist_tool_result",
+                    "specialist": "zabbix",
+                    "tool_name": "zabbix.get_host_status",
+                    "result": {"status": "up"},
+                },
             ],
             "context_metrics": {"used_tokens": 10},
         }
@@ -54,9 +60,12 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     assert ask_resp.status_code == 200
     ask_payload = ask_resp.json()
     assert "answer for" in ask_payload["content"]
-    assert len(ask_payload["tool_calls"]) == 1
-    assert ask_payload["tool_calls"][0]["tool_source"] == "zabbix"
-    assert len(ask_payload["tool_calls"][0]["evidence_items"]) == 1
+    assert len(ask_payload["agent_runs"]) == 1
+    run = ask_payload["agent_runs"][0]
+    assert run["status"] == "completed"
+    assert len(run["events"]) == 2
+    assert run["events"][0]["event_type"] == "specialist_tool_call"
+    assert run["events"][1]["event_type"] == "specialist_tool_result"
 
     convo_resp = await async_client.get(f"/api/v1/llm/conversation/{conversation_id}")
     assert convo_resp.status_code == 200

@@ -69,6 +69,7 @@ services:
       - ./backend/.env
     environment:
       FRONTEND_HOST: http://localhost:5173
+      BACKEND_GIT_SHA: ${BACKEND_GIT_SHA:-dev}
       CLICKHOUSE_URL: http://clickhouse:8123
       QDRANT_URL: http://qdrant:6333
       SQLALCHEMY_URL: sqlite+aiosqlite:///./data/netai_local.db
@@ -118,43 +119,13 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_BASE_URL: /api/v1
+        VITE_UI_VERSION: ${VITE_UI_VERSION:-}
+        VITE_UI_GIT_SHA: ${VITE_UI_GIT_SHA:-dev}
     depends_on:
       backend:
         condition: service_started
     ports:
       - "5173:80"
-
-  # prometheus:
-  #   image: prom/prometheus:v2.54.1
-  #   command:
-  #     - --config.file=/etc/prometheus/prometheus.yml
-  #     - --storage.tsdb.path=/prometheus
-  #   depends_on:
-  #     backend:
-  #       condition: service_started
-  #   ports:
-  #     - "9090:9090"
-  #   volumes:
-  #     - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-  #   tmpfs:
-  #     - /prometheus
-
-  # grafana:
-  #   image: grafana/grafana:11.2.0
-  #   depends_on:
-  #     - prometheus
-  #   ports:
-  #     - "3000:3000"
-  #   environment:
-  #     GF_SECURITY_ADMIN_USER: admin
-  #     GF_SECURITY_ADMIN_PASSWORD: admin
-  #     GF_USERS_ALLOW_SIGN_UP: "false"
-  #   volumes:
-  #     - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
-  #     - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-  #     - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
-  #   tmpfs:
-  #     - /var/lib/grafana
 
   # langfuse-postgres:
   #   image: postgres:17
@@ -231,22 +202,6 @@ services:
   #     CLICKHOUSE_USER: admin
   #     CLICKHOUSE_PASSWORD: admin
   #     CLICKHOUSE_CLUSTER_ENABLED: "false"
-  #     LANGFUSE_USE_AZURE_BLOB: "false"
-  #     LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-  #     LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
-  #     LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-  #     LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-  #     LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-  #     LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-  #     LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
-  #     LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-  #     LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
-  #     LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-  #     LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-  #     LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-  #     LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-  #     LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
-  #     LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
   #     REDIS_HOST: langfuse-redis
   #     REDIS_PORT: 6379
   #     REDIS_AUTH: myredissecret
@@ -280,32 +235,7 @@ services:
   #     CLICKHOUSE_USER: admin
   #     CLICKHOUSE_PASSWORD: admin
   #     CLICKHOUSE_CLUSTER_ENABLED: "false"
-  #     LANGFUSE_USE_AZURE_BLOB: "false"
-  #     LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-  #     LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
-  #     LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
-  #     LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-  #     LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-  #     LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
-  #     LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
-  #     LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-  #     LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
-  #     LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
-  #     LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
-  #     LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
-  #     LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
-  #     LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
-  #     LANGFUSE_S3_BATCH_EXPORT_ENABLED: "false"
   #     REDIS_HOST: langfuse-redis
   #     REDIS_PORT: 6379
   #     REDIS_AUTH: myredissecret
   #     REDIS_TLS_ENABLED: "false"
-
-  uptime_kuma:
-    image: louislam/uptime-kuma:1
-    ports:
-      - "3001:3001"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    tmpfs:
-      - /app/data

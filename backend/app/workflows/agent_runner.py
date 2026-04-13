@@ -245,11 +245,102 @@ async def run_agent(*, conversation_id: str, question: str) -> dict:
 
     answer = _extract_answer(result)
     tools = _extract_tool_calls(result)
+    events = _build_run_events(answer=answer, tools=tools)
     for tool in tools:
         if tool.get("latency_ms") is None:
             tool["latency_ms"] = latency_ms
 
-    return {"answer": answer, "tools": tools, "context_metrics": context.metrics()}
+    return {"answer": answer, "events": events, "context_metrics": context.metrics()}
+
+
+def _build_run_events(*, answer: str, tools: list[dict]) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    specialist_calls = [
+        tool
+        for tool in tools
+        if str(tool.get("name", "")).strip().lower().endswith("_specialist")
+    ]
+    if specialist_calls:
+        events.append(
+            {
+                "type": "orchestrator_plan",
+                "plan": "Delegate to specialist agents based on intent, then synthesize final answer.",
+                "specialists": [
+                    _extract_specialist_name(str(tool.get("name")))
+                    for tool in specialist_calls
+                ],
+            }
+        )
+
+    for tool in specialist_calls:
+        specialist = _extract_specialist_name(str(tool.get("name")))
+        prompt_payload = tool.get("arguments")
+        result_payload = tool.get("result")
+
+        events.append(
+            {
+                "type": "thinking",
+                "agent": specialist,
+                "status": "running",
+                "message": f"{specialist} specialist is processing delegated task.",
+            }
+        )
+        events.append(
+            {
+                "type": "specialist_prompt",
+                "specialist": specialist,
+                "prompt": prompt_payload,
+            }
+        )
+        events.append(
+            {
+                "type": "specialist_thought",
+                "specialist": specialist,
+                "thought": result_payload,
+            }
+        )
+        events.append(
+            {
+                "type": "specialist_tool_call",
+                "specialist": specialist,
+                "tool_name": str(tool.get("name") or "unknown_tool"),
+                "arguments": prompt_payload,
+                "evidence": tool.get("evidence") or [],
+            }
+        )
+        if result_payload is not None:
+            events.append(
+                {
+                    "type": "specialist_tool_result",
+                    "specialist": specialist,
+                    "tool_name": str(tool.get("name") or "unknown_tool"),
+                    "result": result_payload,
+                }
+            )
+        events.append(
+            {
+                "type": "thinking",
+                "agent": specialist,
+                "status": "done",
+                "message": f"{specialist} specialist finished.",
+            }
+        )
+
+    events.append(
+        {
+            "type": "thinking",
+            "agent": "orchestrator",
+            "status": "done",
+            "message": "Orchestrator finished synthesis.",
+        }
+    )
+    events.append(
+        {
+            "type": "leader_conclusion",
+            "answer": answer,
+        }
+    )
+    return events
 
 
 async def run_agent_stream(
@@ -328,70 +419,5 @@ async def run_agent_stream(
         for token in _tokenize(answer):
             yield {"type": "token", "token": token}
 
-    specialist_calls = [
-        tool
-        for tool in tools
-        if str(tool.get("name", "")).strip().lower().endswith("_specialist")
-    ]
-    if specialist_calls:
-        yield {
-            "type": "orchestrator_plan",
-            "plan": "Delegate to specialist agents based on intent, then synthesize final answer.",
-            "specialists": [
-                _extract_specialist_name(str(tool.get("name")))
-                for tool in specialist_calls
-            ],
-        }
-
-    for tool in specialist_calls:
-        specialist = _extract_specialist_name(str(tool.get("name")))
-        prompt_payload = tool.get("arguments")
-        result_payload = tool.get("result")
-        yield {
-            "type": "thinking",
-            "agent": specialist,
-            "status": "running",
-            "message": f"{specialist} specialist is processing delegated task.",
-        }
-
-        yield {
-            "type": "specialist_prompt",
-            "specialist": specialist,
-            "prompt": prompt_payload,
-        }
-        yield {
-            "type": "specialist_thought",
-            "specialist": specialist,
-            "thought": result_payload,
-        }
-        yield {
-            "type": "specialist_tool_call",
-            "specialist": specialist,
-            "tool_name": str(tool.get("name") or "unknown_tool"),
-            "arguments": prompt_payload,
-            "evidence": tool.get("evidence") or [],
-        }
-        if result_payload is not None:
-            yield {
-                "type": "specialist_tool_result",
-                "specialist": specialist,
-                "tool_name": str(tool.get("name") or "unknown_tool"),
-                "result": result_payload,
-            }
-        yield {
-            "type": "thinking",
-            "agent": specialist,
-            "status": "done",
-            "message": f"{specialist} specialist finished.",
-        }
-
-    yield {
-        "type": "thinking",
-        "agent": "orchestrator",
-        "status": "done",
-        "message": "Orchestrator finished synthesis.",
-    }
-    yield {
-        "type": "leader_conclusion",
-        "answer": answer,
-    }
+    for event in _build_run_events(answer=answer, tools=tools):
+        yield event

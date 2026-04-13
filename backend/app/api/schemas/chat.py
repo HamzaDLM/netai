@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.api.models.chat import MessageRole
+from app.api.models.chat import AgentRunStatus, MessageRole
 
 
 class MessageCreate(BaseModel):
@@ -14,30 +14,35 @@ class FeedbackCreate(BaseModel):
     comment: str | None = None
 
 
-class EvidenceResponse(BaseModel):
+class AgentEventResponse(BaseModel):
     id: int
-    source_type: str
-    source_ref: str | None
-    content_snippet: str
-    score: float | None
-    timestamp: datetime | None
+    event_sequence: int
+    event_type: str
+    actor_type: str | None
+    actor_name: str | None
+    correlation_id: str | None
+    payload: dict | None
+    created_at: datetime
 
 
-class ToolCallResponse(BaseModel):
+class AgentRunResponse(BaseModel):
     id: int
-    tool_name: str
-    tool_source: str | None
-    arguments: dict | None
-    result: dict | None
-    latency_ms: int | None
-    evidence_items: list[EvidenceResponse]
+    user_message_id: int
+    assistant_message_id: int | None
+    status: AgentRunStatus
+    final_answer: str | None
+    context_metrics: dict | None
+    error: str | None
+    ended_at: datetime | None
+    created_at: datetime
+    events: list[AgentEventResponse] = []
 
 
 class MessageResponse(BaseModel):
     id: int
     role: MessageRole
     content: str
-    tool_calls: list[ToolCallResponse] = []
+    agent_runs: list[AgentRunResponse] = []
     created_at: datetime
 
 

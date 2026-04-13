@@ -6,8 +6,6 @@ export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
 	| ({ type: 'context_metrics' } & ContextMetrics)
 	| { type: 'thinking'; agent: string; status: string; message?: string }
-	| { type: 'tool_call'; name: string; arguments?: Record<string, unknown>; result?: Record<string, unknown>; evidence?: unknown[] }
-	| { type: 'tool_result'; name: string; result?: Record<string, unknown> }
 	| { type: 'orchestrator_plan'; plan?: string; specialists?: string[] }
 	| { type: 'specialist_prompt'; specialist: string; prompt?: Record<string, unknown> }
 	| { type: 'specialist_thought'; specialist: string; thought?: Record<string, unknown> }
@@ -26,8 +24,6 @@ export type StreamHandlers = {
 	onToken?: (token: string) => void
 	onContextMetrics?: (payload: ContextMetrics) => void
 	onThinking?: (payload: { agent: string; status: string; message?: string }) => void
-	onToolCall?: (payload: { name: string; arguments?: Record<string, unknown>; result?: Record<string, unknown>; evidence?: unknown[] }) => void
-	onToolResult?: (payload: { name: string; result?: Record<string, unknown> }) => void
 	onOrchestratorPlan?: (payload: { plan?: string; specialists?: string[] }) => void
 	onSpecialistPrompt?: (payload: { specialist: string; prompt?: Record<string, unknown> }) => void
 	onSpecialistThought?: (payload: { specialist: string; thought?: Record<string, unknown> }) => void
@@ -42,24 +38,24 @@ class ChatService {
 	getConversations(): Promise<AxiosResponse<Conversation[]>> {
 		return API.get(`/llm/conversations`)
 	}
-	getConversation(conversation_id: number): Promise<AxiosResponse<ConversationMessages>> {
+	getConversation(conversation_id: string): Promise<AxiosResponse<ConversationMessages>> {
 		return API.get(`/llm/conversation/${conversation_id}`)
 	}
 	createConversation(): Promise<AxiosResponse<Conversation>> {
 		return API.post(`/llm/conversation`, { title: '' })
 	}
-	renameConversation(conversation_id: number, title: string): Promise<AxiosResponse<Conversation>> {
+	renameConversation(conversation_id: string, title: string): Promise<AxiosResponse<Conversation>> {
 		return API.patch(`/llm/conversation/${conversation_id}`, { title: title })
 	}
-	deleteConversation(conversation_id: number): Promise<AxiosResponse<Conversation>> {
+	deleteConversation(conversation_id: string): Promise<AxiosResponse<Conversation>> {
 		return API.delete(`/llm/conversation/${conversation_id}`)
 	}
 	// Chatting
-	askLLM(conversation_id: number, params: { content: string }): Promise<AxiosResponse<Message>> {
+	askLLM(conversation_id: string, params: { content: string }): Promise<AxiosResponse<Message>> {
 		return API.post(`/llm/conversation/${conversation_id}/message`, params)
 	}
 
-	async askLLMStream(conversation_id: number, params: { content: string }, handlers: StreamHandlers = {}): Promise<void> {
+	async askLLMStream(conversation_id: string, params: { content: string }, handlers: StreamHandlers = {}): Promise<void> {
 		const url = `${API.defaults.baseURL ?? ''}/llm/conversation/${conversation_id}/message/stream`
 		const response = await fetch(url, {
 			method: 'POST',
@@ -99,8 +95,6 @@ class ChatService {
 			if (eventName === 'assistant_token') return { type: eventName, token: String(payload?.token ?? '') }
 			if (eventName === 'context_metrics') return { type: eventName, ...payload }
 			if (eventName === 'thinking') return { type: eventName, ...payload }
-			if (eventName === 'tool_call') return { type: eventName, ...payload }
-			if (eventName === 'tool_result') return { type: eventName, ...payload }
 			if (eventName === 'orchestrator_plan') return { type: eventName, ...payload }
 			if (eventName === 'specialist_prompt') return { type: eventName, ...payload }
 			if (eventName === 'specialist_thought') return { type: eventName, ...payload }
@@ -127,8 +121,6 @@ class ChatService {
 				if (parsed.type === 'assistant_token') handlers.onToken?.(parsed.token)
 				if (parsed.type === 'context_metrics') handlers.onContextMetrics?.(parsed)
 				if (parsed.type === 'thinking') handlers.onThinking?.(parsed)
-				if (parsed.type === 'tool_call') handlers.onToolCall?.(parsed)
-				if (parsed.type === 'tool_result') handlers.onToolResult?.(parsed)
 				if (parsed.type === 'orchestrator_plan') handlers.onOrchestratorPlan?.(parsed)
 				if (parsed.type === 'specialist_prompt') handlers.onSpecialistPrompt?.(parsed)
 				if (parsed.type === 'specialist_thought') handlers.onSpecialistThought?.(parsed)
