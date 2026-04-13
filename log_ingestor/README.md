@@ -38,6 +38,7 @@ Rust Kafka consumer that ingests syslogs, normalizes them, stores all events in 
 - `CLICKHOUSE_DB` (default: `netops`)
 - `CLICKHOUSE_USER` (default: `admin`)
 - `CLICKHOUSE_PASSWORD` (default: `admin`)
+- `CLICKHOUSE_RETENTION_DAYS` (default: `30`)
 - `CLICKHOUSE_BATCH_SIZE` (default: `1000`)
 - `CLICKHOUSE_FLUSH_INTERVAL_MS` (default: `1000`)
 - `CLICKHOUSE_INSERT_QUEUE_CAPACITY` (default: `20000`)
@@ -70,6 +71,8 @@ Expected lookup API payload formats:
 ## Notes
 
 - ClickHouse schema is auto-created and auto-migrated for added metadata columns.
+- `syslog_events` is partitioned by event datetime day (`toDate(toDateTime(ts_unix))`).
+- ClickHouse TTL deletes rows older than `CLICKHOUSE_RETENTION_DAYS`.
 - Event writes to ClickHouse are batched in-memory and flushed by size/time thresholds.
 - If embedding endpoint is unavailable or returns wrong dimension, new template upserts fail for that event.
 - Embedding requests use bounded concurrency, request pacing, and retries for `429`/`5xx` responses.

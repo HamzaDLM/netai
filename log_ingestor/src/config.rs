@@ -8,6 +8,7 @@ pub struct Config {
     pub clickhouse_db: String,
     pub clickhouse_user: String,
     pub clickhouse_password: String,
+    pub clickhouse_retention_days: u64,
     pub clickhouse_batch_size: usize,
     pub clickhouse_flush_interval_ms: u64,
     pub clickhouse_insert_queue_capacity: usize,
@@ -49,6 +50,9 @@ impl Config {
             clickhouse_db: get("CLICKHOUSE_DB").unwrap_or("netops".into()),
             clickhouse_user: get("CLICKHOUSE_USER").unwrap_or("admin".into()),
             clickhouse_password: get("CLICKHOUSE_PASSWORD").unwrap_or("admin".into()),
+            clickhouse_retention_days: get("CLICKHOUSE_RETENTION_DAYS")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(30),
             clickhouse_batch_size: get("CLICKHOUSE_BATCH_SIZE")
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(1000),
@@ -99,6 +103,7 @@ mod tests {
     fn from_env_with_uses_defaults_for_new_controls() {
         let cfg = Config::from_env_with(|_| None);
         assert_eq!(cfg.clickhouse_batch_size, 1000);
+        assert_eq!(cfg.clickhouse_retention_days, 30);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1000);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 20000);
         assert_eq!(cfg.embedding_max_in_flight, 4);
@@ -111,6 +116,7 @@ mod tests {
     fn from_env_with_parses_explicit_values_for_new_controls() {
         let vars = HashMap::from([
             ("CLICKHOUSE_BATCH_SIZE", "2500"),
+            ("CLICKHOUSE_RETENTION_DAYS", "45"),
             ("CLICKHOUSE_FLUSH_INTERVAL_MS", "1500"),
             ("CLICKHOUSE_INSERT_QUEUE_CAPACITY", "64000"),
             ("EMBEDDING_MAX_IN_FLIGHT", "8"),
@@ -121,6 +127,7 @@ mod tests {
 
         let cfg = Config::from_env_with(|k| vars.get(k).map(|v| v.to_string()));
         assert_eq!(cfg.clickhouse_batch_size, 2500);
+        assert_eq!(cfg.clickhouse_retention_days, 45);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1500);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 64000);
         assert_eq!(cfg.embedding_max_in_flight, 8);
@@ -133,6 +140,7 @@ mod tests {
     fn from_env_with_ignores_invalid_numeric_values() {
         let vars = HashMap::from([
             ("CLICKHOUSE_BATCH_SIZE", "abc"),
+            ("CLICKHOUSE_RETENTION_DAYS", "bad"),
             ("CLICKHOUSE_FLUSH_INTERVAL_MS", "x"),
             ("CLICKHOUSE_INSERT_QUEUE_CAPACITY", "oops"),
             ("EMBEDDING_MAX_IN_FLIGHT", "nope"),
@@ -143,6 +151,7 @@ mod tests {
 
         let cfg = Config::from_env_with(|k| vars.get(k).map(|v| v.to_string()));
         assert_eq!(cfg.clickhouse_batch_size, 1000);
+        assert_eq!(cfg.clickhouse_retention_days, 30);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1000);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 20000);
         assert_eq!(cfg.embedding_max_in_flight, 4);

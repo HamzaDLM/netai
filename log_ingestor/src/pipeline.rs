@@ -107,7 +107,7 @@ impl Pipeline {
             self.dedup.len()
         );
 
-        ensure_events_table_exists(&self.clickhouse).await?;
+        ensure_events_table_exists(&self.clickhouse, self.config.clickhouse_retention_days).await?;
         Ok(())
     }
 

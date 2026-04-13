@@ -27,10 +27,10 @@ pub fn build_client(base_url: &str, database: &str, user: &str, password: &str) 
         .with_database(database)
 }
 
-pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
-    client
-        .query(
-            "
+pub async fn ensure_events_table_exists(client: &Client, retention_days: u64) -> Result<()> {
+    let ttl_days = retention_days.max(1);
+    let ddl = format!(
+        "
             CREATE TABLE IF NOT EXISTS syslog_events (
                 event_id String,
                 ts_unix Int64,
@@ -45,11 +45,13 @@ pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
                 template_fingerprint UInt64
             )
             ENGINE = MergeTree
+            PARTITION BY toDate(toDateTime(ts_unix))
             ORDER BY (ts_unix, hostname, event_id)
-            ",
-        )
-        .execute()
-        .await?;
+            TTL toDateTime(ts_unix) + INTERVAL {ttl_days} DAY DELETE
+            "
+    );
+
+    client.query(&ddl).execute().await?;
 
     Ok(())
 }
