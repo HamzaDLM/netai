@@ -1,11 +1,15 @@
 use anyhow::Result;
 use clickhouse::Client as ClickHouseClient;
-use log::debug;
+use log::{debug, error, warn};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
+use tokio::{
+    sync::mpsc,
+    time::{self, Duration, MissedTickBehavior},
+};
 use uuid::Uuid;
 
 use crate::{
@@ -18,7 +22,7 @@ use crate::{
     storage::{
         clickhouse::{
             SyslogEventRow, build_client as build_clickhouse_client, ensure_events_table_exists,
-            insert_event,
+            insert_events,
         },
         qdrant::{ensure_collection_exists, fetch_existing_templates, upsert_point},
     },
@@ -36,22 +40,43 @@ pub struct Pipeline {
     embedder: EmbeddingClient,
     http: Client,
     clickhouse: ClickHouseClient,
+    clickhouse_tx: mpsc::Sender<SyslogEventRow>,
     vendor_cache: VendorCache,
     config: Arc<Config>,
 }
 
 impl Pipeline {
     pub fn new(config: Arc<Config>) -> Self {
+        let clickhouse = build_clickhouse_client(
+            &config.clickhouse_url,
+            &config.clickhouse_db,
+            &config.clickhouse_user,
+            &config.clickhouse_password,
+        );
+        let (clickhouse_tx, clickhouse_rx) = mpsc::channel(
+            config
+                .clickhouse_insert_queue_capacity
+                .max(config.clickhouse_batch_size.max(1)),
+        );
+        let flush_interval = Duration::from_millis(config.clickhouse_flush_interval_ms.max(100));
+        let flush_batch_size = config.clickhouse_batch_size.max(1);
+        let writer_client = clickhouse.clone();
+        tokio::spawn(async move {
+            run_clickhouse_writer(
+                writer_client,
+                clickhouse_rx,
+                flush_batch_size,
+                flush_interval,
+            )
+            .await;
+        });
+
         return Self {
             dedup: TemplateDeduplicator::new(),
             embedder: EmbeddingClient::new(&config),
             http: Client::new(),
-            clickhouse: build_clickhouse_client(
-                &config.clickhouse_url,
-                &config.clickhouse_db,
-                &config.clickhouse_user,
-                &config.clickhouse_password,
-            ),
+            clickhouse,
+            clickhouse_tx,
             vendor_cache: VendorCache::new(config.clone()),
             config,
         };
@@ -125,7 +150,10 @@ impl Pipeline {
             template_fingerprint,
         };
 
-        insert_event(&self.clickhouse, &event_row).await?;
+        self.clickhouse_tx
+            .send(event_row)
+            .await
+            .map_err(|err| anyhow::anyhow!("clickhouse writer task unavailable: {err}"))?;
 
         if !self.dedup.is_new(&dedup_key) {
             debug!("dedup decision: not new");
@@ -149,6 +177,72 @@ impl Pipeline {
         .await?;
 
         Ok(())
+    }
+}
+
+async fn run_clickhouse_writer(
+    client: ClickHouseClient,
+    mut rx: mpsc::Receiver<SyslogEventRow>,
+    batch_size: usize,
+    flush_interval: Duration,
+) {
+    let mut batch: Vec<SyslogEventRow> = Vec::with_capacity(batch_size);
+    let mut ticker = time::interval(flush_interval);
+    ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            maybe_row = rx.recv() => {
+                match maybe_row {
+                    Some(row) => {
+                        batch.push(row);
+                        if batch.len() >= batch_size {
+                            flush_with_retry(&client, &mut batch).await;
+                        }
+                    }
+                    None => {
+                        flush_with_retry(&client, &mut batch).await;
+                        break;
+                    }
+                }
+            }
+            _ = ticker.tick() => {
+                if !batch.is_empty() {
+                    flush_with_retry(&client, &mut batch).await;
+                }
+            }
+        }
+    }
+}
+
+async fn flush_with_retry(client: &ClickHouseClient, batch: &mut Vec<SyslogEventRow>) {
+    if batch.is_empty() {
+        return;
+    }
+
+    let mut attempts = 0usize;
+    loop {
+        match insert_events(client, batch).await {
+            Ok(_) => {
+                if attempts > 0 {
+                    warn!(
+                        "recovered clickhouse insert after {} retry attempts; flushed {} rows",
+                        attempts,
+                        batch.len()
+                    );
+                }
+                batch.clear();
+                return;
+            }
+            Err(err) => {
+                attempts += 1;
+                error!(
+                    "clickhouse batch insert failed (attempt {}), retrying in 1s: {err:#}",
+                    attempts
+                );
+                time::sleep(Duration::from_secs(1)).await;
+            }
+        }
     }
 }
 

@@ -4,7 +4,7 @@ use serde::Serialize;
 
 pub const EVENTS_TABLE: &str = "syslog_events";
 
-#[derive(Debug, Serialize, Row)]
+#[derive(Clone, Debug, Serialize, Row)]
 pub struct SyslogEventRow {
     pub event_id: String,
     pub ts_unix: i64,
@@ -51,30 +51,18 @@ pub async fn ensure_events_table_exists(client: &Client) -> Result<()> {
         .execute()
         .await?;
 
-    // Backward compatibility for existing deployments created before vendor columns existed.
-    client
-        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS vendor String")
-        .execute()
-        .await?;
-    client
-        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS facility String")
-        .execute()
-        .await?;
-    client
-        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS severity Int16 DEFAULT -1")
-        .execute()
-        .await?;
-    client
-        .query("ALTER TABLE syslog_events ADD COLUMN IF NOT EXISTS event_code String")
-        .execute()
-        .await?;
-
     Ok(())
 }
 
-pub async fn insert_event(client: &Client, row: &SyslogEventRow) -> Result<()> {
-    let mut insert = client.insert(EVENTS_TABLE)?;
-    insert.write(row).await?;
+pub async fn insert_events(client: &Client, rows: &[SyslogEventRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut insert: clickhouse::insert::Insert<SyslogEventRow> = client.insert(EVENTS_TABLE)?;
+    for row in rows {
+        insert.write(row).await?;
+    }
     insert.end().await?;
     Ok(())
 }

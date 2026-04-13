@@ -38,6 +38,9 @@ Rust Kafka consumer that ingests syslogs, normalizes them, stores all events in 
 - `CLICKHOUSE_DB` (default: `netops`)
 - `CLICKHOUSE_USER` (default: `admin`)
 - `CLICKHOUSE_PASSWORD` (default: `admin`)
+- `CLICKHOUSE_BATCH_SIZE` (default: `1000`)
+- `CLICKHOUSE_FLUSH_INTERVAL_MS` (default: `1000`)
+- `CLICKHOUSE_INSERT_QUEUE_CAPACITY` (default: `20000`)
 
 ### Qdrant
 - `QDRANT_URL` (default: `http://localhost:6333`)
@@ -49,6 +52,10 @@ Rust Kafka consumer that ingests syslogs, normalizes them, stores all events in 
 - `EMBEDDING_API_KEY` (optional)
 - `EMBEDDING_TIMEOUT_SECS` (default: `30`)
 - `EMBEDDING_DIMENSION` (default: `1536`)
+- `EMBEDDING_MAX_IN_FLIGHT` (default: `4`)
+- `EMBEDDING_MAX_REQUESTS_PER_SECOND` (default: `4`, set `0` to disable request pacing)
+- `EMBEDDING_MAX_RETRIES` (default: `5`)
+- `EMBEDDING_RETRY_BACKOFF_MS` (default: `250`)
 
 ### Vendor Cache / Lookup
 - `REDIS_URL` (optional; when reachable Redis is used, otherwise in-memory fallback is used)
@@ -63,7 +70,9 @@ Expected lookup API payload formats:
 ## Notes
 
 - ClickHouse schema is auto-created and auto-migrated for added metadata columns.
+- Event writes to ClickHouse are batched in-memory and flushed by size/time thresholds.
 - If embedding endpoint is unavailable or returns wrong dimension, new template upserts fail for that event.
+- Embedding requests use bounded concurrency, request pacing, and retries for `429`/`5xx` responses.
 - Ingestion still writes raw/normalized event rows to ClickHouse before template vectorization.
 - Vendor cache refresh is best-effort. Failed vendor API calls or Redis errors are logged and ingestion continues.
 
