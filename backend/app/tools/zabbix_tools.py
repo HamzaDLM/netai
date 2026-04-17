@@ -586,7 +586,7 @@ def build_problems_payload(
         ],
         "selectTags": ["tag", "value"],
         "recent": recent,
-        "sortfield": ["severity", "eventid"],
+        "sortfield": "eventid",
         "sortorder": "DESC",
         "limit": clamp_limit(limit),
         "time_from": time_from_hours(hours),
@@ -614,6 +614,13 @@ def build_problems_payload(
         if unsuppressed_only and str(event.get("suppressed", "0")) == "1":
             continue
         filtered.append(event)
+    filtered.sort(
+        key=lambda event: (
+            int(event.get("severity", 0) or 0),
+            int(event.get("eventid", 0) or 0),
+        ),
+        reverse=True,
+    )
 
     triggerids = [
         str(event.get("objectid", ""))
@@ -1055,11 +1062,18 @@ def get_trigger_problems(
             "recent": True,
             "time_from": time_from_hours(hours),
             "objectids": [triggerid],
-            "sortfield": ["severity", "eventid"],
+            "sortfield": "eventid",
             "sortorder": "DESC",
             "limit": clamp_limit(limit),
         }
         events = zabbix_gateway.call_list("problem.get", **params)
+        events.sort(
+            key=lambda event: (
+                int(event.get("severity", 0) or 0),
+                int(event.get("eventid", 0) or 0),
+            ),
+            reverse=True,
+        )
         trigger_map = enrich_trigger_map(zabbix_gateway, [triggerid])
         rows = [normalize_problem_row(event, trigger_map) for event in events]
         return {
@@ -1268,8 +1282,8 @@ def get_latest_metrics_data(
                 "value_type",
             ],
             hostids=[str(host.get("hostid", ""))],
-            sortfield=["lastclock", "name"],
-            sortorder="DESC",
+            sortfield=["name"],
+            sortorder="ASC",
             limit=clamp_limit(limit),
         )
 
@@ -1292,6 +1306,13 @@ def get_latest_metrics_data(
                     "value_type": str(row.get("value_type", "")),
                 }
             )
+        metrics.sort(
+            key=lambda metric: (
+                str(metric.get("last_clock", "")),
+                str(metric.get("name", "")),
+            ),
+            reverse=True,
+        )
 
         return {
             "hostname": str(host.get("host", "")),
@@ -1812,14 +1833,14 @@ def get_proxies(
             "proxy.get",
             output="extend",
             selectHosts=["hostid"],
-            sortfield=["host"],
+            sortfield=["name"],
             sortorder="ASC",
             limit=clamp_limit(limit),
         )
         proxies = [
             {
                 "proxyid": str(row.get("proxyid", "")),
-                "name": str(row.get("host", "")),
+                "name": str(row.get("name") or row.get("host") or ""),
                 "status": str(row.get("status", "")),
                 "last_seen": to_iso(row.get("lastaccess")),
                 "version": str(row.get("version", "")),
@@ -1943,8 +1964,8 @@ def diagnose_host(
                 "value_type",
             ],
             hostids=[str(host.get("hostid", ""))],
-            sortfield=["lastclock", "name"],
-            sortorder="DESC",
+            sortfield=["name"],
+            sortorder="ASC",
             limit=30,
         )
         latest_metrics = [
@@ -1965,6 +1986,13 @@ def diagnose_host(
                 str(row.get("key_", "")), ["*cpu*", "*memory*", "*icmp*", "*if*"]
             )
         ]
+        latest_metrics.sort(
+            key=lambda metric: (
+                str(metric.get("last_clock", "")),
+                str(metric.get("name", "")),
+            ),
+            reverse=True,
+        )
 
         event_rows = zabbix_gateway.call_list(
             "event.get",
