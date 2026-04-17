@@ -463,6 +463,7 @@ def enrich_trigger_map(
             "value",
         ],
         selectDependencies=["triggerid", "description"],
+        selectHosts=["hostid", "host", "name"],
         selectTags=["tag", "value"],
         triggerids=triggerids,
     )
@@ -489,6 +490,14 @@ def enrich_trigger_map(
                 }
                 for dep in (row.get("dependencies") or [])
             ],
+            "hosts": [
+                {
+                    "hostid": str(host.get("hostid", "")),
+                    "host": str(host.get("host", "")),
+                    "name": str(host.get("name", "")),
+                }
+                for host in (row.get("hosts") or [])
+            ],
             "tags": [
                 {
                     "tag": str(tag.get("tag", "")),
@@ -503,9 +512,10 @@ def enrich_trigger_map(
 def normalize_problem_row(
     event: dict[str, Any], trigger_map: dict[str, dict[str, Any]]
 ) -> dict[str, Any]:
-    hosts = event.get("hosts") or []
-    host = hosts[0] if hosts else {}
     triggerid = str(event.get("objectid", ""))
+    trigger = trigger_map.get(triggerid) or {}
+    hosts = trigger.get("hosts") or []
+    host = hosts[0] if hosts else {}
     severity = SEVERITY_NUM_TO_NAME.get(
         str(event.get("severity", "0")), "not_classified"
     )
@@ -520,7 +530,7 @@ def normalize_problem_row(
         "since": to_iso(event.get("clock")),
         "acknowledged": str(event.get("acknowledged", "0")) == "1",
         "suppressed": str(event.get("suppressed", "0")) == "1",
-        "trigger": trigger_map.get(triggerid),
+        "trigger": trigger,
         "last_event": {
             "eventid": str(event.get("eventid", "")),
             "clock": to_iso(event.get("clock")),
@@ -574,7 +584,6 @@ def build_problems_payload(
             "suppressed",
             "objectid",
         ],
-        "selectHosts": ["hostid", "host", "name"],
         "selectTags": ["tag", "value"],
         "recent": recent,
         "sortfield": ["severity", "eventid"],
@@ -1043,7 +1052,6 @@ def get_trigger_problems(
                 "suppressed",
                 "objectid",
             ],
-            "selectHosts": ["hostid", "host", "name"],
             "recent": True,
             "time_from": time_from_hours(hours),
             "objectids": [triggerid],
