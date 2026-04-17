@@ -8,19 +8,19 @@ from app.llm import llm
 
 if project_settings.TOOLS_USE_MOCK_DATA:
     from app.tools._bitbucket_tools_mock import (
-        clone_bitbucket_repo,
+        bitbucket_device_config_exists,
         get_bitbucket_device_configuration,
         get_bitbucket_device_file_info,
         get_bitbucket_recent_commits,
-        list_bitbucket_devices,
+        get_recent_device_config_diff,
     )
 else:
     from app.tools.bitbucket_tools import (
-        clone_bitbucket_repo,
+        bitbucket_device_config_exists,
         get_bitbucket_device_configuration,
         get_bitbucket_device_file_info,
         get_bitbucket_recent_commits,
-        list_bitbucket_devices,
+        get_recent_device_config_diff,
     )
 
 BITBUCKET_SPECIALIST_PROMPT = """
@@ -31,9 +31,9 @@ Answer with evidence from tool output and keep responses concise.
 """
 
 bitbucket_tools: list[Tool] = [
-    cast(Tool, clone_bitbucket_repo),
-    cast(Tool, list_bitbucket_devices),
+    cast(Tool, bitbucket_device_config_exists),
     cast(Tool, get_bitbucket_device_file_info),
+    cast(Tool, get_recent_device_config_diff),
     cast(Tool, get_bitbucket_device_configuration),
     cast(Tool, get_bitbucket_recent_commits),
 ]

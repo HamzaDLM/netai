@@ -40,12 +40,12 @@ def _normalize(value: str | None) -> str:
     return (value or "").strip().lower()
 
 
-@tool(name="bitbucket.clone_repo")  # type: ignore[operator]
 def clone_bitbucket_repo(
-    branch: Annotated[str | None, "Optional branch to clone"] = None,
-    refresh: Annotated[bool, "If repo exists locally, fetch updates"] = False,
+    *,
+    branch: str | None = None,
+    refresh: bool = True,
 ) -> dict[str, Any]:
-    """Mock clone response for local/offline development."""
+    """Mock helper response for local/offline development."""
     return {
         "repo_path": "/mock/repos/network-configs",
         "already_cloned": True,
@@ -55,11 +55,10 @@ def clone_bitbucket_repo(
     }
 
 
-@tool(name="bitbucket.list_devices")  # type: ignore[operator]
 def list_bitbucket_devices(
-    path_contains: Annotated[str | None, "Optional path substring filter"] = None,
+    path_contains: str | None = None,
 ) -> dict[str, Any]:
-    """List fake tracked device configuration files."""
+    """Testing helper only: list fake tracked device configuration files."""
     if path_contains:
         needle = _normalize(path_contains)
         devices = [
@@ -73,15 +72,35 @@ def list_bitbucket_devices(
     return {"count": len(devices), "devices": devices}
 
 
+def _match_device(device: str) -> dict[str, Any] | None:
+    device_lc = _normalize(device)
+    return next(
+        (row for row in _FAKE_DEVICES if _normalize(row["device"]) == device_lc), None
+    )
+
+
+@tool(name="bitbucket.device_config_exists")  # type: ignore[operator]
+def bitbucket_device_config_exists(
+    device: Annotated[str, "Device name (file stem) or exact filename"],
+) -> dict[str, Any]:
+    """Mock fast existence check for a device config file."""
+    match = _match_device(device)
+    if not match:
+        return {"device_query": device, "exists": False}
+    return {
+        "device_query": device,
+        "exists": True,
+        "device": match["device"],
+        "file_path": match["file_path"],
+    }
+
+
 @tool(name="bitbucket.get_device_file_info")  # type: ignore[operator]
 def get_bitbucket_device_file_info(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
-    """Return fake latest commit/diff metadata for one device file."""
-    device_lc = _normalize(device)
-    match = next(
-        (row for row in _FAKE_DEVICES if _normalize(row["device"]) == device_lc), None
-    )
+    """Return fake latest commit metadata for one device file."""
+    match = _match_device(device)
     if not match:
         return {
             "error": f"bitbucket_get_device_file_info_failed:device_not_found:{device}"
@@ -105,8 +124,55 @@ def get_bitbucket_device_file_info(
             "date": latest_commit["date"],
             "message": latest_commit["message"],
         },
-        "last_diff": f"--- a/{match['file_path']}\\n+++ b/{match['file_path']}\\n@@ -1,2 +1,3 @@\\n hostname {match['device']}\\n+! mock change",
         "commit_count": 3,
+    }
+
+
+@tool(name="bitbucket.get_recent_device_config_diff")  # type: ignore[operator]
+def get_recent_device_config_diff(
+    device: Annotated[str, "Device name (file stem) or exact filename"],
+) -> dict[str, Any]:
+    """Return fake latest config diff payload for one device file."""
+    match = _match_device(device)
+    if not match:
+        return {
+            "error": "bitbucket_get_recent_device_config_diff_failed:"
+            f"device_not_found:{device}"
+        }
+
+    latest_commit = next(
+        (
+            commit
+            for commit in _FAKE_COMMITS
+            if match["device"] in commit["affected_devices"]
+        ),
+        _FAKE_COMMITS[0],
+    )
+    patch = (
+        f"--- a/{match['file_path']}\\n"
+        f"+++ b/{match['file_path']}\\n"
+        f"@@ -1,2 +1,3 @@\\n"
+        f" hostname {match['device']}\\n"
+        f"+! mock change"
+    )
+
+    return {
+        "device": match["device"],
+        "file_path": match["file_path"],
+        "last_commit": {
+            "hash": latest_commit["hash"],
+            "author": latest_commit["author"],
+            "email": latest_commit["email"],
+            "date": latest_commit["date"],
+            "message": latest_commit["message"],
+        },
+        "config_diff": {
+            "format": "unified",
+            "old_path": match["file_path"],
+            "new_path": match["file_path"],
+            "patch": patch,
+        },
+        "last_diff": patch,
     }
 
 
@@ -116,10 +182,7 @@ def get_bitbucket_device_configuration(
     commit_ref: Annotated[str | None, "Optional commit hash; defaults to HEAD"] = None,
 ) -> dict[str, Any]:
     """Return fake sanitized configuration text for one device."""
-    device_lc = _normalize(device)
-    match = next(
-        (row for row in _FAKE_DEVICES if _normalize(row["device"]) == device_lc), None
-    )
+    match = _match_device(device)
     if not match:
         return {
             "error": f"bitbucket_get_device_configuration_failed:device_not_found:{device}"

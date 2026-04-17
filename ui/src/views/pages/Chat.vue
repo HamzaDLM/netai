@@ -626,7 +626,7 @@ onBeforeUnmount(() => {
                         <ButtonGroup>
                             <Button variant="outline" @click="debugMode = !debugMode">Multi-agent view ({{ debugMode ?
                                 'on' : 'off'
-                                }})</Button>
+                            }})</Button>
                         </ButtonGroup>
                     </ButtonGroup>
                 </div>
@@ -636,9 +636,9 @@ onBeforeUnmount(() => {
                     <!-- v-if="!selectedConversation || selectedConversation.messages.length < 1" -->
                     <div v-if="chatStore.messages.length == 0"
                         class="flex flex-col items-center justify-center h-full gap-2">
-                        <p class="text-2xl text-stone-200">What would you like to talk about today?</p>
+                        <p class="text-3xl text-stone-200">What would you like to talk about today?</p>
                         <div class="flex items-center gap-1 text-stone-500">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="text-red-500 w-9 h-9" viewBox="0 0 24 24">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="text-stone-400 w-9 h-9" viewBox="0 0 24 24">
                                 <path fill="currentColor"
                                     d="M5 22v-4q0-.575.3-1.037t.8-.738L11 13.75V12l-3.475 1.725q-.3.15-.625.225t-.65.075q-.775 0-1.463-.4t-1.062-1.15q-.35-.675-.3-1.437T3.9 9.625L7 5L5 2h6q3.325 0 5.663 2.325T19 10v12zm2-2h10V10q0-2.5-1.75-4.25T11 4H8.75l.65 1l-3.825 5.75q-.125.2-.137.413t.087.412q.125.275.338.363t.412.087q.075 0 .375-.075L13 8.75V15l-6 3zm4-8" />
                             </svg>
@@ -683,7 +683,8 @@ onBeforeUnmount(() => {
                                     <ChatListTool :tool-calls="getMessageToolCalls(message)" />
 
                                     <div class="flex flex-col gap-4">
-                                        <template v-for="segment in getMessageRenderSegments(message)" :key="segment.id">
+                                        <template v-for="segment in getMessageRenderSegments(message)"
+                                            :key="segment.id">
                                             <MarkdownRenderer v-if="segment.type === 'markdown'"
                                                 :content="segment.content" />
                                             <ConfigDiffViewer v-else :diff-files="segment.diffFiles" />
@@ -691,8 +692,8 @@ onBeforeUnmount(() => {
                                     </div>
                                     <TopologyMapper v-if="getMessageTopology(getMessageToolCalls(message))"
                                         :topology="getMessageTopology(getMessageToolCalls(message)) || undefined" />
-                                    <ChatActions v-if="!chatStore.isMessageStreaming(message.id)" :message-id="message.id"
-                                        :content="message.content" />
+                                    <ChatActions v-if="!chatStore.isMessageStreaming(message.id)"
+                                        :message-id="message.id" :content="message.content" />
                                 </div>
                                 <div v-if="message.role == 'user'" class="flex justify-end">
                                     <p

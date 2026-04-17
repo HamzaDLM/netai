@@ -1,6 +1,6 @@
 from typing import Any
 
-from app.tools.bitbucket_tools import list_bitbucket_devices
+from app.tools.bitbucket_tools import bitbucket_device_config_exists
 
 
 def _invoke_tool(tool_obj: Any, **kwargs: Any) -> Any:
@@ -29,8 +29,10 @@ def _invoke_tool(tool_obj: Any, **kwargs: Any) -> Any:
 
 
 def test_example_invoke_tool_returns_error_payload() -> None:
-    result = _invoke_tool(list_bitbucket_devices)
+    result = _invoke_tool(bitbucket_device_config_exists, device="no-such-device")
 
     assert isinstance(result, dict)
-    assert "error" in result
-    assert "bitbucket_list_devices_failed" in str(result["error"])
+    if "error" in result:
+        assert "bitbucket_device_config_exists_failed" in str(result["error"])
+    else:
+        assert result.get("exists") is False

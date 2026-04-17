@@ -84,7 +84,7 @@ def test_get_device_file_info_returns_last_change_and_diff(tmp_path: Path) -> No
     assert info["device"] == "edge-fw-par-01"
     assert info["last_commit"]["message"] == "Harden SSH on edge-fw-par-01"
     assert "set ssh strong" in info["last_diff"]
-    assert "set psksecret <redacted>" in info["last_diff"]
+    assert "set psksecret" not in info["last_diff"]
     assert "supersecret" not in info["last_diff"]
     assert info["commit_count"] == 2
 
@@ -103,6 +103,7 @@ def test_recent_commits_include_affected_devices(tmp_path: Path) -> None:
 def test_sanitize_config_text_covers_vendor_styles() -> None:
     raw = "\n".join(
         [
+            "hostname edge-fw-par-01",
             "username admin secret 9 $9$abc123",
             'set system login user noc authentication encrypted-password "$6$hash"',
             "snmp-server community public ro",
@@ -120,4 +121,5 @@ def test_sanitize_config_text_covers_vendor_styles() -> None:
     assert "supersecret" not in sanitized
     assert "letmein" not in sanitized
     assert "keepme" not in sanitized
-    assert "<redacted>" in sanitized
+    assert "username admin secret" not in sanitized
+    assert "hostname edge-fw-par-01" in sanitized

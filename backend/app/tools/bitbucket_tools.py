@@ -80,7 +80,24 @@ def _clone_repo(
 
     if git_dir.exists():
         if refresh:
-            _run_git(["fetch", "--all", "--tags"], repo_path=target)
+            _run_git(["fetch", "--all", "--tags", "--prune"], repo_path=target)
+            current_branch = _run_git(
+                ["rev-parse", "--abbrev-ref", "HEAD"], repo_path=target
+            )
+            if current_branch != "HEAD":
+                has_upstream = True
+                try:
+                    _run_git(
+                        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+                        repo_path=target,
+                    )
+                except BitbucketToolError:
+                    has_upstream = False
+
+                # Branches without upstream tracking can still be valid for read-only
+                # history lookups; in that case keep fetch results and skip pull.
+                if has_upstream:
+                    _run_git(["pull", "--ff-only"], repo_path=target)
         head = _run_git(["rev-parse", "HEAD"], repo_path=target)
         current_branch = _run_git(
             ["rev-parse", "--abbrev-ref", "HEAD"], repo_path=target
@@ -107,6 +124,39 @@ def _clone_repo(
         "branch": current_branch,
         "head": head,
     }
+
+
+def clone_repo(
+    repo_url: str,
+    destination: str | Path,
+    *,
+    branch: str | None = None,
+    refresh: bool = False,
+) -> dict[str, Any]:
+    """Helper alias exposed for tests and local programmatic usage."""
+    return _clone_repo(repo_url, destination, branch=branch, refresh=refresh)
+
+
+def clone_bitbucket_repo(
+    *,
+    branch: str | None = None,
+    refresh: bool = True,
+) -> dict[str, Any]:
+    """Programmatic helper that keeps configured clone up to date."""
+    resolved_url = _resolved_repo_url()
+    resolved_destination = _resolved_repo_path()
+    return _clone_repo(
+        resolved_url,
+        resolved_destination,
+        branch=branch,
+        refresh=refresh,
+    )
+
+
+def _ensure_bitbucket_repo() -> Path:
+    """Ensure configured repo is available and refreshed before any tool read."""
+    clone_bitbucket_repo(refresh=True)
+    return _resolved_repo_path()
 
 
 def _tracked_files(repo_path: str | Path) -> list[str]:
@@ -145,8 +195,17 @@ def _list_device_files(
     return sorted(devices, key=lambda item: (item["device"], item["file_path"]))
 
 
-def _resolve_device_file(repo_path: str | Path, device: str) -> str:
-    """Resolve one unique tracked file for a device stem or exact filename."""
+def list_device_files(
+    repo_path: str | Path,
+    *,
+    path_contains: str | None = None,
+) -> list[dict[str, Any]]:
+    """Helper alias exposed for tests and local programmatic usage."""
+    return _list_device_files(repo_path, path_contains=path_contains)
+
+
+def _matching_device_files(repo_path: str | Path, device: str) -> list[str]:
+    """Return tracked-file matches for exact filename or filename stem."""
     lookup = normalize(device)
     if not lookup:
         raise BitbucketToolError("device_is_required")
@@ -157,6 +216,12 @@ def _resolve_device_file(repo_path: str | Path, device: str) -> str:
         stem = normalize(Path(file_path).stem)
         if lookup in {base, stem}:
             matches.append(file_path)
+    return matches
+
+
+def _resolve_device_file(repo_path: str | Path, device: str) -> str:
+    """Resolve one unique tracked file for a device stem or exact filename."""
+    matches = _matching_device_files(repo_path, device)
 
     if not matches:
         raise BitbucketToolError(f"device_not_found:{device}")
@@ -231,94 +296,58 @@ def _file_content_at_ref(
     return _run_git(["show", f"{ref}:{file_path}"], repo_path=repo_path)
 
 
-_SANITIZE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
-    # Fortinet-style
-    (
-        re.compile(
-            r'(?i)(\bset\s+(?:password|passwd|secret|psksecret|private-key)\s+)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
-    # Cisco IOS/NX-OS and Arista EOS style
-    (
-        re.compile(
-            r'(?i)(\busername\s+\S+\s+(?:password|secret)\s+\d*\s*)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
-    (re.compile(r'(?i)(\benable\s+secret\s+\d*\s*)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (re.compile(r'(?i)(\bsnmp-server\s+community\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (
-        re.compile(
-            r'(?i)(\bsnmp-server\s+user\s+\S+\s+\S+\s+auth\s+\S+\s+)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
-    (
-        re.compile(r'(?i)(\bsnmp-server\s+user\s+\S+.*\bpriv\s+\S+\s+)(?:"[^"]*"|\S+)'),
-        r"\1<redacted>",
-    ),
-    (
-        re.compile(r'(?i)(\b(?:radius-server|tacacs-server)\s+key\s+)(?:"[^"]*"|\S+)'),
-        r"\1<redacted>",
-    ),
-    (
-        re.compile(
-            r'(?i)(\b(?:radius-server|tacacs-server)\s+host\s+\S+\s+key\s+)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
-    (re.compile(r'(?i)(\bkey-string\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    # Juniper, ADVA, Metamako and other hierarchical network CLIs
-    # Juniper-style
-    (re.compile(r'(?i)(\bencrypted-password\s+)"[^"]*"'), r'\1"<redacted>"'),
-    (re.compile(r'(?i)(\bauthentication-key\s+)"[^"]*"'), r'\1"<redacted>"'),
-    (re.compile(r'(?i)(\bplain-text-password\s+)"[^"]*"'), r'\1"<redacted>"'),
-    (re.compile(r'(?i)(\bcommunity\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    (re.compile(r'(?i)(\bntp-key\s+\d+\s+)(?:"[^"]*"|\S+)'), r"\1<redacted>"),
-    # F5 BIG-IP tmsh/uCS snippets
-    (
-        re.compile(
-            r'(?i)(\b(?:tmsh\s+)?modify\s+auth\s+user\s+\S+\s+password\s+)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
-    (
-        re.compile(
-            r'(?i)(\b(?:tmsh\s+)?create\s+auth\s+user\s+\S+\s+password\s+)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
-    # VMware/Opengear/Oracle/Riverbed text configs typically expose key-value secrets
-    (
-        re.compile(
-            r'(?i)((?:rootpw|bindpw|shared[-_]?secret|auth[-_]?token)\s*[:=]\s*)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
-    # Generic key-value
-    (
-        re.compile(
-            r'(?i)((?:password|passwd|secret|token|api[_-]?key)\s*[:=]\s*)(?:"[^"]*"|\S+)'
-        ),
-        r"\1<redacted>",
-    ),
+_SENSITIVE_LINE_PATTERNS: list[re.Pattern[str]] = [
+    # Fortinet / Cisco / Juniper / Arista / Nokia style secrets
+    re.compile(r"(?i)\bset\s+(?:password|passwd|secret|psksecret|private-key)\b"),
+    re.compile(r"(?i)\busername\s+\S+\s+(?:password|secret)\b"),
+    re.compile(r"(?i)\benable\s+secret\b"),
+    re.compile(r"(?i)\b(?:password|passwd|secret)\s+\d+\s+\S+"),
+    re.compile(r"(?i)\b\d+\s+\S*(?:pass|secret|token|key)\S*"),
+    # SNMP and AAA
+    re.compile(r"(?i)\bsnmp-server\s+community\b"),
+    re.compile(r"(?i)\bsnmp-server\s+user\b.*\bauth\b"),
+    re.compile(r"(?i)\bsnmp-server\s+user\b.*\bpriv\b"),
+    re.compile(r"(?i)\b(?:radius-server|tacacs-server)\s+(?:host\s+\S+\s+)?key\b"),
+    re.compile(r"(?i)\bkey-string\b"),
+    # Hierarchical CLIs and service configs
+    re.compile(r"(?i)\bencrypted-password\b"),
+    re.compile(r"(?i)\bauthentication-key\b"),
+    re.compile(r"(?i)\bplain-text-password\b"),
+    re.compile(r"(?i)\bcommunity\s+(?:\"[^\"]*\"|\S+)"),
+    re.compile(r"(?i)\bntp-key\s+\d+\b"),
+    re.compile(r"(?i)\b(?:tmsh\s+)?(?:modify|create)\s+auth\s+user\b.*\bpassword\b"),
+    # Generic key-value style secrets
+    re.compile(r"(?i)\b(?:rootpw|bindpw|shared[-_]?secret|auth[-_]?token)\s*[:=]"),
+    re.compile(r"(?i)\b(?:password|passwd|secret|token|api[_-]?key)\s*[:=]"),
 ]
 
 
+def _is_sensitive_config_line(line: str) -> bool:
+    """Return True when a config/diff line appears to contain secret material."""
+    return any(pattern.search(line) for pattern in _SENSITIVE_LINE_PATTERNS)
+
+
 def sanitize_config_text(config_text: str) -> str:
-    """Mask sensitive values while preserving line structure for troubleshooting."""
-    sanitized = config_text
-    for pattern, replacement in _SANITIZE_PATTERNS:
-        sanitized = pattern.sub(replacement, sanitized)
+    """Remove lines containing sensitive values from configuration text."""
+    if not config_text:
+        return config_text
+
+    had_trailing_newline = config_text.endswith("\n")
+    kept_lines = [
+        line for line in config_text.splitlines() if not _is_sensitive_config_line(line)
+    ]
+    sanitized = "\n".join(kept_lines)
+    if had_trailing_newline and sanitized:
+        sanitized += "\n"
     return sanitized
 
 
 def sanitize_unified_diff(diff_text: str) -> str:
-    """Mask secrets in diff bodies while preserving diff headers and prefixes."""
+    """Remove diff lines that contain sensitive values while preserving diff headers."""
     if not diff_text:
         return diff_text
 
+    had_trailing_newline = diff_text.endswith("\n")
     sanitized_lines: list[str] = []
     for raw_line in diff_text.splitlines():
         if raw_line.startswith(("+++", "---", "@@")):
@@ -326,14 +355,19 @@ def sanitize_unified_diff(diff_text: str) -> str:
             continue
 
         if raw_line and raw_line[0] in {"+", "-", " "}:
-            prefix = raw_line[0]
-            body = raw_line[1:]
-            sanitized_lines.append(prefix + sanitize_config_text(body))
+            if _is_sensitive_config_line(raw_line[1:]):
+                continue
+            sanitized_lines.append(raw_line)
             continue
 
-        sanitized_lines.append(sanitize_config_text(raw_line))
+        if _is_sensitive_config_line(raw_line):
+            continue
+        sanitized_lines.append(raw_line)
 
-    return "\n".join(sanitized_lines)
+    sanitized = "\n".join(sanitized_lines)
+    if had_trailing_newline and sanitized:
+        sanitized += "\n"
+    return sanitized
 
 
 def _get_device_file_info(repo_path: str | Path, device: str) -> dict[str, Any]:
@@ -349,6 +383,52 @@ def _get_device_file_info(repo_path: str | Path, device: str) -> dict[str, Any]:
         "commit_count": commit_count,
         "last_commit": last_commit,
         "last_diff": sanitize_unified_diff(last_diff),
+    }
+
+
+def get_device_file_info(repo_path: str | Path, device: str) -> dict[str, Any]:
+    """Helper alias exposed for tests and local programmatic usage."""
+    return _get_device_file_info(repo_path, device)
+
+
+def _device_config_exists(repo_path: str | Path, device: str) -> dict[str, Any]:
+    """Quick existence lookup for a device config filename/stem."""
+    matches = _matching_device_files(repo_path, device)
+    if not matches:
+        return {"device_query": device, "exists": False}
+    if len(matches) > 1:
+        return {"device_query": device, "exists": True, "ambiguous": True}
+
+    file_path = matches[0]
+    return {
+        "device_query": device,
+        "exists": True,
+        "device": _device_name_from_path(file_path),
+        "file_path": file_path,
+    }
+
+
+def _get_recent_device_config_diff(
+    repo_path: str | Path, device: str
+) -> dict[str, Any]:
+    """Return the latest sanitized config diff payload for one device file."""
+    file_path = _resolve_device_file(repo_path, device)
+    last_commit = _last_commit_for_file(repo_path, file_path)
+    last_diff = sanitize_unified_diff(
+        _diff_for_file(repo_path, file_path, last_commit["hash"])
+    )
+
+    return {
+        "device": _device_name_from_path(file_path),
+        "file_path": file_path,
+        "last_commit": last_commit,
+        "config_diff": {
+            "format": "unified",
+            "old_path": file_path,
+            "new_path": file_path,
+            "patch": last_diff,
+        },
+        "last_diff": last_diff,
     }
 
 
@@ -410,46 +490,62 @@ def _get_recent_commits_with_devices(
     return commits
 
 
-@tool(name="bitbucket.clone_repo")  # type: ignore[operator]
-def clone_bitbucket_repo(
-    branch: Annotated[str | None, "Optional branch to clone"] = None,
-    refresh: Annotated[bool, "If repo exists locally, fetch updates"] = False,
-) -> dict[str, Any]:
-    """Clone a Bitbucket git repository locally (or return existing clone metadata)."""
-    try:
-        resolved_url = _resolved_repo_url()
-        resolved_destination = _resolved_repo_path()
-        return _clone_repo(
-            resolved_url,
-            resolved_destination,
-            branch=branch,
-            refresh=refresh,
-        )
-    except BitbucketToolError as exc:
-        return _error("bitbucket_clone_repo", exc)
+def get_recent_commits_with_devices(
+    repo_path: str | Path,
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Helper alias exposed for tests and local programmatic usage."""
+    return _get_recent_commits_with_devices(repo_path, limit=limit)
 
 
-@tool(name="bitbucket.list_devices")  # type: ignore[operator]
 def list_bitbucket_devices(
-    path_contains: Annotated[str | None, "Optional path substring filter"] = None,
+    path_contains: str | None = None,
+    *,
+    repo_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """List tracked files in the repo as devices (device name = file stem)."""
+    """Testing helper only: list tracked files as devices (not exposed to the agent)."""
+    resolved_repo = _resolved_repo_path(repo_path)
+    devices = _list_device_files(resolved_repo, path_contains=path_contains)
+    return {"count": len(devices), "devices": devices}
+
+
+@tool(name="bitbucket.device_config_exists")  # type: ignore[operator]
+def bitbucket_device_config_exists(
+    device: Annotated[str, "Device name (file stem) or exact filename"],
+) -> dict[str, Any]:
+    """Check whether a device configuration file exists in the Bitbucket repo."""
     try:
-        devices = _list_device_files(_resolved_repo_path(), path_contains=path_contains)
-        return {"count": len(devices), "devices": devices}
+        resolved_repo = _ensure_bitbucket_repo()
+        return _device_config_exists(resolved_repo, device)
     except BitbucketToolError as exc:
-        return _error("bitbucket_list_devices", exc)
+        return _error("bitbucket_device_config_exists", exc)
 
 
 @tool(name="bitbucket.get_device_file_info")  # type: ignore[operator]
 def get_bitbucket_device_file_info(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
-    """Get last-change details for one device file: message/date/diff and commit count."""
+    """Get latest commit metadata and commit count for one device file."""
     try:
-        return _get_device_file_info(_resolved_repo_path(), device)
+        resolved_repo = _ensure_bitbucket_repo()
+        info = _get_device_file_info(resolved_repo, device)
+        info.pop("last_diff", None)
+        return info
     except BitbucketToolError as exc:
         return _error("bitbucket_get_device_file_info", exc)
+
+
+@tool(name="bitbucket.get_recent_device_config_diff")  # type: ignore[operator]
+def get_recent_device_config_diff(
+    device: Annotated[str, "Device name (file stem) or exact filename"],
+) -> dict[str, Any]:
+    """Get the latest sanitized config diff payload for one device file."""
+    try:
+        resolved_repo = _ensure_bitbucket_repo()
+        return _get_recent_device_config_diff(resolved_repo, device)
+    except BitbucketToolError as exc:
+        return _error("bitbucket_get_recent_device_config_diff", exc)
 
 
 @tool(name="bitbucket.get_device_configuration")  # type: ignore[operator]
@@ -459,7 +555,7 @@ def get_bitbucket_device_configuration(
 ) -> dict[str, Any]:
     """Return sanitized configuration text for one device file at a commit ref (or HEAD)."""
     try:
-        resolved_repo = _resolved_repo_path()
+        resolved_repo = _ensure_bitbucket_repo()
         file_path = _resolve_device_file(resolved_repo, device)
         ref = commit_ref or "HEAD"
         raw_config = _file_content_at_ref(resolved_repo, file_path, ref=ref)
@@ -479,7 +575,9 @@ def get_bitbucket_recent_commits(
 ) -> dict[str, Any]:
     """Return latest commits and which device files each commit changed."""
     try:
-        commits = _get_recent_commits_with_devices(_resolved_repo_path(), limit=limit)
+        commits = _get_recent_commits_with_devices(
+            _ensure_bitbucket_repo(), limit=limit
+        )
     except BitbucketToolError as exc:
         return _error("bitbucket_get_recent_commits", exc)
 
@@ -492,10 +590,3 @@ def get_bitbucket_recent_commits(
         "affected_devices": all_devices,
         "commits": commits,
     }
-
-
-# Compatibility exports for direct unit tests.
-clone_repo = _clone_repo
-list_device_files = _list_device_files
-get_device_file_info = _get_device_file_info
-get_recent_commits_with_devices = _get_recent_commits_with_devices

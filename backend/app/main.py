@@ -10,6 +10,7 @@ from starlette.middleware.cors import CORSMiddleware
 from app.api.router import api_router
 from app.core.config import project_settings
 from app.observability import langfuse_client
+from app.utils import warmup_caches
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -37,6 +38,7 @@ app.include_router(api_router, prefix=project_settings.API_V1_STR)
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    warmup_caches()
     yield
     langfuse_client.shutdown()
 
