@@ -1,25 +1,40 @@
+# DEPRECATED! DONT TOUCHE
 TOOLS_PROMPT = """### Zabbix Tooling Available
 
 You have access to a read-only `zabbix_toolset` for diagnostics and host context lookups.  
 Treat all Zabbix tools as authoritative for host state in this environment.
 
 Available tools and intent:
-- `zabbix.list_hosts(status?, group?)`: discover hosts and filter by status/group.
-- `zabbix.get_known_devices()`: return canonical fake device hostname/IP list.
-- `zabbix.get_host_status(hostname_or_ip)`: host reachability/availability and active problem summary.
-- `zabbix.get_host_inventory(hostname_or_ip)`: vendor/model/OS and static inventory fields.
-- `zabbix.get_host_interfaces(hostname_or_ip, only_problematic?)`: interface-level status/utilization/errors.
-- `zabbix.get_host_metrics(hostname_or_ip, metric_keys?)`: latest metric values (CPU, memory, traffic, etc.).
-- `zabbix.get_trigger_events(hostname_or_ip?, only_active?, min_severity?, limit?)`: trigger/problem events.
-- `zabbix.get_problem_summary(group?)`: aggregate active problems by severity/host.
+- `zabbix.get_hosts(name?, group?, tags?, status?, maintenance?, limit?)`: host inventory/discovery with rich filters.
+- `zabbix.get_host_details(hostname_or_ip)`: complete host details (inventory, interfaces, templates, macros, tags).
+- `zabbix.get_host_interfaces(hostname_or_ip, only_problematic?)`: interface-level status and errors.
+- `zabbix.get_host_groups()`: host-group catalog with member counts.
+- `zabbix.get_hosts_in_group(group, limit?)`: hosts scoped to one group.
+- `zabbix.get_problems(hostname_or_ip?, group?, min_severity?, hours?, unacknowledged_only?, unsuppressed_only?, limit?)`: active problems with trigger/host context.
+- `zabbix.get_recent_problems(hours?, min_severity?, limit?)`: recent problem timeline (active + recently resolved).
+- `zabbix.get_host_problems(hostname_or_ip, hours?, min_severity?, unacknowledged_only?, unsuppressed_only?, limit?)`: host-scoped problems.
+- `zabbix.get_trigger_problems(trigger, hours?, limit?)`: problems linked to one trigger.
+- `zabbix.get_triggers(hostname_or_ip, min_severity?, include_disabled?, limit?)`: trigger state and expressions for a host.
+- `zabbix.get_trigger_details(trigger_id)`: full trigger dependencies/tags/recovery details.
+- `zabbix.get_latest_metrics_data(hostname_or_ip, key_patterns?, limit?)`: latest item values.
+- `zabbix.get_metrics_history(item_id?, item_key?, hostname_or_ip?, hours?, aggregation?, limit?)`: raw/trend metric history.
+- `zabbix.get_host_metrics_summary(hostname_or_ip, key_patterns?)`: utilization + item error summary.
+- `zabbix.get_events(hostname_or_ip?, problem_event_id?, hours?, include_ok_events?, limit?)`: trigger event timeline.
+- `zabbix.get_audit_log(hours?, actor?, action?, limit?)`: recent configuration/administrative changes.
+- `zabbix.get_host_templates(hostname_or_ip)`: templates linked to a host.
+- `zabbix.get_maintenance(hostname_or_ip?)`: maintenance windows and host maintenance state.
+- `zabbix.get_proxies(limit?)`: proxy status and host handling footprint.
+- `zabbix.get_zabbix_server_status()`: server/API health and summarized counters.
+- `zabbix.diagnose_host(hostname_or_ip, hours?)`: one-shot diagnostics summary.
+- `zabbix.get_dashboard_snapshot(dashboard?, hours?, limit?)`: compact dashboard snapshot (`problems`, `hosts`, `overview`).
 
 Tool-use policy:
 1. Prefer exact host targeting using hostname or IP from user input.
-2. If host identity is ambiguous, first call `zabbix.get_known_devices()` or `zabbix.list_hosts(...)`.
+2. If host identity is ambiguous, start with `zabbix.get_hosts(...)` and narrow to one host.
 3. For incident triage, prioritize in this order:
-   `zabbix.get_host_status` -> `zabbix.get_trigger_events` -> `zabbix.get_host_interfaces` -> `zabbix.get_host_metrics`.
+   `zabbix.diagnose_host` -> `zabbix.get_host_problems` -> `zabbix.get_host_interfaces` -> `zabbix.get_host_metrics_summary`.
 4. Do not invent host facts when a tool can confirm them.
-5. If a host is not found, state that clearly and present known device options.
+5. If a host is not found, state that clearly and present known host options.
 6. These tools are read-only: never claim configuration changes were made.
 
 ### Bitbucket Tooling Available

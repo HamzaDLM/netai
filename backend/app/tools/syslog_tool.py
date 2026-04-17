@@ -1,7 +1,7 @@
 import json
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 from haystack.dataclasses import ChatMessage
@@ -14,6 +14,7 @@ from app.prompts.log_qa import LOG_QA_PROMPT
 IPV4_RE = re.compile(
     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
 )
+SYSLOG_HOST_LOG_LIMIT = 40
 
 
 @dataclass(slots=True)
@@ -76,6 +77,15 @@ def _extract_keywords(query: str) -> list[str]:
     return uniq[:12]
 
 
+def _normalize_severity(value: int | None) -> int | None:
+    if value is None:
+        return None
+    severity_value = int(value)
+    if severity_value < -1 or severity_value > 7:
+        raise ValueError("severity_out_of_range:-1_to_7")
+    return severity_value
+
+
 def _parse_query_filters(question: str) -> ParsedSyslogQuery:
     ips = sorted(set(IPV4_RE.findall(question)))
 
@@ -135,6 +145,30 @@ def _build_event_sql(
     )
 
 
+def _build_host_logs_sql(
+    *,
+    database: str,
+    hostname: str,
+    severity: int | None,
+) -> str:
+    safe_hostname = _escape_sql(hostname.lower())
+    where_clauses = [
+        f"positionCaseInsensitiveUTF8(hostname, '{safe_hostname}') > 0",
+    ]
+    if severity is not None:
+        where_clauses.append(f"severity = {severity}")
+    where_sql = " AND ".join(where_clauses)
+    return (
+        "SELECT event_id, ts_unix, hostname, vendor, facility, severity, event_code, "
+        "raw_message, normalized_message, template "
+        f"FROM {database}.syslog_events "
+        f"WHERE {where_sql} "
+        "ORDER BY ts_unix DESC "
+        f"LIMIT {SYSLOG_HOST_LOG_LIMIT} "
+        "FORMAT JSON"
+    )
+
+
 class SyslogQAEngine:
     def __init__(self) -> None:
         self.clickhouse_base_url = project_settings.CLICKHOUSE_URL.rstrip("/")
@@ -189,6 +223,88 @@ class SyslogQAEngine:
             evidence=evidence,
             used_llm=used_llm,
         )
+
+    def lookup_logs(
+        self,
+        *,
+        hostname: str,
+        severity: int | None = None,
+    ) -> dict[str, Any]:
+        hostname_value = (hostname or "").strip()
+        if not hostname_value:
+            return {
+                "hostname": "",
+                "severity": severity,
+                "limit": SYSLOG_HOST_LOG_LIMIT,
+                "count": 0,
+                "logs": [],
+                "error": "hostname_required",
+            }
+
+        try:
+            severity_value = _normalize_severity(severity)
+        except ValueError as exc:
+            return {
+                "hostname": hostname_value,
+                "severity": severity,
+                "limit": SYSLOG_HOST_LOG_LIMIT,
+                "count": 0,
+                "logs": [],
+                "error": str(exc),
+            }
+
+        sql = _build_host_logs_sql(
+            database=self.clickhouse_database,
+            hostname=hostname_value,
+            severity=severity_value,
+        )
+
+        try:
+            with httpx.Client(
+                timeout=8.0,
+                auth=(self.clickhouse_user, self.clickhouse_password),
+            ) as client:
+                response = client.post(
+                    f"{self.clickhouse_base_url}/",
+                    params={"database": self.clickhouse_database},
+                    content=sql.encode("utf-8"),
+                    headers={"Content-Type": "text/plain"},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except Exception as exc:
+            return {
+                "hostname": hostname_value,
+                "severity": severity_value,
+                "limit": SYSLOG_HOST_LOG_LIMIT,
+                "count": 0,
+                "logs": [],
+                "error": f"clickhouse_query_failed:{exc}",
+            }
+
+        rows = body.get("data", [])
+        logs = [
+            {
+                "event_id": row.get("event_id"),
+                "ts_unix": row.get("ts_unix"),
+                "hostname": row.get("hostname"),
+                "vendor": row.get("vendor"),
+                "facility": row.get("facility"),
+                "severity": row.get("severity"),
+                "event_code": row.get("event_code"),
+                "raw_message": row.get("raw_message"),
+                "normalized_message": row.get("normalized_message"),
+                "template": row.get("template"),
+            }
+            for row in rows
+        ]
+        return {
+            "hostname": hostname_value,
+            "severity": severity_value,
+            "limit": SYSLOG_HOST_LOG_LIMIT,
+            "count": len(logs),
+            "logs": logs,
+        }
 
     def _retrieve_event_hits(
         self,
@@ -357,3 +473,14 @@ def get_syslog_evidence(question: str, top_k: int = 8) -> dict[str, Any]:
     """Retrieve ranked syslog evidence from ClickHouse events and Qdrant templates."""
     safe_top_k = max(1, min(int(top_k), 50))
     return syslog_qa_engine.retrieve_evidence(question=question, top_k=safe_top_k)
+
+
+@tool(name="syslog.get_logs")  # type: ignore[operator]
+def get_syslog_logs(
+    hostname: Annotated[
+        str, "Hostname filter for ClickHouse syslog events (partial match)."
+    ],
+    severity: Annotated[int | None, "Optional severity filter (-1 to 7)."] = None,
+) -> dict[str, Any]:
+    """Return latest 40 ClickHouse syslog events by hostname, optionally filtered by severity."""
+    return syslog_qa_engine.lookup_logs(hostname=hostname, severity=severity)

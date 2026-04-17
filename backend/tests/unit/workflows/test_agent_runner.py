@@ -45,6 +45,38 @@ def test_extract_tool_calls_from_messages_includes_result_payload() -> None:
     assert calls[0]["result"] == {"ok": True}
 
 
+def test_extract_tool_calls_from_messages_lifts_evidence_from_result_payload() -> None:
+    tool_call = SimpleNamespace(
+        id="call-2",
+        tool_name="syslog_specialist",
+        arguments={"question": "find evidence"},
+    )
+    origin = SimpleNamespace(
+        id="call-2",
+        tool_name="syslog_specialist",
+        arguments={"question": "find evidence"},
+    )
+    tool_result = SimpleNamespace(
+        origin=origin,
+        result={
+            "summary": "found",
+            "result": {
+                "evidence": [
+                    {"type": "syslog", "ref": "evt-1", "content": "interface flap"}
+                ]
+            },
+        },
+        error=False,
+    )
+    message = SimpleNamespace(tool_calls=[tool_call], tool_call_results=[tool_result])
+
+    calls = agent_runner._extract_tool_calls({"messages": [message]})
+
+    assert len(calls) == 1
+    assert isinstance(calls[0]["evidence"], list)
+    assert calls[0]["evidence"][0]["ref"] == "evt-1"
+
+
 def test_extract_specialist_name_suffix_handling() -> None:
     assert agent_runner._extract_specialist_name("syslog_specialist") == "syslog"
     assert agent_runner._extract_specialist_name("zabbix") == "zabbix"

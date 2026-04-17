@@ -259,21 +259,31 @@ export const useChatStore = defineStore('chat', function chatStore() {
 					onSpecialistToolCall: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushRunEvent(assistant, 'specialist_tool_call', {
-							specialist: payload.specialist,
-							tool_name: payload.tool_name,
-							arguments: payload.arguments ?? {},
-							evidence: payload.evidence ?? [],
-						})
+						pushRunEvent(
+							assistant,
+							'specialist_tool_call',
+							{
+								specialist: payload.specialist,
+								tool_name: payload.tool_name,
+								arguments: payload.arguments ?? {},
+								evidence: payload.evidence ?? [],
+							},
+							payload.specialist
+						)
 					},
 					onSpecialistToolResult: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushRunEvent(assistant, 'specialist_tool_result', {
-							specialist: payload.specialist,
-							tool_name: payload.tool_name,
-							result: payload.result,
-						})
+						pushRunEvent(
+							assistant,
+							'specialist_tool_result',
+							{
+								specialist: payload.specialist,
+								tool_name: payload.tool_name,
+								result: payload.result,
+							},
+							payload.specialist
+						)
 					},
 					onLeaderConclusion: payload => {
 						const assistant = getAssistantMessage()

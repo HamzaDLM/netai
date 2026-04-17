@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import json
 from time import perf_counter
 from typing import Any, AsyncIterator
@@ -26,6 +27,59 @@ def _extract_text(reply: Any) -> str:
     return str(reply)
 
 
+def _extract_evidence_payload(payload: Any) -> list[Any]:
+    """Best-effort extraction of evidence arrays from nested tool payloads."""
+    queue: list[Any] = [payload]
+    visited_ids: set[int] = set()
+
+    while queue:
+        current = queue.pop(0)
+        obj_id = id(current)
+        if obj_id in visited_ids:
+            continue
+        visited_ids.add(obj_id)
+
+        if isinstance(current, list):
+            # Some tools return evidence as a direct list.
+            if current and all(
+                isinstance(item, (dict, str, int, float, bool)) for item in current
+            ):
+                return current
+            queue.extend(current)
+            continue
+
+        if not isinstance(current, dict):
+            continue
+
+        for key in ("evidence", "evidence_items"):
+            value = current.get(key)
+            if isinstance(value, list):
+                return value
+            if isinstance(value, dict):
+                queue.append(value)
+            elif isinstance(value, str):
+                stripped = value.strip()
+                if stripped.startswith("{") or stripped.startswith("["):
+                    try:
+                        parsed = json.loads(stripped)
+                        queue.append(parsed)
+                    except Exception:
+                        pass
+
+        for nested in current.values():
+            if isinstance(nested, (dict, list)):
+                queue.append(nested)
+            elif isinstance(nested, str):
+                stripped = nested.strip()
+                if stripped.startswith("{") or stripped.startswith("["):
+                    try:
+                        queue.append(json.loads(stripped))
+                    except Exception:
+                        pass
+
+    return []
+
+
 def _extract_answer(result: Any) -> str:
     if isinstance(result, dict):
         replies = result.get("replies") or result.get("reply")
@@ -45,6 +99,23 @@ def _extract_tool_calls(result: Any) -> list[dict]:
     def _to_json_object(value: Any) -> dict[str, Any] | None:
         if value is None:
             return None
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            return _to_json_object(dataclasses.asdict(value))
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            try:
+                return _to_json_object(model_dump())
+            except Exception:
+                pass
+        to_dict = getattr(value, "to_dict", None)
+        if callable(to_dict):
+            try:
+                return _to_json_object(to_dict())
+            except Exception:
+                pass
+        as_dict = getattr(value, "__dict__", None)
+        if isinstance(as_dict, dict) and as_dict:
+            return _to_json_object(as_dict)
         if isinstance(value, dict):
             return value
         if isinstance(value, list):
@@ -72,12 +143,15 @@ def _extract_tool_calls(result: Any) -> list[dict]:
         for message in messages:
             tool_calls = getattr(message, "tool_calls", None) or []
             for tool_call in tool_calls:
+                tool_call_evidence = _extract_evidence_payload(
+                    _to_json_object(getattr(tool_call, "result", None))
+                )
                 call: dict[str, Any] = {
                     "name": getattr(tool_call, "tool_name", "unknown_tool"),
                     "arguments": getattr(tool_call, "arguments", None),
                     "result": None,
                     "latency_ms": None,
-                    "evidence": [],
+                    "evidence": tool_call_evidence,
                 }
                 calls.append(call)
                 tool_call_id = getattr(tool_call, "id", None)
@@ -127,6 +201,8 @@ def _extract_tool_calls(result: Any) -> list[dict]:
                         calls_by_id[origin_id] = target_call
 
                 target_call["result"] = result_payload
+                if not target_call.get("evidence"):
+                    target_call["evidence"] = _extract_evidence_payload(result_payload)
 
         return calls
 
@@ -163,17 +239,22 @@ def _extract_tool_calls(result: Any) -> list[dict]:
                     "arguments": item.get("arguments") or item.get("args"),
                     "result": _to_json_object(item.get("result")),
                     "latency_ms": item.get("latency_ms"),
-                    "evidence": item.get("evidence") or [],
+                    "evidence": item.get("evidence")
+                    or _extract_evidence_payload(_to_json_object(item.get("result")))
+                    or [],
                 }
             )
         else:
+            result_payload = _to_json_object(getattr(item, "result", None))
             calls.append(
                 {
                     "name": getattr(item, "name", "unknown_tool"),
                     "arguments": getattr(item, "arguments", None),
-                    "result": _to_json_object(getattr(item, "result", None)),
+                    "result": result_payload,
                     "latency_ms": getattr(item, "latency_ms", None),
-                    "evidence": getattr(item, "evidence", []),
+                    "evidence": getattr(item, "evidence", None)
+                    or _extract_evidence_payload(result_payload)
+                    or [],
                 }
             )
     return calls
@@ -276,6 +357,9 @@ def _build_run_events(*, answer: str, tools: list[dict]) -> list[dict[str, Any]]
         specialist = _extract_specialist_name(str(tool.get("name")))
         prompt_payload = tool.get("arguments")
         result_payload = tool.get("result")
+        evidence_payload = (
+            tool.get("evidence") or _extract_evidence_payload(result_payload) or []
+        )
 
         events.append(
             {
@@ -305,7 +389,7 @@ def _build_run_events(*, answer: str, tools: list[dict]) -> list[dict[str, Any]]
                 "specialist": specialist,
                 "tool_name": str(tool.get("name") or "unknown_tool"),
                 "arguments": prompt_payload,
-                "evidence": tool.get("evidence") or [],
+                "evidence": evidence_payload,
             }
         )
         if result_payload is not None:

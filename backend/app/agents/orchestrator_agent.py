@@ -59,4 +59,5 @@ orchestrator_agent = Agent(
         cast(Tool, syslog_specialist_tool),
         cast(Tool, security_specialist_tool),
     ],
+    max_agent_steps=10,
 )

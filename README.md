@@ -255,3 +255,59 @@ Metrics endpoint:
 - Improve diagnosis workflows and capability routing
 - Harden auth/SSO and production deployment profile
 - Close the feedback loop by injecting summarized user feedback into prompt strategy
+
+
+
+
+
+### Core Diagnostic & Fast Retrieval Tools
+
+Here’s a practical list of tools we'll implement refactoring our zabbix_tools.py, grouped by use case.
+
+#### 1. Host Discovery & Overview
+- `get_hosts()` — List hosts with filters (by name, group, tags, status, maintenance). Include basic info like availability, interfaces, and last seen.
+- `get_host_details(hostname_or_ip)` — Full host info + interfaces, macros, inventory, templates applied, tags.
+- `get_host_interfaces(hostname_or_ip)` — Exactly as you mentioned: returns all interfaces (agent, SNMP, JMX, IPMI) with IP, port, type, and status. Very useful for connectivity diagnostics.
+- `get_host_groups()` / `get_hosts_in_group(group)`
+
+#### 2. Problems & Alerts (Most Important for Diagnostics)
+- `get_problems()` — Active problems only, with filters: severity (High+), host/group, time since, unacknowledged, unsuppressed. Always expand hosts, triggers, and last event.
+- `get_recent_problems(hours=24)` — Quick "what broke in the last day?"
+- `get_host_problems(hostname_or_ip)` — All current + recent problems for a specific host.
+- `get_trigger_problems(trigger)` — Problems linked to a specific trigger.
+
+#### 3. Triggers & Root Cause
+- `get_triggers(hostname_or_ip)` — Triggers for a host, with status (enabled/disabled), severity, last change, expression (expanded if possible).
+- `get_trigger_details(trigger_id)` — Full expression, dependencies, tags, recovery info.
+
+#### 4. Metrics & Historical Data (Trends)
+- `get_latest_metrics_data(hostname_or_ip)` — Latest values for key items (CPU, memory, disk, etc.). Support item key patterns or tags.
+- `get_metrics_history(item_id or key, hours=1..24, limit)` — Raw or aggregated history (avg, min, max). Crucial for "is it spiking?" questions.
+- `get_host_metrics_summary(hostname_or_ip)` — High-level summary: top utilized resources, any items in error state.
+
+#### 5. Events & History
+- `get_events(hostname_or_ip or problem, hours=24)` — Full event log around a problem (including OK events).
+- `get_audit_log(hours=24)` — What changed recently (config changes that might have caused issues).
+
+#### 6. Infrastructure & Context
+- `get_host_templates(hostname_or_ip)` — Which templates are linked (helps understand what is being monitored).
+- `get_maintenance(hostname_or_ip)` — Is anything in maintenance? When does it end?
+- `get_proxies()` — Proxy status and which hosts they handle (useful if agent/proxy communication is suspected).
+- `get_zabbix_server_status()` — Overall Zabbix health (queue, alerts, performance).
+
+#### 7. Convenience / AI-Friendly Tools
+- `diagnose_host(hostname_or_ip)` — One-shot tool that returns: current problems, latest key metrics, interface status, recent events, and a short natural-language summary.
+- `get_dashboard_snapshot(dashboard or "problems")` — Quick overview data.
+
+### Implementation Tips for an Effective Diagnostics
+
+- **Smart defaults** — Most tools should default to "active/recent/important only" (e.g., problems with severity ≥ Average, last 24h).
+- **Rich output** — Always use `selectHosts`, `selectItems`, `selectTriggers`, `selectLastEvent`, `expandDescription`, etc., so the AI gets usable context without extra calls.
+- **Pagination & limits** — Add sensible limits + sorting (by severity, clock descending) to avoid overwhelming the context window.
+- **Tool search** — If you have many tools (>50), enable a `search_tools()` + `call_tool(name, params)` pattern so the AI can discover what it needs without loading everything.
+- **Error handling** — Tools should return clear messages when something is not found, suppressed, or in maintenance.
+
+
+### After finishing
+
+After this is finished, update the Zabbix agent ZABBIX_SPECIALIST_PROMPT and the agent description to explain to the agent what capabilities it has, and also tell it to setup a plan before acting.

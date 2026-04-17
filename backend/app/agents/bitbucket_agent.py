@@ -42,6 +42,7 @@ bitbucket_agent = Agent(
     chat_generator=llm,
     system_prompt=BITBUCKET_SPECIALIST_PROMPT,
     tools=bitbucket_tools,
+    max_agent_steps=10,
 )
 
 bitbucket_specialist_tool = ComponentTool(

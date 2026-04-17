@@ -25,6 +25,7 @@ security_agent = Agent(
     chat_generator=llm,
     system_prompt=SECURITY_SPECIALIST_PROMPT,
     tools=security_tools,
+    max_agent_steps=10,
 )
 
 security_specialist_tool = ComponentTool(

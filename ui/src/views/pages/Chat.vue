@@ -9,7 +9,7 @@ import Button from '@/components/ui/button/Button.vue';
 import { ButtonGroup } from '@/components/ui/button-group'
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
 import { useChatStore } from '@/stores/chat.store';
-import type { AgentRun, Evidence, Message, ToolCall } from '@/types/chat.type';
+import type { AgentEvent, AgentRun, Evidence, Message, ToolCall } from '@/types/chat.type';
 import {
     Tooltip,
     TooltipContent,
@@ -62,6 +62,201 @@ type TopologyPayload = {
     link_status_counts?: Record<string, number>
     devices: Array<Record<string, unknown>>
     links: Array<Record<string, unknown>>
+}
+type TimelineStatus = 'running' | 'done'
+type TimelineStep = {
+    id: string
+    title: string
+    status: TimelineStatus
+}
+
+function toDisplayName(value: string): string {
+    const safe = (value || '').replace(/[_-]+/g, ' ').trim()
+    if (!safe) return 'Unknown'
+    return safe
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' ')
+}
+
+function extractDelegatedPrompt(argumentsPayload: unknown): string | undefined {
+    if (!argumentsPayload || typeof argumentsPayload !== 'object') return undefined
+    const args = argumentsPayload as Record<string, unknown>
+    const messages = args.messages
+    if (!Array.isArray(messages) || messages.length === 0) return undefined
+    const first = messages[0]
+    if (!first || typeof first !== 'object') return undefined
+    const content = (first as Record<string, unknown>).content
+    if (typeof content !== 'string' || !content.trim()) return undefined
+    return content.trim()
+}
+
+function inferToolNameFromSpecialist(
+    specialistRaw: string,
+    originalToolName: string,
+    argumentsPayload: unknown
+): string {
+    if (!originalToolName.endsWith('_specialist')) return originalToolName
+
+    const specialist = specialistRaw.toLowerCase().trim()
+    const delegatedPrompt = extractDelegatedPrompt(argumentsPayload)?.toLowerCase() ?? ''
+
+    if (specialist === 'syslog') {
+        if (
+            delegatedPrompt.includes('critical') ||
+            delegatedPrompt.includes('error') ||
+            delegatedPrompt.includes('severity') ||
+            delegatedPrompt.includes('host')
+        ) {
+            return 'syslog.get_logs'
+        }
+        return 'syslog.get_evidence'
+    }
+
+    if (specialist === 'zabbix') return 'zabbix.diagnose_host'
+    if (specialist === 'datamodel') return 'datamodel.get_topology'
+    if (specialist === 'servicenow') return 'servicenow.list_incidents'
+    if (specialist === 'suzieq') return 'suzieq.infrastructure_summary'
+
+    return `${specialist}.tool`
+}
+
+function getPrimaryRun(message: Message): AgentRun | null {
+    const runs = message.agent_runs ?? []
+    if (!runs.length) return null
+    return runs[runs.length - 1]
+}
+
+function getTimelineStatusLabel(status: TimelineStatus): string {
+    if (status === 'running') return 'Running'
+    return 'Done'
+}
+
+function getTimelineDotClass(status: TimelineStatus): string {
+    if (status === 'running') return 'bg-amber-400'
+    if (status === 'done') return 'bg-emerald-400'
+    return 'bg-stone-500'
+}
+
+function getTimelineBadgeClass(status: TimelineStatus): string {
+    if (status === 'running') return 'border-amber-500/40 text-amber-300 bg-amber-500/10'
+    return 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+}
+
+function buildTimelineStep(event: AgentEvent, messageId: number): TimelineStep | null {
+    const payload = (event.payload ?? {}) as Record<string, unknown>
+    const eventType = String(event.event_type ?? '')
+    const stepId = `m-${messageId}-e-${event.event_sequence}-${eventType}`
+
+    if (eventType === 'thinking') {
+        const agent = String(payload.agent ?? event.actor_name ?? 'orchestrator')
+        const statusRaw = String(payload.status ?? 'running').toLowerCase()
+
+        if (agent === 'orchestrator') {
+            if (statusRaw === 'done') {
+                return {
+                    id: stepId,
+                    title: 'Compiling results (orchestrator)',
+                    status: 'done',
+                }
+            }
+            if (statusRaw === 'received' || statusRaw === 'running') {
+                return {
+                    id: stepId,
+                    title: 'Thinking (orchestrator)',
+                    status: 'running',
+                }
+            }
+            return null
+        }
+
+        if (statusRaw !== 'done') {
+            return {
+                id: stepId,
+                title: `${toDisplayName(agent)} Specialist analyzing`,
+                status: 'running',
+            }
+        }
+        return null
+    }
+
+    if (eventType === 'specialist_thought') {
+        const specialist = toDisplayName(String(payload.specialist ?? event.actor_name ?? 'specialist'))
+        return {
+            id: stepId,
+            title: `${specialist} Specialist analyzing`,
+            status: 'running',
+        }
+    }
+
+    if (eventType === 'specialist_tool_call') {
+        const specialistRaw = String(payload.specialist ?? event.actor_name ?? 'specialist')
+        const specialist = toDisplayName(specialistRaw)
+        const originalToolName = String(payload.tool_name ?? 'unknown_tool')
+        const toolName = inferToolNameFromSpecialist(
+            specialistRaw,
+            originalToolName,
+            payload.arguments
+        )
+        return {
+            id: stepId,
+            title: `${specialist} Specialist running ${toolName}`,
+            status: 'running',
+        }
+    }
+
+    if (eventType === 'leader_conclusion') {
+        return {
+            id: stepId,
+            title: 'Compiling results (orchestrator)',
+            status: 'done',
+        }
+    }
+
+    return null
+}
+
+function getMessageTimeline(message: Message): TimelineStep[] {
+    const run = getPrimaryRun(message)
+    if (!run) return []
+
+    const events = [...(run.events ?? [])].sort(
+        (a, b) => (a.event_sequence ?? 0) - (b.event_sequence ?? 0)
+    )
+    const steps: TimelineStep[] = []
+    for (const event of events) {
+        const step = buildTimelineStep(event, message.id)
+        if (!step) continue
+        const prev = steps[steps.length - 1]
+        if (
+            prev &&
+            prev.title === step.title &&
+            prev.status === step.status
+        ) {
+            continue
+        }
+        steps.push(step)
+    }
+
+    let compileDoneIndex = -1
+    for (let i = 0; i < steps.length; i += 1) {
+        if (
+            steps[i].title === 'Compiling results (orchestrator)' &&
+            steps[i].status === 'done'
+        ) {
+            compileDoneIndex = i
+        }
+    }
+
+    if (compileDoneIndex === -1) return steps
+
+    return steps.map((step, index) => {
+        if (index < compileDoneIndex && step.status === 'running') {
+            return { ...step, status: 'done' as const }
+        }
+        return step
+    })
 }
 
 function parseToolResult(toolcall: ToolCall): Record<string, unknown> | null {
@@ -429,11 +624,11 @@ onBeforeUnmount(() => {
                 <div class="absolute z-20 flex items-center gap-2 top-4 right-6">
                     <ButtonGroup>
                         <ButtonGroup>
-                            <Button variant="outline" @click="debugMode = !debugMode">Debug ({{ debugMode ? 'on' : 'off'
+                            <Button variant="outline" @click="debugMode = !debugMode">Multi-agent view ({{ debugMode ?
+                                'on' : 'off'
                                 }})</Button>
                         </ButtonGroup>
                     </ButtonGroup>
-
                 </div>
                 <!-- Chat dialogue -->
                 <div ref="chatDialogueRef" @scroll="updateScrollState"
@@ -450,12 +645,65 @@ onBeforeUnmount(() => {
                             <p class="text-xl font-medium">NetAI</p>
                         </div>
                     </div>
+                    <!-- 
+                        - Thinking...
+                        - Planning...
+                        - Agent 1...
+                        - Running Task 1
+                        - Running Task 2
+                        - Agent 2...
+                        - Running Task 1
+                    -->
                     <div v-else class="flex flex-col gap-6 mt-auto">
-                        <div v-if="debugMode" v-for="message in chatStore.messages">
-                            <pre>
-                                {{ message }}
-                            </pre>
+                        <!-- START OF: NEW CHAT RENDERING FOR MULTI-AGENT -->
+                        <div v-if="debugMode" class="flex flex-col gap-6">
+                            <div v-for="message in chatStore.messages" :key="`multi-${message.id}`">
+                                <div v-if="message.role == 'assistant'" class="flex flex-col gap-4">
+                                    <div v-if="getMessageTimeline(message).length > 0"
+                                        class="flex flex-col gap-3 p-4 border rounded-lg border-stone-700/70 bg-stone-900/50">
+                                        <p class="text-sm font-semibold text-stone-200">Multi-agent flow</p>
+                                        <div class="flex flex-col gap-3">
+                                            <div v-for="step in getMessageTimeline(message)" :key="step.id"
+                                                class="relative pl-5 border-l border-stone-700/80">
+                                                <span class="absolute w-2 h-2 rounded-full -left-[5px] top-1.5"
+                                                    :class="getTimelineDotClass(step.status)" />
+                                                <div class="flex items-center gap-2">
+                                                    <p class="text-sm font-medium text-stone-200">
+                                                        {{ step.title }}
+                                                    </p>
+                                                    <span class="px-2 py-0.5 text-[11px] border rounded-full"
+                                                        :class="getTimelineBadgeClass(step.status)">
+                                                        {{ getTimelineStatusLabel(step.status) }}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <ChatListTool :tool-calls="getMessageToolCalls(message)" />
+
+                                    <div class="flex flex-col gap-4">
+                                        <template v-for="segment in getMessageRenderSegments(message)" :key="segment.id">
+                                            <MarkdownRenderer v-if="segment.type === 'markdown'"
+                                                :content="segment.content" />
+                                            <ConfigDiffViewer v-else :diff-files="segment.diffFiles" />
+                                        </template>
+                                    </div>
+                                    <TopologyMapper v-if="getMessageTopology(getMessageToolCalls(message))"
+                                        :topology="getMessageTopology(getMessageToolCalls(message)) || undefined" />
+                                    <ChatActions v-if="!chatStore.isMessageStreaming(message.id)" :message-id="message.id"
+                                        :content="message.content" />
+                                </div>
+                                <div v-if="message.role == 'user'" class="flex justify-end">
+                                    <p
+                                        class="w-fit max-w-[75%] px-4 py-2 text-left rounded-2xl bg-stone-800 border border-stone-600 break-words">
+                                        {{ message.content }}
+                                    </p>
+                                </div>
+                            </div>
                         </div>
+                        <!-- END OF: NEW CHAT RENDERING FOR MULTI-AGENT -->
+                        <!-- START OF: OLD CHAT RENDERING FOR SINGLE-AGENT -->
                         <div v-else v-for="message in chatStore.messages" class="">
                             <!-- Assistant message -->
                             <div v-if="message.role == 'assistant'">
@@ -483,6 +731,7 @@ onBeforeUnmount(() => {
                                 </p>
                             </div>
                         </div>
+                        <!-- END OF: OLD CHAT RENDERING FOR SINGLE-AGENT -->
                     </div>
                 </div>
                 <!-- Scroll button -->

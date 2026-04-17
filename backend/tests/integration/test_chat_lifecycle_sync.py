@@ -16,7 +16,7 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
                 {
                     "type": "specialist_tool_call",
                     "specialist": "zabbix",
-                    "tool_name": "zabbix.get_host_status",
+                    "tool_name": "zabbix.diagnose_host",
                     "arguments": {"host": "edge-01"},
                     "evidence": [
                         {
@@ -30,7 +30,7 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
                 {
                     "type": "specialist_tool_result",
                     "specialist": "zabbix",
-                    "tool_name": "zabbix.get_host_status",
+                    "tool_name": "zabbix.diagnose_host",
                     "result": {"status": "up"},
                 },
             ],

@@ -33,6 +33,7 @@ datamodel_agent = Agent(
     chat_generator=llm,
     system_prompt=DATAMODEL_SPECIALIST_PROMPT,
     tools=datamodel_tools,
+    max_agent_steps=10,
 )
 
 

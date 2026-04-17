@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Annotated, Any
 
 from haystack.tools import tool
 
@@ -26,6 +26,45 @@ _FAKE_EVIDENCE: list[dict[str, Any]] = [
     },
 ]
 
+_FAKE_LOG_ROWS: list[dict[str, Any]] = [
+    {
+        "event_id": "evt-1001",
+        "ts_unix": 1776073260,
+        "hostname": "dist-rtr-nyc-01",
+        "vendor": "cisco",
+        "facility": "LINK",
+        "severity": 3,
+        "event_code": "UPDOWN",
+        "raw_message": "Interface xe-0/0/2 changed state to down",
+        "normalized_message": "Interface <IFACE> changed state to down",
+        "template": "Interface <IFACE> changed state to down",
+    },
+    {
+        "event_id": "evt-1002",
+        "ts_unix": 1776073200,
+        "hostname": "dist-rtr-nyc-01",
+        "vendor": "cisco",
+        "facility": "BGP",
+        "severity": 4,
+        "event_code": "ADJCHANGE",
+        "raw_message": "BGP neighbor 10.1.1.1 down",
+        "normalized_message": "BGP neighbor <IP> down",
+        "template": "BGP neighbor <IP> down",
+    },
+    {
+        "event_id": "evt-1003",
+        "ts_unix": 1776073140,
+        "hostname": "edge-fw-par-01",
+        "vendor": "fortinet",
+        "facility": "SYSTEM",
+        "severity": 5,
+        "event_code": "AUTH",
+        "raw_message": "Admin login successful from 10.10.10.7",
+        "normalized_message": "Admin login successful from <IP>",
+        "template": "Admin login successful from <IP>",
+    },
+]
+
 
 @tool(name="syslog.get_evidence")  # type: ignore[operator]
 def get_syslog_evidence(question: str, top_k: int = 8) -> dict[str, Any]:
@@ -47,4 +86,50 @@ def get_syslog_evidence(question: str, top_k: int = 8) -> dict[str, Any]:
         "evidence_count": len(evidence),
         "evidence": evidence,
         "filters": {},
+    }
+
+
+@tool(name="syslog.get_logs")  # type: ignore[operator]
+def get_syslog_logs(
+    hostname: Annotated[str, "Hostname filter for syslog events (partial match)."],
+    severity: Annotated[int | None, "Optional severity filter (-1 to 7)."] = None,
+) -> dict[str, Any]:
+    """Return latest 40 fake syslog events by hostname, optionally filtered by severity."""
+    hostname_value = (hostname or "").strip()
+    if not hostname_value:
+        return {
+            "hostname": "",
+            "severity": severity,
+            "limit": 40,
+            "count": 0,
+            "logs": [],
+            "error": "hostname_required",
+        }
+
+    if severity is not None and (int(severity) < -1 or int(severity) > 7):
+        return {
+            "hostname": hostname_value,
+            "severity": severity,
+            "limit": 40,
+            "count": 0,
+            "logs": [],
+            "error": "severity_out_of_range:-1_to_7",
+        }
+
+    hostname_filter = hostname_value.lower()
+    rows = [
+        row
+        for row in _FAKE_LOG_ROWS
+        if hostname_filter in str(row.get("hostname", "")).lower()
+    ]
+    if severity is not None:
+        rows = [row for row in rows if int(row.get("severity", -1)) == int(severity)]
+
+    logs = rows[:40]
+    return {
+        "hostname": hostname_value,
+        "severity": severity,
+        "limit": 40,
+        "count": len(logs),
+        "logs": logs,
     }

@@ -77,6 +77,9 @@ class Settings(BaseSettings):
 
     TOOLS_USE_MOCK_DATA: bool = True
 
+    if TOOLS_USE_MOCK_DATA:
+        print("======================== USING MOCK DATA !!!")
+
     ZABBIX_ENABLED: bool = False
     BITBUCKET_ENABLED: bool = False
     SERVICENOW_ENABLED: bool = False

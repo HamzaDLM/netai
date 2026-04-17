@@ -57,6 +57,7 @@ servicenow_agent = Agent(
     chat_generator=llm,
     system_prompt=SERVICENOW_SPECIALIST_PROMPT,
     tools=servicenow_tools,
+    max_agent_steps=10,
 )
 
 

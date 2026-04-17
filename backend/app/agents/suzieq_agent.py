@@ -63,6 +63,7 @@ suzieq_agent = Agent(
     chat_generator=llm,
     system_prompt=SUZIEQ_SPECIALIST_PROMPT,
     tools=suzieq_tools,
+    max_agent_steps=10,
 )
 
 suzieq_specialist_tool = ComponentTool(
