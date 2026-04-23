@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from haystack.tools import tool
+from app.tools import netai_tool
 
 _FAKE_DEVICES: list[dict[str, Any]] = [
     {
@@ -133,13 +133,13 @@ def _filter(rows: list[dict[str, Any]], **filters: str | None) -> list[dict[str,
     return out
 
 
-@tool(name="suzieq.list_namespaces")  # type: ignore[operator]
+@netai_tool(name="suzieq_list_namespaces")  # type: ignore[operator]
 def list_namespaces() -> dict[str, Any]:
     namespaces = sorted({str(device["namespace"]) for device in _FAKE_DEVICES})
     return {"namespaces": namespaces}
 
 
-@tool(name="suzieq.get_devices")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_devices")  # type: ignore[operator]
 def get_devices(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -147,7 +147,7 @@ def get_devices(
     return {"devices": _filter(_FAKE_DEVICES, namespace=namespace, hostname=hostname)}
 
 
-@tool(name="suzieq.get_interfaces")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_interfaces")  # type: ignore[operator]
 def get_interfaces(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -165,7 +165,7 @@ def get_interfaces(
     }
 
 
-@tool(name="suzieq.get_lldp_neighbors")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_lldp_neighbors")  # type: ignore[operator]
 def get_lldp_neighbors(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -175,7 +175,7 @@ def get_lldp_neighbors(
     }
 
 
-@tool(name="suzieq.get_bgp_sessions")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_bgp_sessions")  # type: ignore[operator]
 def get_bgp_sessions(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -188,7 +188,7 @@ def get_bgp_sessions(
     }
 
 
-@tool(name="suzieq.get_ospf_neighbors")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_ospf_neighbors")  # type: ignore[operator]
 def get_ospf_neighbors(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -204,7 +204,7 @@ def get_ospf_neighbors(
     return {"ospf_neighbors": rows}
 
 
-@tool(name="suzieq.get_routes")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_routes")  # type: ignore[operator]
 def get_routes(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -218,7 +218,7 @@ def get_routes(
     }
 
 
-@tool(name="suzieq.get_arp_nd")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_arp_nd")  # type: ignore[operator]
 def get_arp_nd(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -231,7 +231,7 @@ def get_arp_nd(
     }
 
 
-@tool(name="suzieq.get_mac_table")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_mac_table")  # type: ignore[operator]
 def get_mac_table(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
@@ -249,7 +249,7 @@ def get_mac_table(
     }
 
 
-@tool(name="suzieq.get_path")  # type: ignore[operator]
+@netai_tool(name="suzieq_get_path")  # type: ignore[operator]
 def get_path(
     namespace: Annotated[str, "Namespace to run path analysis in"],
     source: Annotated[str, "Source IP address or hostname"],
@@ -270,7 +270,7 @@ def get_path(
     }
 
 
-@tool(name="suzieq.infrastructure_summary")  # type: ignore[operator]
+@netai_tool(name="suzieq_infrastructure_summary")  # type: ignore[operator]
 def infrastructure_summary(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
 ) -> dict[str, Any]:
@@ -299,7 +299,7 @@ def infrastructure_summary(
     }
 
 
-@tool(name="suzieq.check_control_plane_health")  # type: ignore[operator]
+@netai_tool(name="suzieq_check_control_plane_health")  # type: ignore[operator]
 def check_control_plane_health(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
 ) -> dict[str, Any]:

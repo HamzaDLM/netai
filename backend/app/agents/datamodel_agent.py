@@ -44,5 +44,4 @@ datamodel_specialist_tool = ComponentTool(
         "Topology and inventory specialist. Use for devices, links, neighbors, and "
         "graph-level infrastructure mapping and relationship questions."
     ),
-    outputs_to_string={"source": "last_message"},
 )

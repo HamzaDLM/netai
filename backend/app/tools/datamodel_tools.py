@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from haystack.tools import tool
+from app.tools import netai_tool
 
 _FAKE_DEVICES: dict[str, dict[str, Any]] = {
     "par-core-rtr-01": {
@@ -443,13 +443,13 @@ KNOWN_FAKE_DEVICES: list[dict[str, Any]] = [
 ]
 
 
-@tool(name="datamodel.get_known_devices")  # type: ignore[operator]
+@netai_tool(name="datamodel_get_known_devices")  # type: ignore[operator]
 def get_known_fake_devices() -> list[dict[str, Any]]:
     """Return the fake infra device catalog shared by datamodel tools."""
     return KNOWN_FAKE_DEVICES
 
 
-@tool(name="datamodel.list_devices")  # type: ignore[operator]
+@netai_tool(name="datamodel_list_devices")  # type: ignore[operator]
 def list_devices(
     site: Annotated[str | None, "Optional site filter, e.g. Paris-DC1"] = None,
     role: Annotated[str | None, "Optional role filter, e.g. spine, core-router"] = None,
@@ -474,7 +474,7 @@ def list_devices(
     return {"count": len(devices), "devices": devices}
 
 
-@tool(name="datamodel.get_device")  # type: ignore[operator]
+@netai_tool(name="datamodel_get_device")  # type: ignore[operator]
 def get_device(
     hostname_or_ip: Annotated[str, "Target device hostname or management IP"],
 ) -> dict[str, Any]:
@@ -504,7 +504,7 @@ def get_device(
     }
 
 
-@tool(name="datamodel.list_links")  # type: ignore[operator]
+@netai_tool(name="datamodel_list_links")  # type: ignore[operator]
 def list_links(
     site: Annotated[
         str | None,
@@ -530,7 +530,7 @@ def list_links(
     return {"count": len(links), "links": links}
 
 
-@tool(name="datamodel.get_neighbors")  # type: ignore[operator]
+@netai_tool(name="datamodel_get_neighbors")  # type: ignore[operator]
 def get_neighbors(
     hostname_or_ip: Annotated[str, "Target device hostname or management IP"],
     only_up: Annotated[bool, "If true, include only links with status=up"] = False,
@@ -581,7 +581,7 @@ def get_neighbors(
     }
 
 
-@tool(name="datamodel.get_topology")  # type: ignore[operator]
+@netai_tool(name="datamodel_get_topology")  # type: ignore[operator]
 def get_topology(
     site: Annotated[
         str | None,

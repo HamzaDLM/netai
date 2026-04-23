@@ -111,11 +111,11 @@ function resetState() {
                 <div class="flex flex-col items-center gap-4">
                     <button @click="router.push('/')" class="flex items-center gap-1"
                         :class="props.collapsed ? ' pb-5 border-b border-stone-700' : ''">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-stone-500" viewBox="0 0 24 24">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-stone-200" viewBox="1 0 24 24">
                             <path fill="currentColor"
                                 d="M5 22v-4q0-.575.3-1.037t.8-.738L11 13.75V12l-3.475 1.725q-.3.15-.625.225t-.65.075q-.775 0-1.463-.4t-1.062-1.15q-.35-.675-.3-1.437T3.9 9.625L7 5L5 2h6q3.325 0 5.663 2.325T19 10v12zm2-2h10V10q0-2.5-1.75-4.25T11 4H8.75l.65 1l-3.825 5.75q-.125.2-.137.413t.087.412q.125.275.338.363t.412.087q.075 0 .375-.075L13 8.75V15l-6 3zm4-8" />
                         </svg>
-                        <span v-if="!props.collapsed">NetAI</span>
+                        <span class="text-xl font-semibold text-stone-200" v-if="!props.collapsed">NetAI</span>
                     </button>
                     <Button v-if="props.collapsed" @click="chatStore.createConversation()" variant="outline"
                         class="flex w-full gap-2 text-stone-300" size="sm">
@@ -154,22 +154,21 @@ function resetState() {
         <div class="flex justify-center gap-2 mx-4 my-4">
             <Button @click="chatStore.createConversation()" variant="outline" class="flex w-full gap-2 text-stone-300"
                 size="sm">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
-                    <path fill="currentColor"
-                        d="M15.275 12.475L11.525 8.7L14.3 5.95l-.725-.725L8.1 10.7L6.7 9.3l5.45-5.475q.6-.6 1.413-.6t1.412.6l.725.725l1.25-1.25q.3-.3.713-.3t.712.3L20.7 5.625q.3.3.3.713t-.3.712zM6.75 21H3v-3.75l7.1-7.125l3.775 3.75z" />
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z" />
                 </svg>
-                New Conversation
+                Chat
             </Button>
-            <Button @click="resetState" variant="outline" class="w-min text-stone-300" size="sm">
+            <!-- <Button @click="resetState" variant="outline" class="w-min text-stone-300" size="sm">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="currentColor"
                         d="M5.53 17.506q-.978-1.142-1.504-2.558T3.5 12q0-3.616 2.664-6.058T12.5 3.5V2l3.673 2.75L12.5 7.5V6Q9.86 6 7.93 7.718T6 12q0 1.13.399 2.15t1.13 1.846zM11.5 22l-3.673-2.75L11.5 16.5V18q2.64 0 4.57-1.718T18 12q0-1.13-.399-2.16q-.399-1.028-1.13-1.855l1.998-1.51q.979 1.142 1.505 2.558T20.5 12q0 3.616-2.664 6.058T11.5 20.5z" />
                 </svg>
-            </Button>
+            </Button> -->
         </div>
         <div v-if="!props.collapsed" class="flex-1 min-h-0 pr-1 space-y-2 overflow-y-auto text-sm">
             <div v-for="conversation in chatStore.conversations" @click="chatStore.selectConversation(conversation.id)"
-                class="flex flex-col gap-2 px-4 py-2 border-l-4 cursor-pointer"
+                class="flex flex-col gap-2 px-4 py-2 border-l-4 border-dotted cursor-pointer"
                 :class="conversation.id == chatStore.selectedConversation?.id ? 'border-red-500/40 opacity-100 bg-stone-900/30' : 'border-transparent opacity-50 hover:opacity-80'">
                 <div class="flex items-center justify-between">
                     <p class="text-xs text-stone-500">{{ formatDatetime(conversation.created_at) }}</p>
@@ -207,15 +206,14 @@ function resetState() {
             </div>
         </div>
         <div v-if="!props.collapsed"
-            class="flex items-center justify-between px-4 pt-4 mt-4 border-t text-stone-400 hover:text-stone-200 shrink-0 border-stone-900">
+            class="flex items-center justify-between px-4 pt-4 mt-4 text-sm border-t text-stone-400 hover:text-stone-200 shrink-0 border-stone-900">
             <div class="flex items-center gap-3 cursor-pointer">
-                <div
-                    class="flex items-center justify-center w-10 h-10 border rounded-full border-stone-700 bg-stone-800">
+                <div class="flex items-center justify-center w-8 h-8 border rounded-full border-stone-700 bg-stone-800">
                     TE
                 </div>
                 <div>
                     <p class="font-bold">DELLAM Hamza</p>
-                    <p class="text-sm">Admin</p>
+                    <p class="text-xs">Admin</p>
                 </div>
             </div>
             <ChatSettingsDialog />

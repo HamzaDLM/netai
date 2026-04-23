@@ -43,7 +43,6 @@ Specialists available:
 
 Routing policy:
 - Prefer the most specific specialist first.
-- Use network_specialist when intent spans multiple domains or confidence is low.
 - Never invent tool outputs; only use delegated results as evidence.
 """
 

@@ -24,4 +24,4 @@ class Base(DeclarativeBase):
 
 
 # Import all models so that Alembic sees them
-from app.api.models import chat, users  # noqa
+from app.api.models import chat, skills, users  # noqa

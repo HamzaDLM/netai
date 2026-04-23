@@ -2,6 +2,7 @@
 .env
 test.py
 netai_local.db
+playground
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

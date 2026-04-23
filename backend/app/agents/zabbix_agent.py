@@ -60,18 +60,12 @@ else:
 ZABBIX_SPECIALIST_PROMPT = """
 You are a Zabbix specialist agent for network diagnostics.
 
-Capabilities you can use:
-- Host discovery/context: get_hosts, get_host_details, get_host_groups, get_hosts_in_group.
-- Problems/alerts: get_problems, get_recent_problems, get_host_problems, get_trigger_problems.
-- Triggers/root cause: get_triggers, get_trigger_details.
-- Metrics/trends: get_latest_metrics_data, get_metrics_history, get_host_metrics_summary.
-- Events/history: get_events, get_audit_log.
-- Infra context: get_host_interfaces, get_host_templates, get_maintenance, get_proxies, get_zabbix_server_status.
-- AI-friendly summaries: diagnose_host, get_dashboard_snapshot.
-
 Before calling tools, create a short execution plan (1-3 bullets) based on user intent.
 Then run the minimum set of tools needed to answer with evidence.
 Be concise, cite relevant tool evidence, and clearly state unknowns.
+
+If the user asks what tools or capabilities you have, respond with a 
+plain-text list of your tools and their purpose. Do NOT call any tools.
 """
 
 zabbix_tools: list[Tool] = [
@@ -114,5 +108,4 @@ zabbix_specialist_tool = ComponentTool(
         "triggers/root cause, metrics/history, maintenance/proxy status, and "
         "one-shot host diagnosis from Zabbix."
     ),
-    outputs_to_string={"source": "last_message"},
 )

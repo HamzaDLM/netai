@@ -18,6 +18,7 @@ function createMessage(role: MessageRole, content: string): Message {
 		content,
 		created_at: new Date().toISOString(),
 		agent_runs: [],
+		feedback: [],
 	}
 }
 
@@ -27,8 +28,45 @@ function normalizeConversationMessages(data: ConversationMessages): Conversation
 		messages: (data.messages ?? []).map(message => ({
 			...message,
 			agent_runs: message.agent_runs ?? [],
+			feedback: message.feedback ?? [],
 		})),
 	}
+}
+
+function asContextMetrics(value: unknown): ContextMetrics | null {
+	if (!value || typeof value !== 'object') return null
+	const row = value as Record<string, unknown>
+	if (
+		typeof row.context_window !== 'number' ||
+		typeof row.used_tokens !== 'number' ||
+		typeof row.used_percent !== 'number' ||
+		typeof row.left_tokens !== 'number' ||
+		typeof row.left_percent !== 'number' ||
+		typeof row.compacted !== 'boolean'
+	) {
+		return null
+	}
+	return {
+		context_window: row.context_window,
+		used_tokens: row.used_tokens,
+		used_percent: row.used_percent,
+		left_tokens: row.left_tokens,
+		left_percent: row.left_percent,
+		compacted: row.compacted,
+		summary_id: typeof row.summary_id === 'number' || row.summary_id === null ? row.summary_id : undefined,
+	}
+}
+
+function extractLatestContextMetrics(conversation: ConversationMessages | null): ContextMetrics | null {
+	if (!conversation) return null
+	for (let i = conversation.messages.length - 1; i >= 0; i -= 1) {
+		const message = conversation.messages[i]
+		for (let j = (message.agent_runs?.length ?? 0) - 1; j >= 0; j -= 1) {
+			const metrics = asContextMetrics(message.agent_runs[j]?.context_metrics)
+			if (metrics) return metrics
+		}
+	}
+	return null
 }
 
 export const useChatStore = defineStore('chat', function chatStore() {
@@ -39,7 +77,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	const isStreamingResponse = ref(false)
 	const streamingAssistantMessageId = ref<number | null>(null)
 	const errorMessage = ref<string | null>(null)
-	const contextWindow = ref<ContextMetrics | null>()
+	const contextWindow = ref<ContextMetrics | null>(null)
 
 	const hasConversations = computed(function () {
 		return conversations.value.length > 0
@@ -86,6 +124,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 
 			const result = await chatService.getConversation(conversationId)
 			selectedConversation.value = normalizeConversationMessages(result.data)
+			contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
 		} catch (err) {
 			errorMessage.value = 'Failed to load conversation'
 			toast({ title: errorMessage.value, variant: 'destructive' })
@@ -98,6 +137,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		selectedConversation.value = conversation
 			? normalizeConversationMessages(conversation)
 			: null
+		contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
 	}
 
 	async function createConversation(): Promise<void> {
@@ -114,7 +154,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	async function renameConversation(conversation_id: string, title: string): Promise<void> {
 		try {
 			await chatService.renameConversation(conversation_id, title)
-			conversations.value.map(convo => (convo.id === conversation_id ? { ...convo, title: title } : convo))
+			conversations.value = conversations.value.map(convo => (convo.id === conversation_id ? { ...convo, title: title } : convo))
 		} catch (err) {
 			errorMessage.value = 'Failed to rename conversation'
 			toast({ title: errorMessage.value, variant: 'destructive' })
@@ -124,9 +164,9 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	async function deleteConversation(conversation_id: string): Promise<void> {
 		try {
 			await chatService.deleteConversation(conversation_id)
-			conversations.value.filter(convo => convo.id !== conversation_id)
+			conversations.value = conversations.value.filter(convo => convo.id !== conversation_id)
 		} catch (err) {
-			errorMessage.value = 'Failed to delete conversation'
+			errorMessage.value = 'Failed to archive conversation'
 			toast({ title: errorMessage.value, variant: 'destructive' })
 		}
 	}
@@ -219,14 +259,13 @@ export const useChatStore = defineStore('chat', function chatStore() {
 						pendingTokenText += token
 						ensureFlushLoop()
 					},
-					onThinking: payload => {
+					onOrchestratorDecision: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushRunEvent(assistant, 'thinking', {
-							agent: payload.agent,
-							status: payload.status,
-							message: payload.message,
-						}, payload.agent)
+						pushRunEvent(assistant, 'orchestrator_decision', {
+							specialists: payload.specialists ?? [],
+							reasoning: payload.reasoning ?? '',
+						})
 					},
 					onOrchestratorPlan: payload => {
 						const assistant = getAssistantMessage()
@@ -236,6 +275,16 @@ export const useChatStore = defineStore('chat', function chatStore() {
 							specialists: payload.specialists,
 						})
 					},
+					onSpecialistPlan: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						pushRunEvent(
+							assistant,
+							'specialist_plan',
+							{ specialist: payload.specialist, plan: payload.plan ?? '' },
+							payload.specialist
+						)
+					},
 					onSpecialistPrompt: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
@@ -243,16 +292,6 @@ export const useChatStore = defineStore('chat', function chatStore() {
 							assistant,
 							'specialist_prompt',
 							{ prompt: payload.prompt },
-							payload.specialist
-						)
-					},
-					onSpecialistThought: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(
-							assistant,
-							'specialist_thought',
-							{ thought: payload.thought },
 							payload.specialist
 						)
 					},
@@ -266,6 +305,20 @@ export const useChatStore = defineStore('chat', function chatStore() {
 								specialist: payload.specialist,
 								tool_name: payload.tool_name,
 								arguments: payload.arguments ?? {},
+							},
+							payload.specialist
+						)
+					},
+					onSpecialistEvidence: payload => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						pushRunEvent(
+							assistant,
+							'specialist_evidence',
+							{
+								specialist: payload.specialist,
+								tool_name: payload.tool_name,
+								result: payload.result ?? {},
 								evidence: payload.evidence ?? [],
 							},
 							payload.specialist
@@ -358,6 +411,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 
 	function clearSelectedConversation(): void {
 		selectedConversation.value = null
+		contextWindow.value = null
 	}
 
 	function resetChatState(): void {
@@ -368,6 +422,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		isStreamingResponse.value = false
 		streamingAssistantMessageId.value = null
 		errorMessage.value = null
+		contextWindow.value = null
 	}
 
 	return {

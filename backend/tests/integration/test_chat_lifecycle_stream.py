@@ -9,7 +9,13 @@ import app.api.endpoints.chat as chat_endpoints
 async def test_chat_stream_emits_sse_and_persists_assistant_message(
     async_client, monkeypatch
 ) -> None:
-    async def _fake_run_agent_stream(*, conversation_id: str, question: str):
+    async def _fake_run_agent_stream(
+        *,
+        conversation_id: str,
+        question: str,
+        skills: list[dict[str, str]] | None = None,
+    ):
+        _ = skills
         yield {"type": "context_metrics", "used_tokens": 11, "used_percent": 1}
         yield {"type": "token", "token": "Hel"}
         yield {"type": "token", "token": "lo"}

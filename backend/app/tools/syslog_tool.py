@@ -5,11 +5,11 @@ from typing import Annotated, Any
 
 import httpx
 from haystack.dataclasses import ChatMessage
-from haystack.tools import tool
 
 from app.core.config import project_settings
 from app.llm import llm
 from app.prompts.log_qa import LOG_QA_PROMPT
+from app.tools import netai_tool
 
 IPV4_RE = re.compile(
     r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b"
@@ -468,15 +468,15 @@ class SyslogQAEngine:
 syslog_qa_engine = SyslogQAEngine()
 
 
-@tool(name="syslog.get_evidence")  # type: ignore[operator]
-def get_syslog_evidence(question: str, top_k: int = 8) -> dict[str, Any]:
-    """Retrieve ranked syslog evidence from ClickHouse events and Qdrant templates."""
-    safe_top_k = max(1, min(int(top_k), 50))
-    return syslog_qa_engine.retrieve_evidence(question=question, top_k=safe_top_k)
+# @netai_tool(name="get_evidence")  # type: ignore[operator]
+# def get_syslog_evidence(question: str, top_k: int = 8) -> dict[str, Any]:
+#     """Retrieve ranked syslog evidence from ClickHouse events and Qdrant templates."""
+#     safe_top_k = max(1, min(int(top_k), 50))
+#     return syslog_qa_engine.retrieve_evidence(question=question, top_k=safe_top_k)
 
 
-@tool(name="syslog.get_logs")  # type: ignore[operator]
-def get_syslog_logs(
+@netai_tool(name="syslog_get_host_syslogs")  # type: ignore[operator]
+def get_host_syslogs(
     hostname: Annotated[
         str, "Hostname filter for ClickHouse syslog events (partial match)."
     ],

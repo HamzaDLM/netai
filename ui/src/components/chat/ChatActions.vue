@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import Button from '@/components/ui/button/Button.vue'
 import chatService from '@/services/chat.service'
 import { toast } from '@/components/ui/toast'
@@ -13,20 +13,54 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
+import {
+    ToggleGroup,
+    ToggleGroupItem,
+} from '@/components/ui/toggle-group'
+import Textarea from '../ui/textarea/Textarea.vue'
 
 const props = defineProps<{
     messageId: number
     content: string
+    initialRating?: 'good' | 'bad' | null
+    initialReportSubmitted?: boolean
 }>()
 
 const rating = ref<'good' | 'bad' | null>(null)
+type FeedbackTypeValue =
+    | 'wrong_diagnosis'
+    | 'hallucination'
+    | 'correct_but_incomplete'
+    | 'irrelevant_specialist'
+    | 'wrong_toolcall_use'
+    | 'other'
+
+const feedbackTypes = ref<FeedbackTypeValue[]>([])
 const comment = ref('')
 const copied = ref(false)
 const isSubmitting = ref(false)
-const submitted = ref(false)
+const reportSubmitted = ref(false)
+const quickSubmitted = ref<'good' | 'bad' | null>(null)
+const isFeedbackDialogOpen = ref(false)
 
 const localOnlyThreshold = 1000
+
+watch(
+    () => props.initialRating,
+    (nextRating) => {
+        rating.value = nextRating ?? null
+        quickSubmitted.value = nextRating ?? null
+    },
+    { immediate: true },
+)
+
+watch(
+    () => props.initialReportSubmitted,
+    (nextValue) => {
+        reportSubmitted.value = Boolean(nextValue)
+    },
+    { immediate: true },
+)
 
 async function copyMessage(): Promise<void> {
     try {
@@ -41,20 +75,47 @@ async function copyMessage(): Promise<void> {
     }
 }
 
-async function submitFeedback(): Promise<void> {
+async function submitQuickFeedback(value: 'good' | 'bad'): Promise<void> {
     if (props.messageId >= localOnlyThreshold) {
         toast({ title: 'Feedback unavailable before message sync', variant: 'destructive' })
+        return
+    }
+    if (isSubmitting.value) {
+        return
+    }
+    rating.value = value
+    isSubmitting.value = true
+    try {
+        await chatService.submitFeedback(props.messageId, { rating: value })
+        quickSubmitted.value = value
+    } catch {
+        toast({ title: 'Failed to submit feedback', variant: 'destructive' })
+    } finally {
+        isSubmitting.value = false
+    }
+}
+
+async function submitFeedbackReport(): Promise<void> {
+    if (props.messageId >= localOnlyThreshold) {
+        toast({ title: 'Feedback unavailable before message sync', variant: 'destructive' })
+        return
+    }
+    if (isSubmitting.value) {
         return
     }
 
     isSubmitting.value = true
     try {
-        const params = {}
-        if (comment) params["comment"] = comment.value.trim()
-        if (rating) params["rating"] = rating.value
+        const trimmedComment = comment.value.trim()
+        const params: { rating: 'good' | 'bad'; feedback_types?: FeedbackTypeValue[]; comment?: string } = {
+            rating: rating.value ?? 'bad',
+        }
+        if (feedbackTypes.value.length) params["feedback_types"] = [...feedbackTypes.value]
+        if (trimmedComment) params["comment"] = trimmedComment
         await chatService.submitFeedback(props.messageId, params)
-        submitted.value = true
-        toast({ title: 'Feedback sent. Thanks!' })
+        reportSubmitted.value = true
+        isFeedbackDialogOpen.value = false
+        toast({ title: 'Feedback report sent. Thanks!' })
     } catch {
         toast({ title: 'Failed to submit feedback', variant: 'destructive' })
     } finally {
@@ -64,11 +125,12 @@ async function submitFeedback(): Promise<void> {
 </script>
 
 <template>
-    <div class="flex flex-col gap-2 mt-3 mb-4">
-        <div class="flex items-center gap-2">
+    <div class="flex flex-col gap-2 mb-4">
+        <div class="flex items-center">
             <Button variant="link" size="xs" @click="copyMessage">
                 <!-- {{ copied ? 'Copied' : 'Copy' }} -->
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-stone-400 hover:text-stone-300"
+                    viewBox="0 0 24 24">
                     <g fill="none" stroke="currentColor" stroke-width="1.5">
                         <path
                             d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16z" />
@@ -77,9 +139,10 @@ async function submitFeedback(): Promise<void> {
                     </g>
                 </svg>
             </Button>
-            <Button variant="link" size="xs" :class="rating === 'good' ? 'border-emerald-500 text-emerald-300' : ''"
-                @click="rating = 'good'">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
+            <Button variant="link" size="xs"
+                :class="rating === 'good' ? 'border-emerald-500 text-emerald-300' : 'text-stone-400 hover:text-stone-300'"
+                :disabled="isSubmitting" @click="submitQuickFeedback('good')">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 " viewBox="0 0 24 24">
                     <g fill="none" fill-rule="evenodd">
                         <path
                             d="m12.593 23.258l-.011.002l-.071.035l-.02.004l-.014-.004l-.071-.035q-.016-.005-.024.005l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.017-.018m.265-.113l-.013.002l-.185.093l-.01.01l-.003.011l.018.43l.005.012l.008.007l.201.093q.019.005.029-.008l.004-.014l-.034-.614q-.005-.018-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.004-.011l.017-.43l-.003-.012l-.01-.01z" />
@@ -88,9 +151,10 @@ async function submitFeedback(): Promise<void> {
                     </g>
                 </svg>
             </Button>
-            <Button variant="link" size="xs" :class="rating === 'bad' ? 'border-rose-500 text-rose-300' : ''"
-                @click="rating = 'bad'">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
+            <Button variant="link" size="xs"
+                :class="rating === 'bad' ? 'border-rose-500 text-rose-300' : 'text-stone-400 hover:text-stone-300'"
+                :disabled="isSubmitting" @click="submitQuickFeedback('bad')">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 " viewBox="0 0 24 24">
                     <g fill="none" fill-rule="evenodd">
                         <path
                             d="m12.593 23.258l-.011.002l-.071.035l-.02.004l-.014-.004l-.071-.035q-.016-.005-.024.005l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.017-.018m.265-.113l-.013.002l-.185.093l-.01.01l-.003.011l.018.43l.005.012l.008.007l.201.093q.019.005.029-.008l.004-.014l-.034-.614q-.005-.018-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.004-.011l.017-.43l-.003-.012l-.01-.01z" />
@@ -108,38 +172,73 @@ async function submitFeedback(): Promise<void> {
                         {{ submitted ? 'Submitted' : isSubmitting ? 'Submitting...' : 'Send feedback' }}
                     </Button>
                 </div> -->
-                <Dialog>
-                    <form>
-                        <DialogTrigger as-child>
-                            <Button variant="ghost">
-                                Send Feedback
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent class="sm:max-w-[625px]">
-                            <DialogHeader>
-                                <DialogTitle>Feedback</DialogTitle>
-                                <DialogDescription>
-                                    Your feedback is essential to improving NetAI.
-                                </DialogDescription>
-                            </DialogHeader>
-                            <div class="grid gap-4">
-                                <div class="grid gap-3">
-                                    <Input id="name-1" name="name" default-value=""
-                                        placeholder="was there something wrong about the response?" />
-                                </div>
+                <Dialog v-model:open="isFeedbackDialogOpen">
+                    <DialogTrigger v-if="!reportSubmitted" as-child>
+                        <button type="button" class="p-1.5 text-xs text-stone-400 hover:text-stone-300">
+                            Send Feedback
+                        </button>
+                    </DialogTrigger>
+                    <p v-else class="p-1.5 text-xs text-stone-400">
+                        Feedback Sent!
+                    </p>
+                    <DialogContent class="sm:max-w-[625px]">
+                        <DialogHeader>
+                            <DialogTitle>Feedback</DialogTitle>
+                            <DialogDescription>
+                                Your feedback is essential to improving NetAI.
+                            </DialogDescription>
+                        </DialogHeader>
+                        <div class="grid gap-4 my-4">
+                            <ToggleGroup v-model="feedbackTypes" variant="outline" type="multiple"
+                                class="flex flex-wrap gap-2">
+                                <ToggleGroupItem value="wrong_diagnosis" aria-label="Toggle bold">
+                                    <p class="text-xs">
+                                        Wrong diagnosis
+                                    </p>
+                                </ToggleGroupItem>
+                                <ToggleGroupItem value="hallucination" aria-label="Toggle bold">
+                                    <p class="text-xs">
+                                        Hallucination
+                                    </p>
+                                </ToggleGroupItem>
+                                <ToggleGroupItem value="correct_but_incomplete" aria-label="Toggle bold">
+                                    <p class="text-xs">
+                                        Correct but incomplete
+                                    </p>
+                                </ToggleGroupItem>
+                                <ToggleGroupItem value="irrelevant_specialist" aria-label="Toggle bold">
+                                    <p class="text-xs">
+                                        Irrelevant Specialist
+                                    </p>
+                                </ToggleGroupItem>
+                                <ToggleGroupItem value="wrong_toolcall_use" aria-label="Toggle bold">
+                                    <p class="text-xs">
+                                        Wrong tool used
+                                    </p>
+                                </ToggleGroupItem>
+                                <ToggleGroupItem value="other" aria-label="Toggle bold">
+                                    <p class="text-xs">
+                                        Other...
+                                    </p>
+                                </ToggleGroupItem>
+                            </ToggleGroup>
+                            <div class="grid gap-3">
+                                <Textarea id="feedback-comment" v-model="comment" placeholder="can you elaborate?" />
                             </div>
-                            <DialogFooter>
-                                <DialogClose as-child>
-                                    <Button variant="outline">
-                                        Cancel
-                                    </Button>
-                                </DialogClose>
-                                <Button @click="submitFeedback" type="submit">
-                                    Send feedback
+                        </div>
+                        <DialogFooter>
+                            <DialogClose as-child>
+                                <Button variant="outline">
+                                    Cancel
                                 </Button>
-                            </DialogFooter>
-                        </DialogContent>
-                    </form>
+                            </DialogClose>
+                            <Button type="button" :disabled="isSubmitting || reportSubmitted"
+                                @click="submitFeedbackReport">
+                                {{ reportSubmitted ? 'Submitted' : isSubmitting ? 'Submitting...' : 'Send feedback'
+                                }}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
                 </Dialog>
             </div>
         </div>

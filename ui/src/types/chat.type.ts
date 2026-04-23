@@ -53,6 +53,23 @@ export interface ContextMetrics {
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system'
+export type FeedbackRating = 'good' | 'bad'
+export type FeedbackType =
+	| 'wrong_diagnosis'
+	| 'hallucination'
+	| 'correct_but_incomplete'
+	| 'irrelevant_specialist'
+	| 'wrong_toolcall_use'
+	| 'other'
+
+export interface Feedback {
+	id: number
+	rating: FeedbackRating
+	feedback_type?: FeedbackType | null
+	comment?: string | null
+	created_at: string
+	updated_at: string
+}
 
 export interface Message {
 	id: number
@@ -60,6 +77,7 @@ export interface Message {
 	content: string
 	created_at: string
 	agent_runs: AgentRun[]
+	feedback: Feedback[]
 }
 
 export interface Conversation {

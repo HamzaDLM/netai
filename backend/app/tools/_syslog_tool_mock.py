@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from haystack.tools import tool
+from app.tools import netai_tool
 
 _FAKE_EVIDENCE: list[dict[str, Any]] = [
     {
@@ -66,31 +66,31 @@ _FAKE_LOG_ROWS: list[dict[str, Any]] = [
 ]
 
 
-@tool(name="syslog.get_evidence")  # type: ignore[operator]
-def get_syslog_evidence(question: str, top_k: int = 8) -> dict[str, Any]:
-    """Return fake ranked syslog evidence for offline/dev usage."""
-    safe_top_k = max(1, min(int(top_k), 50))
-    query = (question or "").strip().lower()
-    if query:
-        filtered = [
-            row for row in _FAKE_EVIDENCE if query.split()[0] in row["content"].lower()
-        ]
-        rows = filtered if filtered else _FAKE_EVIDENCE
-    else:
-        rows = _FAKE_EVIDENCE
+# @netai_tool(name="get_evidence")  # type: ignore[operator]
+# def get_syslog_evidence(question: str, top_k: int = 8) -> dict[str, Any]:
+#     """Return fake ranked syslog evidence for offline/dev usage."""
+#     safe_top_k = max(1, min(int(top_k), 50))
+#     query = (question or "").strip().lower()
+#     if query:
+#         filtered = [
+#             row for row in _FAKE_EVIDENCE if query.split()[0] in row["content"].lower()
+#         ]
+#         rows = filtered if filtered else _FAKE_EVIDENCE
+#     else:
+#         rows = _FAKE_EVIDENCE
 
-    evidence = rows[:safe_top_k]
-    return {
-        "question": question,
-        "top_k": safe_top_k,
-        "evidence_count": len(evidence),
-        "evidence": evidence,
-        "filters": {},
-    }
+#     evidence = rows[:safe_top_k]
+#     return {
+#         "question": question,
+#         "top_k": safe_top_k,
+#         "evidence_count": len(evidence),
+#         "evidence": evidence,
+#         "filters": {},
+#     }
 
 
-@tool(name="syslog.get_logs")  # type: ignore[operator]
-def get_syslog_logs(
+@netai_tool(name="syslog_get_host_syslogs")  # type: ignore[operator]
+def get_host_syslogs(
     hostname: Annotated[str, "Hostname filter for syslog events (partial match)."],
     severity: Annotated[int | None, "Optional severity filter (-1 to 7)."] = None,
 ) -> dict[str, Any]:

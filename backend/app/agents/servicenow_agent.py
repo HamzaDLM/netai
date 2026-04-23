@@ -5,33 +5,14 @@ from haystack.tools import ComponentTool, Tool
 
 from app.core.config import project_settings
 from app.llm import llm
+from app.tools import _servicenow_tools_mock as _servicenow_tools_mock_impl
+from app.tools import servicenow_tools as _servicenow_tools_impl
 
-if project_settings.TOOLS_USE_MOCK_DATA:
-    from app.tools._servicenow_tools_mock import (
-        get_change_request,
-        get_ci,
-        get_incident,
-        get_known_cis,
-        get_problem,
-        get_service_summary,
-        list_change_requests,
-        list_cis,
-        list_incidents,
-        list_problems,
-    )
-else:
-    from app.tools.servicenow_tools import (
-        get_change_request,
-        get_ci,
-        get_incident,
-        get_known_cis,
-        get_problem,
-        get_service_summary,
-        list_change_requests,
-        list_cis,
-        list_incidents,
-        list_problems,
-    )
+_servicenow_tools_module = (
+    _servicenow_tools_mock_impl
+    if project_settings.TOOLS_USE_MOCK_DATA
+    else _servicenow_tools_impl
+)
 
 SERVICENOW_SPECIALIST_PROMPT = """
 You are a ServiceNow specialist agent.
@@ -41,16 +22,16 @@ Return concise, evidence-backed answers and clearly state unknowns.
 """
 
 servicenow_tools: list[Tool] = [
-    cast(Tool, get_known_cis),
-    cast(Tool, list_incidents),
-    cast(Tool, get_incident),
-    cast(Tool, list_change_requests),
-    cast(Tool, get_change_request),
-    cast(Tool, list_problems),
-    cast(Tool, get_problem),
-    cast(Tool, list_cis),
-    cast(Tool, get_ci),
-    cast(Tool, get_service_summary),
+    cast(Tool, _servicenow_tools_module.get_known_cis),
+    cast(Tool, _servicenow_tools_module.list_incidents),
+    cast(Tool, _servicenow_tools_module.get_incident),
+    cast(Tool, _servicenow_tools_module.list_change_requests),
+    cast(Tool, _servicenow_tools_module.get_change_request),
+    cast(Tool, _servicenow_tools_module.list_problems),
+    cast(Tool, _servicenow_tools_module.get_problem),
+    cast(Tool, _servicenow_tools_module.list_cis),
+    cast(Tool, _servicenow_tools_module.get_ci),
+    cast(Tool, _servicenow_tools_module.get_service_summary),
 ]
 
 servicenow_agent = Agent(
@@ -68,5 +49,4 @@ servicenow_specialist_tool = ComponentTool(
         "ITSM/CMDB specialist. Use for incidents, problems, change requests, "
         "CI records, service summaries, and operational ticket context."
     ),
-    outputs_to_string={"source": "last_message"},
 )

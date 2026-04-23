@@ -1,9 +1,9 @@
 from typing import Annotated, Any
 
 import httpx
-from haystack.tools import tool
 
 from app.core.config import project_settings
+from app.tools import netai_tool
 
 INCIDENT_STATE_MAP = {
     "new": "1",
@@ -279,7 +279,7 @@ def _problem_brief(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@tool(name="servicenow.get_known_cis")  # type: ignore[operator]
+@netai_tool(name="servicenow_get_known_cis")  # type: ignore[operator]
 def get_known_cis() -> list[dict[str, Any]] | dict[str, Any]:
     """Return CI name/IP shortlist from ServiceNow CMDB."""
     try:
@@ -303,7 +303,7 @@ def get_known_cis() -> list[dict[str, Any]] | dict[str, Any]:
         return error_payload("get_known_cis", exc)
 
 
-@tool(name="servicenow.list_incidents")  # type: ignore[operator]
+@netai_tool(name="servicenow_list_incidents")  # type: ignore[operator]
 def list_incidents(
     state: Annotated[
         str | None, "Optional state filter: new/in_progress/on_hold/resolved"
@@ -364,7 +364,7 @@ def list_incidents(
         return error_payload("list_incidents", exc)
 
 
-@tool(name="servicenow.get_incident")  # type: ignore[operator]
+@netai_tool(name="servicenow_get_incident")  # type: ignore[operator]
 def get_incident(
     incident_number: Annotated[str, "Incident number, e.g. INC0010421"],
 ) -> dict[str, Any]:
@@ -403,7 +403,7 @@ def get_incident(
         return error_payload("get_incident", exc)
 
 
-@tool(name="servicenow.list_change_requests")  # type: ignore[operator]
+@netai_tool(name="servicenow_list_change_requests")  # type: ignore[operator]
 def list_change_requests(
     state: Annotated[
         str | None, "Optional state filter: new/scheduled/implement/closed"
@@ -458,7 +458,7 @@ def list_change_requests(
         return error_payload("list_change_requests", exc)
 
 
-@tool(name="servicenow.get_change_request")  # type: ignore[operator]  # noqa
+@netai_tool(name="servicenow_get_change_request")  # type: ignore[operator]  # noqa
 def get_change_request(
     change_number: Annotated[str, "Change number, e.g. CHG0007721"],
 ) -> dict[str, Any]:
@@ -494,7 +494,7 @@ def get_change_request(
         return error_payload("get_change_request", exc)
 
 
-@tool(name="servicenow.list_problems")  # type: ignore[operator]
+@netai_tool(name="servicenow_list_problems")  # type: ignore[operator]
 def list_problems(
     state: Annotated[
         str | None, "Optional state filter: investigating/known_error/resolved"
@@ -544,7 +544,7 @@ def list_problems(
         return error_payload("list_problems", exc)
 
 
-@tool(name="servicenow.get_problem")  # type: ignore[operator]
+@netai_tool(name="servicenow_get_problem")  # type: ignore[operator]
 def get_problem(
     problem_number: Annotated[str, "Problem number, e.g. PRB000381"],
 ) -> dict[str, Any]:
@@ -578,7 +578,7 @@ def get_problem(
         return error_payload("get_problem", exc)
 
 
-@tool(name="servicenow.list_cis")  # type: ignore[operator]
+@netai_tool(name="servicenow_list_cis")  # type: ignore[operator]
 def list_cis(
     ci_class: Annotated[
         str | None, "Optional class filter: network_firewall/network_switch/..."
@@ -628,7 +628,7 @@ def list_cis(
         return error_payload("list_cis", exc)
 
 
-@tool(name="servicenow.get_ci")  # type: ignore[operator]
+@netai_tool(name="servicenow_get_ci")  # type: ignore[operator]
 def get_ci(
     ci_name_or_sys_id: Annotated[str, "CI hostname/name or sys_id"],
 ) -> dict[str, Any]:
@@ -696,7 +696,7 @@ def get_ci(
         return error_payload("get_ci", exc)
 
 
-@tool(name="servicenow.get_service_summary")  # type: ignore[operator]
+@netai_tool(name="servicenow_get_service_summary")  # type: ignore[operator]
 def get_service_summary(
     service: Annotated[str, "Business service name, e.g. WAN-Edge"],
 ) -> dict[str, Any]:

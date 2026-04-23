@@ -7,6 +7,7 @@ from app.agents.orchestrator_agent import (
 EXPECTED_SPECIALISTS = {
     "zabbix_specialist",
     "suzieq_specialist",
+    "bitbucket_specialist",
     "servicenow_specialist",
     "datamodel_specialist",
     "syslog_specialist",

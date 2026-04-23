@@ -5,17 +5,17 @@ import { ContextMetrics, Conversation, ConversationMessages, Message } from '@/t
 export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
 	| ({ type: 'context_metrics' } & ContextMetrics)
-	| { type: 'thinking'; agent: string; status: string; message?: string }
+	| { type: 'orchestrator_decision'; specialists?: string[]; reasoning?: string }
 	| { type: 'orchestrator_plan'; plan?: string; specialists?: string[] }
+	| { type: 'specialist_plan'; specialist: string; plan?: string }
 	| { type: 'specialist_prompt'; specialist: string; prompt?: Record<string, unknown> }
-	| { type: 'specialist_thought'; specialist: string; thought?: Record<string, unknown> }
 	| {
 			type: 'specialist_tool_call'
 			specialist: string
 			tool_name: string
 			arguments?: Record<string, unknown>
-			evidence?: unknown[]
 	  }
+	| { type: 'specialist_evidence'; specialist: string; tool_name: string; result?: Record<string, unknown>; evidence?: unknown[] }
 	| { type: 'specialist_tool_result'; specialist: string; tool_name: string; result?: Record<string, unknown> }
 	| { type: 'leader_conclusion'; answer?: string }
 	| { type: 'done'; message_id: number }
@@ -23,11 +23,12 @@ export type StreamEvent =
 export type StreamHandlers = {
 	onToken?: (token: string) => void
 	onContextMetrics?: (payload: ContextMetrics) => void
-	onThinking?: (payload: { agent: string; status: string; message?: string }) => void
+	onOrchestratorDecision?: (payload: { specialists?: string[]; reasoning?: string }) => void
 	onOrchestratorPlan?: (payload: { plan?: string; specialists?: string[] }) => void
+	onSpecialistPlan?: (payload: { specialist: string; plan?: string }) => void
 	onSpecialistPrompt?: (payload: { specialist: string; prompt?: Record<string, unknown> }) => void
-	onSpecialistThought?: (payload: { specialist: string; thought?: Record<string, unknown> }) => void
-	onSpecialistToolCall?: (payload: { specialist: string; tool_name: string; arguments?: Record<string, unknown>; evidence?: unknown[] }) => void
+	onSpecialistToolCall?: (payload: { specialist: string; tool_name: string; arguments?: Record<string, unknown> }) => void
+	onSpecialistEvidence?: (payload: { specialist: string; tool_name: string; result?: Record<string, unknown>; evidence?: unknown[] }) => void
 	onSpecialistToolResult?: (payload: { specialist: string; tool_name: string; result?: Record<string, unknown> }) => void
 	onLeaderConclusion?: (payload: { answer?: string }) => void
 	onDone?: (messageId: number) => void
@@ -94,11 +95,12 @@ class ChatService {
 
 			if (eventName === 'assistant_token') return { type: eventName, token: String(payload?.token ?? '') }
 			if (eventName === 'context_metrics') return { type: eventName, ...payload }
-			if (eventName === 'thinking') return { type: eventName, ...payload }
+			if (eventName === 'orchestrator_decision') return { type: eventName, ...payload }
 			if (eventName === 'orchestrator_plan') return { type: eventName, ...payload }
+			if (eventName === 'specialist_plan') return { type: eventName, ...payload }
 			if (eventName === 'specialist_prompt') return { type: eventName, ...payload }
-			if (eventName === 'specialist_thought') return { type: eventName, ...payload }
 			if (eventName === 'specialist_tool_call') return { type: eventName, ...payload }
+			if (eventName === 'specialist_evidence') return { type: eventName, ...payload }
 			if (eventName === 'specialist_tool_result') return { type: eventName, ...payload }
 			if (eventName === 'leader_conclusion') return { type: eventName, ...payload }
 			if (eventName === 'done') return { type: eventName, message_id: Number(payload?.message_id) }
@@ -120,11 +122,12 @@ class ChatService {
 
 				if (parsed.type === 'assistant_token') handlers.onToken?.(parsed.token)
 				if (parsed.type === 'context_metrics') handlers.onContextMetrics?.(parsed)
-				if (parsed.type === 'thinking') handlers.onThinking?.(parsed)
+				if (parsed.type === 'orchestrator_decision') handlers.onOrchestratorDecision?.(parsed)
 				if (parsed.type === 'orchestrator_plan') handlers.onOrchestratorPlan?.(parsed)
+				if (parsed.type === 'specialist_plan') handlers.onSpecialistPlan?.(parsed)
 				if (parsed.type === 'specialist_prompt') handlers.onSpecialistPrompt?.(parsed)
-				if (parsed.type === 'specialist_thought') handlers.onSpecialistThought?.(parsed)
 				if (parsed.type === 'specialist_tool_call') handlers.onSpecialistToolCall?.(parsed)
+				if (parsed.type === 'specialist_evidence') handlers.onSpecialistEvidence?.(parsed)
 				if (parsed.type === 'specialist_tool_result') handlers.onSpecialistToolResult?.(parsed)
 				if (parsed.type === 'leader_conclusion') handlers.onLeaderConclusion?.(parsed)
 				if (parsed.type === 'done') handlers.onDone?.(parsed.message_id)
@@ -132,7 +135,28 @@ class ChatService {
 		}
 	}
 
-	submitFeedback(messageId: number, params: { rating?: 'good' | 'bad'; comment?: string | null }): Promise<AxiosResponse<void>> {
+	submitFeedback(
+		messageId: number,
+		params: {
+			rating: 'good' | 'bad'
+			feedback_type?:
+				| 'wrong_diagnosis'
+				| 'hallucination'
+				| 'correct_but_incomplete'
+				| 'irrelevant_specialist'
+				| 'wrong_toolcall_use'
+				| 'other'
+			feedback_types?: Array<
+				| 'wrong_diagnosis'
+				| 'hallucination'
+				| 'correct_but_incomplete'
+				| 'irrelevant_specialist'
+				| 'wrong_toolcall_use'
+				| 'other'
+			>
+			comment?: string | null
+		},
+	): Promise<AxiosResponse<void>> {
 		return API.post(`/llm/messages/${messageId}/feedback`, params)
 	}
 }

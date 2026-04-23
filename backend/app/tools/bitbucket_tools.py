@@ -3,9 +3,8 @@ import subprocess
 from pathlib import Path
 from typing import Annotated, Any
 
-from haystack.tools import tool
-
 from app.core.config import project_settings
+from app.tools import netai_tool
 
 
 class BitbucketToolError(RuntimeError):
@@ -510,7 +509,7 @@ def list_bitbucket_devices(
     return {"count": len(devices), "devices": devices}
 
 
-@tool(name="bitbucket.device_config_exists")  # type: ignore[operator]
+@netai_tool(name="bitbucket_device_config_exists")  # type: ignore[operator]
 def bitbucket_device_config_exists(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
@@ -522,7 +521,7 @@ def bitbucket_device_config_exists(
         return _error("bitbucket_device_config_exists", exc)
 
 
-@tool(name="bitbucket.get_device_file_info")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_device_file_info")  # type: ignore[operator]
 def get_bitbucket_device_file_info(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
@@ -536,7 +535,7 @@ def get_bitbucket_device_file_info(
         return _error("bitbucket_get_device_file_info", exc)
 
 
-@tool(name="bitbucket.get_recent_device_config_diff")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_recent_device_config_diff")  # type: ignore[operator]
 def get_recent_device_config_diff(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
@@ -548,7 +547,7 @@ def get_recent_device_config_diff(
         return _error("bitbucket_get_recent_device_config_diff", exc)
 
 
-@tool(name="bitbucket.get_device_configuration")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_device_configuration")  # type: ignore[operator]
 def get_bitbucket_device_configuration(
     device: Annotated[str, "Device name (file stem) or exact filename"],
     commit_ref: Annotated[str | None, "Optional commit hash; defaults to HEAD"] = None,
@@ -569,7 +568,7 @@ def get_bitbucket_device_configuration(
         return _error("bitbucket_get_device_configuration", exc)
 
 
-@tool(name="bitbucket.get_recent_commits")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_recent_commits")  # type: ignore[operator]
 def get_bitbucket_recent_commits(
     limit: Annotated[int, "Maximum number of recent commits to return"] = 10,
 ) -> dict[str, Any]:

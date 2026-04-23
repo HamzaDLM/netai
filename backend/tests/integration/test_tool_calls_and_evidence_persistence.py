@@ -9,7 +9,13 @@ import app.api.endpoints.chat as chat_endpoints
 async def test_stream_specialist_tool_calls_are_persisted(
     async_client, monkeypatch
 ) -> None:
-    async def _fake_run_agent_stream(*, conversation_id: str, question: str):
+    async def _fake_run_agent_stream(
+        *,
+        conversation_id: str,
+        question: str,
+        skills: list[dict[str, str]] | None = None,
+    ):
+        _ = skills
         yield {"type": "token", "token": "OK"}
         yield {
             "type": "specialist_tool_call",
@@ -26,10 +32,61 @@ async def test_stream_specialist_tool_calls_are_persisted(
             ],
         }
         yield {
-            "type": "specialist_tool_result",
+            "type": "specialist_evidence",
             "specialist": "syslog",
             "tool_name": "syslog_specialist",
             "result": {"summary": "flaps found"},
+            "evidence": [
+                {
+                    "type": "syslog",
+                    "ref": "evt-1",
+                    "content": "interface flaps observed",
+                    "score": 0.88,
+                }
+            ],
+        }
+        yield {
+            "type": "run_map",
+            "answer": "OK",
+            "run_map": {
+                "orchestrator": {
+                    "agent_name": "orchestrator",
+                    "status": "completed",
+                    "duration_ms": 50,
+                    "specialists": ["syslog"],
+                    "reasoning": "syslog selected",
+                },
+                "sub_agent_calls": [
+                    {
+                        "specialist_name": "syslog",
+                        "call_sequence": 1,
+                        "task_prompt": "find syslog issues",
+                        "plan": "query log evidence",
+                        "result_summary": "flaps found",
+                        "status": "success",
+                        "duration_ms": 30,
+                        "tool_calls": [
+                            {
+                                "tool_name": "syslog_search",
+                                "input_params": {"target": "core-sw-01"},
+                                "output": {"summary": "flaps found"},
+                                "status": "success",
+                                "error_type": None,
+                                "error_message": None,
+                                "latency_ms": 30,
+                                "evidence": [
+                                    {
+                                        "type": "syslog",
+                                        "ref": "evt-1",
+                                        "content": "interface flaps observed",
+                                        "score": 0.88,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
         }
 
     async def _no_title(
@@ -61,9 +118,13 @@ async def test_stream_specialist_tool_calls_are_persisted(
     assert len(assistant["agent_runs"]) == 1
     run = assistant["agent_runs"][0]
     assert run["status"] == "completed"
-    events = run["events"]
-    assert len(events) == 2
-    assert events[0]["event_type"] == "specialist_tool_call"
-    assert events[1]["event_type"] == "specialist_tool_result"
-    assert events[1]["payload"]["result"] == {"summary": "flaps found"}
-    assert "flaps" in events[0]["payload"]["evidence"][0]["content"]
+    assert len(run["sub_agent_calls"]) == 1
+    assert run["sub_agent_calls"][0]["specialist_name"] == "syslog"
+    assert len(run["child_runs"]) == 1
+    specialist_run = run["child_runs"][0]
+    assert specialist_run["agent_name"] == "syslog"
+    assert len(specialist_run["tool_calls"]) == 1
+    tool_call = specialist_run["tool_calls"][0]
+    assert tool_call["tool_name"] == "syslog_search"
+    assert tool_call["output"]["summary"] == "flaps found"
+    assert "flaps" in tool_call["output"]["evidence"][0]["content"]

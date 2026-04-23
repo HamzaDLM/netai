@@ -2,9 +2,8 @@ from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatch
 from typing import Annotated, Any
 
-from haystack.tools import tool
-
 from app.core.config import project_settings
+from app.tools import netai_tool
 
 try:
     from pyzabbix import ZabbixAPI  # type: ignore
@@ -645,7 +644,7 @@ def build_problems_payload(
     }
 
 
-@tool(name="zabbix.get_hosts")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_hosts")  # type: ignore[operator]
 def get_hosts(
     name: Annotated[str | None, "Optional hostname/display-name filter"] = None,
     group: Annotated[str | None, "Optional host-group filter"] = None,
@@ -730,7 +729,7 @@ def get_hosts(
         return error_payload("get_hosts", exc)
 
 
-@tool(name="zabbix.get_host_details")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_details")  # type: ignore[operator]
 def get_host_details(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
 ) -> dict[str, Any]:
@@ -790,7 +789,7 @@ def get_host_details(
         return error_payload("get_host_details", exc)
 
 
-@tool(name="zabbix.get_host_interfaces")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_interfaces")  # type: ignore[operator]
 def get_host_interfaces(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     only_problematic: Annotated[
@@ -841,7 +840,7 @@ def get_host_interfaces(
         return error_payload("get_host_interfaces", exc)
 
 
-@tool(name="zabbix.get_host_groups")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_groups")  # type: ignore[operator]
 def get_host_groups() -> dict[str, Any]:
     """Return host groups with host counts."""
     try:
@@ -866,7 +865,7 @@ def get_host_groups() -> dict[str, Any]:
         return error_payload("get_host_groups", exc)
 
 
-@tool(name="zabbix.get_hosts_in_group")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_hosts_in_group")  # type: ignore[operator]
 def get_hosts_in_group(
     group: Annotated[str, "Group name (full or partial)"],
     limit: Annotated[int, "Maximum hosts to return"] = DEFAULT_LIMIT,
@@ -904,7 +903,7 @@ def get_hosts_in_group(
         return error_payload("get_hosts_in_group", exc)
 
 
-@tool(name="zabbix.get_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_problems")  # type: ignore[operator]
 def get_problems(
     hostname_or_ip: Annotated[
         str | None,
@@ -946,7 +945,7 @@ def get_problems(
         return error_payload("get_problems", exc)
 
 
-@tool(name="zabbix.get_recent_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_recent_problems")  # type: ignore[operator]
 def get_recent_problems(
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
     min_severity: Annotated[
@@ -973,7 +972,7 @@ def get_recent_problems(
         return error_payload("get_recent_problems", exc)
 
 
-@tool(name="zabbix.get_host_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_problems")  # type: ignore[operator]
 def get_host_problems(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
@@ -1012,7 +1011,7 @@ def get_host_problems(
         return error_payload("get_host_problems", exc)
 
 
-@tool(name="zabbix.get_trigger_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_trigger_problems")  # type: ignore[operator]
 def get_trigger_problems(
     trigger: Annotated[
         str,
@@ -1086,7 +1085,7 @@ def get_trigger_problems(
         return error_payload("get_trigger_problems", exc)
 
 
-@tool(name="zabbix.get_triggers")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_triggers")  # type: ignore[operator]
 def get_triggers(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     min_severity: Annotated[
@@ -1177,7 +1176,7 @@ def get_triggers(
         return error_payload("get_triggers", exc)
 
 
-@tool(name="zabbix.get_trigger_details")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_trigger_details")  # type: ignore[operator]
 def get_trigger_details(
     trigger_id: Annotated[str, "Trigger ID"],
 ) -> dict[str, Any]:
@@ -1246,7 +1245,7 @@ def get_trigger_details(
         return error_payload("get_trigger_details", exc)
 
 
-@tool(name="zabbix.get_latest_metrics_data")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_latest_metrics_data")  # type: ignore[operator]
 def get_latest_metrics_data(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     key_patterns: Annotated[
@@ -1325,7 +1324,7 @@ def get_latest_metrics_data(
         return error_payload("get_latest_metrics_data", exc)
 
 
-@tool(name="zabbix.get_metrics_history")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_metrics_history")  # type: ignore[operator]
 def get_metrics_history(
     item_id: Annotated[str | None, "Optional item ID"] = None,
     item_key: Annotated[str | None, "Optional item key"] = None,
@@ -1459,7 +1458,7 @@ def get_metrics_history(
         return error_payload("get_metrics_history", exc)
 
 
-@tool(name="zabbix.get_host_metrics_summary")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_metrics_summary")  # type: ignore[operator]
 def get_host_metrics_summary(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     key_patterns: Annotated[
@@ -1552,7 +1551,7 @@ def get_host_metrics_summary(
         return error_payload("get_host_metrics_summary", exc)
 
 
-@tool(name="zabbix.get_events")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_events")  # type: ignore[operator]
 def get_events(
     hostname_or_ip: Annotated[
         str | None,
@@ -1657,7 +1656,7 @@ def get_events(
         return error_payload("get_events", exc)
 
 
-@tool(name="zabbix.get_audit_log")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_audit_log")  # type: ignore[operator]
 def get_audit_log(
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
     actor: Annotated[str | None, "Optional actor/username filter"] = None,
@@ -1712,7 +1711,7 @@ def get_audit_log(
         return error_payload("get_audit_log", exc)
 
 
-@tool(name="zabbix.get_host_templates")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_templates")  # type: ignore[operator]
 def get_host_templates(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
 ) -> dict[str, Any]:
@@ -1744,7 +1743,7 @@ def get_host_templates(
         return error_payload("get_host_templates", exc)
 
 
-@tool(name="zabbix.get_maintenance")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_maintenance")  # type: ignore[operator]
 def get_maintenance(
     hostname_or_ip: Annotated[
         str | None,
@@ -1822,7 +1821,7 @@ def get_maintenance(
         return error_payload("get_maintenance", exc)
 
 
-@tool(name="zabbix.get_proxies")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_proxies")  # type: ignore[operator]
 def get_proxies(
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
@@ -1857,7 +1856,7 @@ def get_proxies(
         return error_payload("get_proxies", exc)
 
 
-@tool(name="zabbix.get_zabbix_server_status")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_zabbix_server_status")  # type: ignore[operator]
 def get_zabbix_server_status() -> dict[str, Any]:
     """Return high-level Zabbix API/server status indicators."""
     try:
@@ -1899,7 +1898,7 @@ def get_zabbix_server_status() -> dict[str, Any]:
         return error_payload("get_zabbix_server_status", exc)
 
 
-@tool(name="zabbix.diagnose_host")  # type: ignore[operator]
+@netai_tool(name="zabbix_diagnose_host")  # type: ignore[operator]
 def diagnose_host(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
@@ -2059,7 +2058,7 @@ def diagnose_host(
         return error_payload("diagnose_host", exc)
 
 
-@tool(name="zabbix.get_dashboard_snapshot")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_dashboard_snapshot")  # type: ignore[operator]
 def get_dashboard_snapshot(
     dashboard: Annotated[
         str | None,

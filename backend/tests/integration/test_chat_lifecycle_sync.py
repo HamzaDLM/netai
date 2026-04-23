@@ -9,31 +9,56 @@ import app.api.endpoints.chat as chat_endpoints
 async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     async_client, monkeypatch
 ) -> None:
-    async def _fake_run_agent(*, conversation_id: str, question: str) -> dict:
+    async def _fake_run_agent(
+        *,
+        conversation_id: str,
+        question: str,
+        skills: list[dict[str, str]] | None = None,
+    ) -> dict:
+        _ = skills
         return {
             "answer": f"answer for {conversation_id}: {question}",
-            "events": [
-                {
-                    "type": "specialist_tool_call",
-                    "specialist": "zabbix",
-                    "tool_name": "zabbix.diagnose_host",
-                    "arguments": {"host": "edge-01"},
-                    "evidence": [
-                        {
-                            "type": "zabbix",
-                            "ref": "edge-01",
-                            "content": "host edge-01 is up",
-                            "score": 0.95,
-                        }
-                    ],
+            "events": [],
+            "run_map": {
+                "orchestrator": {
+                    "agent_name": "orchestrator",
+                    "status": "completed",
+                    "duration_ms": 110,
+                    "specialists": ["zabbix"],
+                    "reasoning": "zabbix selected for monitoring data",
                 },
-                {
-                    "type": "specialist_tool_result",
-                    "specialist": "zabbix",
-                    "tool_name": "zabbix.diagnose_host",
-                    "result": {"status": "up"},
-                },
-            ],
+                "sub_agent_calls": [
+                    {
+                        "specialist_name": "zabbix",
+                        "call_sequence": 1,
+                        "task_prompt": "is edge-01 up?",
+                        "plan": "check host health",
+                        "result_summary": "host is up",
+                        "status": "success",
+                        "duration_ms": 64,
+                        "error_message": None,
+                        "tool_calls": [
+                            {
+                                "tool_name": "zabbix_diagnose_host",
+                                "input_params": {"host": "edge-01"},
+                                "output": {"status": "up"},
+                                "status": "success",
+                                "error_type": None,
+                                "error_message": None,
+                                "latency_ms": 64,
+                                "evidence": [
+                                    {
+                                        "type": "zabbix",
+                                        "ref": "edge-01",
+                                        "content": "host edge-01 is up",
+                                        "score": 0.95,
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            },
             "context_metrics": {"used_tokens": 10},
         }
 
@@ -63,9 +88,18 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     assert len(ask_payload["agent_runs"]) == 1
     run = ask_payload["agent_runs"][0]
     assert run["status"] == "completed"
-    assert len(run["events"]) == 2
-    assert run["events"][0]["event_type"] == "specialist_tool_call"
-    assert run["events"][1]["event_type"] == "specialist_tool_result"
+    assert run["agent_type"] == "orchestrator"
+    assert len(run["sub_agent_calls"]) == 1
+    assert run["sub_agent_calls"][0]["specialist_name"] == "zabbix"
+    assert len(run["child_runs"]) == 1
+    child = run["child_runs"][0]
+    assert child["agent_type"] == "specialist"
+    assert child["agent_name"] == "zabbix"
+    assert len(child["tool_calls"]) == 1
+    assert child["tool_calls"][0]["tool_name"] == "zabbix_diagnose_host"
+    assert child["tool_calls"][0]["output"]["evidence"][0]["content"] == (
+        "host edge-01 is up"
+    )
 
     convo_resp = await async_client.get(f"/api/v1/llm/conversation/{conversation_id}")
     assert convo_resp.status_code == 200

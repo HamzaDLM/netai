@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatch
 from typing import Annotated, Any
 
-from haystack.tools import tool
+from app.tools import netai_tool
 
 SEVERITY_ORDER = {
     "not_classified": 0,
@@ -844,7 +844,7 @@ def collect_metrics(
     return rows
 
 
-@tool(name="zabbix.get_hosts")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_hosts")  # type: ignore[operator]
 def get_hosts(
     name: Annotated[str | None, "Optional hostname/display-name filter"] = None,
     group: Annotated[str | None, "Optional host-group filter"] = None,
@@ -903,7 +903,7 @@ def get_hosts(
     }
 
 
-@tool(name="zabbix.get_host_details")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_details")  # type: ignore[operator]
 def get_host_details(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
 ) -> dict[str, Any]:
@@ -923,7 +923,7 @@ def get_host_details(
     }
 
 
-@tool(name="zabbix.get_host_interfaces")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_interfaces")  # type: ignore[operator]
 def get_host_interfaces(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     only_problematic: Annotated[
@@ -951,7 +951,7 @@ def get_host_interfaces(
     }
 
 
-@tool(name="zabbix.get_host_groups")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_groups")  # type: ignore[operator]
 def get_host_groups() -> dict[str, Any]:
     counts: dict[str, int] = {}
     for host in FAKE_HOSTS.values():
@@ -967,7 +967,7 @@ def get_host_groups() -> dict[str, Any]:
     return {"count": len(rows), "groups": rows}
 
 
-@tool(name="zabbix.get_hosts_in_group")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_hosts_in_group")  # type: ignore[operator]
 def get_hosts_in_group(
     group: Annotated[str, "Group name (full or partial)"],
     limit: Annotated[int, "Maximum hosts to return"] = DEFAULT_LIMIT,
@@ -988,7 +988,7 @@ def get_hosts_in_group(
     }
 
 
-@tool(name="zabbix.get_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_problems")  # type: ignore[operator]
 def get_problems(
     hostname_or_ip: Annotated[
         str | None, "Optional hostname/IP to scope problems"
@@ -1030,7 +1030,7 @@ def get_problems(
     }
 
 
-@tool(name="zabbix.get_recent_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_recent_problems")  # type: ignore[operator]
 def get_recent_problems(
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
     min_severity: Annotated[
@@ -1056,7 +1056,7 @@ def get_recent_problems(
     }
 
 
-@tool(name="zabbix.get_host_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_problems")  # type: ignore[operator]
 def get_host_problems(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
@@ -1093,7 +1093,7 @@ def get_host_problems(
     }
 
 
-@tool(name="zabbix.get_trigger_problems")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_trigger_problems")  # type: ignore[operator]
 def get_trigger_problems(
     trigger: Annotated[str, "Trigger ID or text match against trigger description"],
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
@@ -1120,7 +1120,7 @@ def get_trigger_problems(
     }
 
 
-@tool(name="zabbix.get_triggers")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_triggers")  # type: ignore[operator]
 def get_triggers(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     min_severity: Annotated[
@@ -1162,7 +1162,7 @@ def get_triggers(
     }
 
 
-@tool(name="zabbix.get_trigger_details")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_trigger_details")  # type: ignore[operator]
 def get_trigger_details(
     trigger_id: Annotated[str, "Trigger ID"],
 ) -> dict[str, Any]:
@@ -1191,7 +1191,7 @@ def get_trigger_details(
     return {"error": f"trigger_not_found:{trigger_id}"}
 
 
-@tool(name="zabbix.get_latest_metrics_data")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_latest_metrics_data")  # type: ignore[operator]
 def get_latest_metrics_data(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     key_patterns: Annotated[
@@ -1214,7 +1214,7 @@ def get_latest_metrics_data(
     }
 
 
-@tool(name="zabbix.get_metrics_history")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_metrics_history")  # type: ignore[operator]
 def get_metrics_history(
     item_id: Annotated[str | None, "Optional item ID"] = None,
     item_key: Annotated[str | None, "Optional item key"] = None,
@@ -1307,7 +1307,7 @@ def get_metrics_history(
     }
 
 
-@tool(name="zabbix.get_host_metrics_summary")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_metrics_summary")  # type: ignore[operator]
 def get_host_metrics_summary(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     key_patterns: Annotated[
@@ -1355,7 +1355,7 @@ def get_host_metrics_summary(
     }
 
 
-@tool(name="zabbix.get_events")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_events")  # type: ignore[operator]
 def get_events(
     hostname_or_ip: Annotated[
         str | None,
@@ -1408,7 +1408,7 @@ def get_events(
     }
 
 
-@tool(name="zabbix.get_audit_log")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_audit_log")  # type: ignore[operator]
 def get_audit_log(
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
     actor: Annotated[str | None, "Optional actor/username filter"] = None,
@@ -1439,7 +1439,7 @@ def get_audit_log(
     }
 
 
-@tool(name="zabbix.get_host_templates")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_host_templates")  # type: ignore[operator]
 def get_host_templates(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
 ) -> dict[str, Any]:
@@ -1455,7 +1455,7 @@ def get_host_templates(
     }
 
 
-@tool(name="zabbix.get_maintenance")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_maintenance")  # type: ignore[operator]
 def get_maintenance(
     hostname_or_ip: Annotated[
         str | None,
@@ -1502,7 +1502,7 @@ def get_maintenance(
     }
 
 
-@tool(name="zabbix.get_proxies")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_proxies")  # type: ignore[operator]
 def get_proxies(
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
@@ -1525,7 +1525,7 @@ def get_proxies(
     }
 
 
-@tool(name="zabbix.get_zabbix_server_status")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_zabbix_server_status")  # type: ignore[operator]
 def get_zabbix_server_status() -> dict[str, Any]:
     hosts = list(FAKE_HOSTS.values())
     active_problems = len(
@@ -1552,7 +1552,7 @@ def get_zabbix_server_status() -> dict[str, Any]:
     }
 
 
-@tool(name="zabbix.diagnose_host")  # type: ignore[operator]
+@netai_tool(name="zabbix_diagnose_host")  # type: ignore[operator]
 def diagnose_host(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
@@ -1602,7 +1602,7 @@ def diagnose_host(
     }
 
 
-@tool(name="zabbix.get_dashboard_snapshot")  # type: ignore[operator]
+@netai_tool(name="zabbix_get_dashboard_snapshot")  # type: ignore[operator]
 def get_dashboard_snapshot(
     dashboard: Annotated[
         str | None,

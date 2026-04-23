@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from haystack.tools import tool
+from app.tools import netai_tool
 
 _FAKE_DEVICES: list[dict[str, Any]] = [
     {"device": "edge-fw-par-01", "file_path": "configs/edge-fw-par-01.conf"},
@@ -79,7 +79,7 @@ def _match_device(device: str) -> dict[str, Any] | None:
     )
 
 
-@tool(name="bitbucket.device_config_exists")  # type: ignore[operator]
+@netai_tool(name="bitbucket_device_config_exists")  # type: ignore[operator]
 def bitbucket_device_config_exists(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
@@ -95,7 +95,7 @@ def bitbucket_device_config_exists(
     }
 
 
-@tool(name="bitbucket.get_device_file_info")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_device_file_info")  # type: ignore[operator]
 def get_bitbucket_device_file_info(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
@@ -128,7 +128,7 @@ def get_bitbucket_device_file_info(
     }
 
 
-@tool(name="bitbucket.get_recent_device_config_diff")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_recent_device_config_diff")  # type: ignore[operator]
 def get_recent_device_config_diff(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
@@ -176,7 +176,7 @@ def get_recent_device_config_diff(
     }
 
 
-@tool(name="bitbucket.get_device_configuration")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_device_configuration")  # type: ignore[operator]
 def get_bitbucket_device_configuration(
     device: Annotated[str, "Device name (file stem) or exact filename"],
     commit_ref: Annotated[str | None, "Optional commit hash; defaults to HEAD"] = None,
@@ -196,7 +196,7 @@ def get_bitbucket_device_configuration(
     }
 
 
-@tool(name="bitbucket.get_recent_commits")  # type: ignore[operator]
+@netai_tool(name="bitbucket_get_recent_commits")  # type: ignore[operator]
 def get_bitbucket_recent_commits(
     limit: Annotated[int, "Maximum number of recent commits to return"] = 10,
 ) -> dict[str, Any]:

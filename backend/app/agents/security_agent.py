@@ -32,5 +32,4 @@ security_specialist_tool = ComponentTool(
     component=security_agent,
     name="security_specialist",
     description="",
-    outputs_to_string={"source": "last_message"},
 )

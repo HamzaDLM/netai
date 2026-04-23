@@ -47,10 +47,9 @@ bitbucket_agent = Agent(
 
 bitbucket_specialist_tool = ComponentTool(
     component=bitbucket_agent,
-    name="bitbucket_agent",
+    name="bitbucket_specialist",
     description=(
         "Configuration history specialist. Use for repository/device config lookups, "
         "file diffs, commit timelines, and change provenance in Bitbucket."
     ),
-    outputs_to_string={"source": "last_message"},
 )

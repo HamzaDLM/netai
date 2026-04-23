@@ -21,3 +21,8 @@ export function isToday(timestamp: Date): boolean {
 
 	return date.getFullYear() === today.getFullYear() && date.getMonth() === today.getMonth() && date.getDate() === today.getDate()
 }
+
+// Replaces the webpage title with NetAI as prefix
+export function setPageTitle(newTitle: string) {
+	document.title = `NetAI | ${newTitle}`
+}

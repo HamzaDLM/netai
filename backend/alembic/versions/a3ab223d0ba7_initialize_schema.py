@@ -1,8 +1,8 @@
-"""initialize tables
+"""initialize schema
 
-Revision ID: 95778ca7ba37
+Revision ID: a3ab223d0ba7
 Revises:
-Create Date: 2026-04-13 01:25:59.507305
+Create Date: 2026-04-20 02:46:35.203985
 
 """
 
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "95778ca7ba37"
+revision: str = "a3ab223d0ba7"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -33,6 +33,9 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("conversation", schema=None) as batch_op:
         batch_op.create_index(
+            "ix_conversation_user_created", ["user_id", "created_at"], unique=False
+        )
+        batch_op.create_index(
             batch_op.f("ix_conversation_user_id"), ["user_id"], unique=False
         )
 
@@ -50,6 +53,108 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
+        "message",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("conversation_id", sa.String(length=32), nullable=False),
+        sa.Column(
+            "role",
+            sa.Enum("user", "assistant", "system", "tool", name="messagerole"),
+            nullable=False,
+        ),
+        sa.Column("content", sa.Text(), nullable=False),
+        sa.Column("model", sa.String(length=100), nullable=True),
+        sa.Column("token_input", sa.Integer(), nullable=True),
+        sa.Column("token_output", sa.Integer(), nullable=True),
+        sa.Column("archived", sa.Boolean(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["conversation_id"],
+            ["conversation.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("message", schema=None) as batch_op:
+        batch_op.create_index(
+            "ix_message_conversation_created",
+            ["conversation_id", "created_at"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_message_conversation_id"), ["conversation_id"], unique=False
+        )
+
+    op.create_table(
+        "agent_run",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("conversation_id", sa.String(length=32), nullable=False),
+        sa.Column("user_message_id", sa.Integer(), nullable=False),
+        sa.Column("assistant_message_id", sa.Integer(), nullable=True),
+        sa.Column("parent_run_id", sa.Integer(), nullable=True),
+        sa.Column(
+            "agent_type",
+            sa.Enum("orchestrator", "specialist", name="agenttype"),
+            nullable=False,
+        ),
+        sa.Column("agent_name", sa.String(length=100), nullable=False),
+        sa.Column("depth", sa.Integer(), nullable=False),
+        sa.Column(
+            "status",
+            sa.Enum("running", "completed", "failed", name="agentrunstatus"),
+            nullable=False,
+        ),
+        sa.Column("started_at", sa.DateTime(), nullable=False),
+        sa.Column("ended_at", sa.DateTime(), nullable=True),
+        sa.Column("duration_ms", sa.Integer(), nullable=True),
+        sa.Column("final_answer", sa.Text(), nullable=True),
+        sa.Column("context_metrics", sa.JSON(), nullable=True),
+        sa.Column("error", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["assistant_message_id"],
+            ["message.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["conversation_id"],
+            ["conversation.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["parent_run_id"],
+            ["agent_run.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["user_message_id"],
+            ["message.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("agent_run", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_agent_run_assistant_message_id"),
+            ["assistant_message_id"],
+            unique=False,
+        )
+        batch_op.create_index(
+            "ix_agent_run_conversation_depth",
+            ["conversation_id", "depth"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_agent_run_conversation_id"),
+            ["conversation_id"],
+            unique=False,
+        )
+        batch_op.create_index(
+            batch_op.f("ix_agent_run_parent_run_id"), ["parent_run_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_agent_run_user_message_id"),
+            ["user_message_id"],
+            unique=False,
+        )
+
+    op.create_table(
         "conversation_summary",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("conversation_id", sa.String(length=32), nullable=False),
@@ -60,6 +165,10 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["conversation_id"],
             ["conversation.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["up_to_message_id"],
+            ["message.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -76,88 +185,25 @@ def upgrade() -> None:
         )
 
     op.create_table(
-        "message",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("conversation_id", sa.String(length=32), nullable=False),
-        sa.Column(
-            "role",
-            sa.Enum("user", "assistant", "system", name="messagerole"),
-            nullable=False,
-        ),
-        sa.Column("content", sa.Text(), nullable=False),
-        sa.Column("question", sa.Text(), nullable=True),
-        sa.Column("model", sa.String(length=100), nullable=True),
-        sa.Column("token_input", sa.Integer(), nullable=True),
-        sa.Column("token_output", sa.Integer(), nullable=True),
-        sa.Column("archived", sa.Boolean(), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"],
-            ["conversation.id"],
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    with op.batch_alter_table("message", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_message_conversation_id"), ["conversation_id"], unique=False
-        )
-
-    op.create_table(
-        "agent_run",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("conversation_id", sa.String(length=32), nullable=False),
-        sa.Column("user_message_id", sa.Integer(), nullable=False),
-        sa.Column("assistant_message_id", sa.Integer(), nullable=True),
-        sa.Column(
-            "status",
-            sa.Enum("running", "completed", "failed", name="agentrunstatus"),
-            nullable=False,
-        ),
-        sa.Column("final_answer", sa.Text(), nullable=True),
-        sa.Column("context_metrics", sa.JSON(), nullable=True),
-        sa.Column("error", sa.Text(), nullable=True),
-        sa.Column("ended_at", sa.DateTime(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["assistant_message_id"],
-            ["message.id"],
-        ),
-        sa.ForeignKeyConstraint(
-            ["conversation_id"],
-            ["conversation.id"],
-        ),
-        sa.ForeignKeyConstraint(
-            ["user_message_id"],
-            ["message.id"],
-        ),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    with op.batch_alter_table("agent_run", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_agent_run_assistant_message_id"),
-            ["assistant_message_id"],
-            unique=False,
-        )
-        batch_op.create_index(
-            batch_op.f("ix_agent_run_conversation_id"),
-            ["conversation_id"],
-            unique=False,
-        )
-        batch_op.create_index(
-            batch_op.f("ix_agent_run_user_message_id"),
-            ["user_message_id"],
-            unique=False,
-        )
-
-    op.create_table(
         "feedback",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("message_id", sa.Integer(), nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column(
             "rating", sa.Enum("good", "bad", name="feedbackrating"), nullable=False
+        ),
+        sa.Column(
+            "feedback_type",
+            sa.Enum(
+                "wrong_diagnosis",
+                "hallucination",
+                "correct_but_incomplete",
+                "irrelevant_specialist",
+                "wrong_toolcall_use",
+                "other",
+                name="feedbacktype",
+            ),
+            nullable=True,
         ),
         sa.Column("comment", sa.Text(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -177,31 +223,93 @@ def upgrade() -> None:
         )
 
     op.create_table(
-        "agent_event",
+        "sub_agent_call",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("run_id", sa.Integer(), nullable=False),
-        sa.Column("event_sequence", sa.Integer(), nullable=False),
-        sa.Column("event_type", sa.String(length=64), nullable=False),
-        sa.Column("actor_type", sa.String(length=32), nullable=True),
-        sa.Column("actor_name", sa.String(length=64), nullable=True),
-        sa.Column("correlation_id", sa.String(length=100), nullable=True),
-        sa.Column("payload", sa.JSON(), nullable=True),
+        sa.Column("parent_run_id", sa.Integer(), nullable=False),
+        sa.Column("child_run_id", sa.Integer(), nullable=True),
+        sa.Column("specialist_name", sa.String(length=64), nullable=False),
+        sa.Column("call_sequence", sa.Integer(), nullable=False),
+        sa.Column("task_prompt", sa.Text(), nullable=False),
+        sa.Column("result_summary", sa.Text(), nullable=True),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "running",
+                "success",
+                "error",
+                "timeout",
+                "blocked",
+                name="toolcallstatus",
+            ),
+            nullable=False,
+        ),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["child_run_id"],
+            ["agent_run.id"],
+        ),
+        sa.ForeignKeyConstraint(
+            ["parent_run_id"],
+            ["agent_run.id"],
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("sub_agent_call", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_sub_agent_call_child_run_id"), ["child_run_id"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_sub_agent_call_parent_run_id"),
+            ["parent_run_id"],
+            unique=False,
+        )
+
+    op.create_table(
+        "tool_call",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("run_id", sa.Integer(), nullable=False),
+        sa.Column("conversation_id", sa.String(length=32), nullable=False),
+        sa.Column("tool_name", sa.String(length=64), nullable=False),
+        sa.Column("input_params", sa.JSON(), nullable=False),
+        sa.Column("output", sa.JSON(), nullable=True),
+        sa.Column(
+            "status",
+            sa.Enum(
+                "running",
+                "success",
+                "error",
+                "timeout",
+                "blocked",
+                name="toolcallstatus",
+            ),
+            nullable=False,
+        ),
+        sa.Column("error_type", sa.String(length=64), nullable=True),
+        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["conversation_id"],
+            ["conversation.id"],
+        ),
         sa.ForeignKeyConstraint(
             ["run_id"],
             ["agent_run.id"],
         ),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("agent_event", schema=None) as batch_op:
+    with op.batch_alter_table("tool_call", schema=None) as batch_op:
         batch_op.create_index(
-            batch_op.f("ix_agent_event_event_sequence"),
-            ["event_sequence"],
+            batch_op.f("ix_tool_call_conversation_id"),
+            ["conversation_id"],
             unique=False,
         )
         batch_op.create_index(
-            batch_op.f("ix_agent_event_run_id"), ["run_id"], unique=False
+            batch_op.f("ix_tool_call_run_id"), ["run_id"], unique=False
+        )
+        batch_op.create_index(
+            "ix_tool_call_run_tool", ["run_id", "tool_name"], unique=False
         )
 
     # ### end Alembic commands ###
@@ -210,34 +318,44 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     # ### commands auto generated by Alembic - please adjust! ###
-    with op.batch_alter_table("agent_event", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_agent_event_run_id"))
-        batch_op.drop_index(batch_op.f("ix_agent_event_event_sequence"))
+    with op.batch_alter_table("tool_call", schema=None) as batch_op:
+        batch_op.drop_index("ix_tool_call_run_tool")
+        batch_op.drop_index(batch_op.f("ix_tool_call_run_id"))
+        batch_op.drop_index(batch_op.f("ix_tool_call_conversation_id"))
 
-    op.drop_table("agent_event")
+    op.drop_table("tool_call")
+    with op.batch_alter_table("sub_agent_call", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_sub_agent_call_parent_run_id"))
+        batch_op.drop_index(batch_op.f("ix_sub_agent_call_child_run_id"))
+
+    op.drop_table("sub_agent_call")
     with op.batch_alter_table("feedback", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_feedback_user_id"))
         batch_op.drop_index(batch_op.f("ix_feedback_message_id"))
 
     op.drop_table("feedback")
-    with op.batch_alter_table("agent_run", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_agent_run_user_message_id"))
-        batch_op.drop_index(batch_op.f("ix_agent_run_conversation_id"))
-        batch_op.drop_index(batch_op.f("ix_agent_run_assistant_message_id"))
-
-    op.drop_table("agent_run")
-    with op.batch_alter_table("message", schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f("ix_message_conversation_id"))
-
-    op.drop_table("message")
     with op.batch_alter_table("conversation_summary", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_conversation_summary_up_to_message_id"))
         batch_op.drop_index(batch_op.f("ix_conversation_summary_conversation_id"))
 
     op.drop_table("conversation_summary")
+    with op.batch_alter_table("agent_run", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_agent_run_user_message_id"))
+        batch_op.drop_index(batch_op.f("ix_agent_run_parent_run_id"))
+        batch_op.drop_index(batch_op.f("ix_agent_run_conversation_id"))
+        batch_op.drop_index("ix_agent_run_conversation_depth")
+        batch_op.drop_index(batch_op.f("ix_agent_run_assistant_message_id"))
+
+    op.drop_table("agent_run")
+    with op.batch_alter_table("message", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_message_conversation_id"))
+        batch_op.drop_index("ix_message_conversation_created")
+
+    op.drop_table("message")
     op.drop_table("user")
     with op.batch_alter_table("conversation", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_conversation_user_id"))
+        batch_op.drop_index("ix_conversation_user_created")
 
     op.drop_table("conversation")
     # ### end Alembic commands ###

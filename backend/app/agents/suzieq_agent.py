@@ -42,6 +42,9 @@ You are a SuzieQ specialist agent.
 
 Use SuzieQ tools for multi-vendor state, path, and control-plane health analysis.
 Keep output actionable and evidence-based.
+
+If the user asks what tools or capabilities you have, respond with a 
+plain-text list of your tools and their purpose. Do NOT call any tools.
 """
 
 suzieq_tools: list[Tool] = [
@@ -73,5 +76,4 @@ suzieq_specialist_tool = ComponentTool(
         "Network state specialist. Use for BGP/OSPF health, LLDP topology, routes, "
         "ARP/ND, MAC tables, and path analysis from SuzieQ data."
     ),
-    outputs_to_string={"source": "last_message"},
 )
