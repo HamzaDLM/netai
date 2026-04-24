@@ -4,7 +4,7 @@ import { formatDatetime } from '@/lib/utils';
 import router from '@/router';
 import Button from '../ui/button/Button.vue';
 import { useChatStore } from '@/stores/chat.store';
-import { ref } from 'vue';
+import { onBeforeUnmount, ref, watch } from 'vue';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -35,11 +35,14 @@ const chatStore = useChatStore()
 
 const props = defineProps<{
     collapsed?: boolean
+    activeView?: 'chat' | 'skills' | 'connectors'
+    historySearchQuery?: string
 }>()
 
 const emit = defineEmits<{
     (event: 'update:historySearchQuery', value: string): void
     (event: 'toggle'): void
+    (event: 'navigate', value: 'chat' | 'skills' | 'connectors'): void
 }>()
 
 // Rename logic
@@ -88,16 +91,60 @@ async function confirmDelete() {
 
 // Search logic
 
-const historySearchQuery = ref()
+const historySearchQuery = ref(props.historySearchQuery ?? '')
+let historySearchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 
 const onSearchInput = (event: Event) => {
     const target = event.target as HTMLInputElement | null
-    emit('update:historySearchQuery', target?.value ?? '')
+    historySearchQuery.value = target?.value ?? ''
+    if (historySearchDebounceTimer) clearTimeout(historySearchDebounceTimer)
+    historySearchDebounceTimer = setTimeout(() => {
+        emit('update:historySearchQuery', historySearchQuery.value)
+    }, 220)
 }
 
+watch(
+    () => props.historySearchQuery,
+    value => {
+        historySearchQuery.value = value ?? ''
+    }
+)
+
+onBeforeUnmount(() => {
+    if (historySearchDebounceTimer) clearTimeout(historySearchDebounceTimer)
+})
+
 function resetState() {
+    emit('navigate', 'chat')
     chatStore.resetChatState()
     chatStore.loadConversations()
+}
+
+function handleChatClick() {
+    emit('navigate', 'chat')
+    chatStore.createConversation()
+}
+
+function handleSkillsClick() {
+    emit('navigate', 'skills')
+}
+
+function handleConnectorsClick() {
+    emit('navigate', 'connectors')
+}
+
+async function selectConversation(conversationId: string) {
+    emit('navigate', 'chat')
+    await chatStore.selectConversation(conversationId)
+
+    if (!historySearchQuery.value?.trim()) return
+
+    if (historySearchDebounceTimer) {
+        clearTimeout(historySearchDebounceTimer)
+        historySearchDebounceTimer = null
+    }
+    historySearchQuery.value = ''
+    emit('update:historySearchQuery', '')
 }
 </script>
 
@@ -115,9 +162,10 @@ function resetState() {
                             <path fill="currentColor"
                                 d="M5 22v-4q0-.575.3-1.037t.8-.738L11 13.75V12l-3.475 1.725q-.3.15-.625.225t-.65.075q-.775 0-1.463-.4t-1.062-1.15q-.35-.675-.3-1.437T3.9 9.625L7 5L5 2h6q3.325 0 5.663 2.325T19 10v12zm2-2h10V10q0-2.5-1.75-4.25T11 4H8.75l.65 1l-3.825 5.75q-.125.2-.137.413t.087.412q.125.275.338.363t.412.087q.075 0 .375-.075L13 8.75V15l-6 3zm4-8" />
                         </svg>
-                        <span class="text-xl font-semibold text-stone-200" v-if="!props.collapsed">NetAI</span>
+                        <span class="text-xl font-semibold tracking-wide text-stone-200"
+                            v-if="!props.collapsed">NetAI</span>
                     </button>
-                    <Button v-if="props.collapsed" @click="chatStore.createConversation()" variant="outline"
+                    <Button v-if="props.collapsed" @click="handleChatClick()" variant="outline"
                         class="flex w-full gap-2 text-stone-300" size="sm">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                             <path fill="currentColor"
@@ -148,17 +196,46 @@ function resetState() {
             <div v-if="!props.collapsed" class="mt-4">
                 <input :value="historySearchQuery" @input="onSearchInput"
                     class="w-full px-3 py-2 text-sm border rounded-md outline-none bg-black/30 border-stone-900 text-stone-200 placeholder:text-stone-500 focus:border-stone-800"
-                    placeholder="Search history..." type="text" />
+                    placeholder="Search conversations..." type="text" />
             </div>
         </div>
-        <div class="flex justify-center gap-2 mx-4 my-4">
-            <Button @click="chatStore.createConversation()" variant="outline" class="flex w-full gap-2 text-stone-300"
-                size="sm">
+        <div class="flex flex-col gap-2" :class="props.collapsed ? 'mx-auto my-3 flex-col items-center' : 'mx-4 my-4'">
+            <Button @click="handleChatClick" variant="outline" size="sm" :class="[
+                'flex gap-2 text-stone-300',
+                props.collapsed ? 'h-10 w-10 justify-center px-0' : 'w-full']"
+                :aria-label="props.collapsed ? 'Chat' : undefined" :title="props.collapsed ? 'Chat' : undefined">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z" />
                 </svg>
-                Chat
+                <span v-if="!props.collapsed">Chat</span>
             </Button>
+            <div class="flex gap-2">
+                <Button @click="handleConnectorsClick" variant="outline" size="sm" :class="[
+                    'flex gap-2 text-stone-300 bg-stone-900/40 border-stone-800',
+                    props.collapsed ? 'h-10 w-10 justify-center px-0' : 'w-full',
+                    props.activeView === 'connectors' ? 'border-red-500/40 bg-stone-900/70 text-stone-100' : '',
+                ]" :aria-label="props.collapsed ? 'Connectors' : undefined"
+                    :title="props.collapsed ? 'Connectors' : undefined">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
+                        <path fill="currentColor"
+                            d="M7 19q-.825 0-1.412-.587T5 17v-2H3q-.825 0-1.412-.587T1 13t.588-1.412T3 11h2V9q0-.825.588-1.412T7 7h3V5H9q-.825 0-1.412-.587T7 3t.588-1.412T9 1h6q.825 0 1.413.588T17 3t-.587 1.413T15 5h-1v2h3q.825 0 1.413.588T19 9v2h2q.825 0 1.413.588T23 13t-.587 1.413T21 15h-2v2q0 .825-.587 1.413T17 19zm0-2h10V9H7zm4-10h2V5h-2z" />
+                    </svg>
+                    <span v-if="!props.collapsed">Connectors</span>
+                </Button>
+                <Button @click="handleSkillsClick" variant="outline" size="sm" :class="[
+                    'flex gap-2 text-stone-300 bg-stone-900/40 border-stone-800',
+                    props.collapsed ? 'h-10 w-10 justify-center px-0' : 'w-full',
+                    props.activeView === 'skills' ? 'border-red-500/40 bg-stone-900/70 text-stone-100' : '',
+                ]" :aria-label="props.collapsed ? 'Skills' : undefined"
+                    :title="props.collapsed ? 'Skills' : undefined">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4"
+                        viewBox="0 0 24 24"><!-- Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE -->
+                        <path fill="currentColor"
+                            d="M5 20q-1.25 0-2.125-.875T2 17v-5h14.025q.125-.85.675-1.487t1.35-.913l4.625-1.55l.625 1.9l-4.625 1.55q-.3.1-.488.363T18 12.45V17q0 1.25-.875 2.125T15 20zm-.575-10q.35-.9.113-1.6T3.725 7Q2.9 6 2.637 5.112T2.55 3H4.5q-.2.95-.062 1.55t.712 1.3Q6.1 7 6.363 7.888T6.375 10zm4 0q.35-.9.125-1.6T7.75 7q-.825-1-1.1-1.888T6.55 3H8.5q-.2.95-.062 1.55t.712 1.3Q10.1 7 10.363 7.888T10.375 10zm4 0q.35-.9.125-1.6t-.8-1.4q-.825-1-1.1-1.888T10.55 3h1.95q-.2.95-.062 1.55t.712 1.3Q14.1 7 14.363 7.888T14.375 10z" />
+                    </svg>
+                    <span v-if="!props.collapsed">Skills</span>
+                </Button>
+            </div>
             <!-- <Button @click="resetState" variant="outline" class="w-min text-stone-300" size="sm">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="currentColor"
@@ -167,7 +244,7 @@ function resetState() {
             </Button> -->
         </div>
         <div v-if="!props.collapsed" class="flex-1 min-h-0 pr-1 space-y-2 overflow-y-auto text-sm">
-            <div v-for="conversation in chatStore.conversations" @click="chatStore.selectConversation(conversation.id)"
+            <div v-for="conversation in chatStore.conversations" @click="selectConversation(conversation.id)"
                 class="flex flex-col gap-2 px-4 py-2 border-l-4 border-dotted cursor-pointer"
                 :class="conversation.id == chatStore.selectedConversation?.id ? 'border-red-500/40 opacity-100 bg-stone-900/30' : 'border-transparent opacity-50 hover:opacity-80'">
                 <div class="flex items-center justify-between">

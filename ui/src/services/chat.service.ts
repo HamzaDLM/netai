@@ -1,6 +1,6 @@
 import { AxiosResponse } from 'axios'
 import API from './axios'
-import { ContextMetrics, Conversation, ConversationMessages, Message } from '@/types/chat.type'
+import { ChatAttachment, ContextMetrics, Conversation, ConversationMessages, Message } from '@/types/chat.type'
 
 export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
@@ -36,8 +36,11 @@ export type StreamHandlers = {
 
 class ChatService {
 	// Conversations
-	getConversations(): Promise<AxiosResponse<Conversation[]>> {
-		return API.get(`/llm/conversations`)
+	getConversations(search?: string): Promise<AxiosResponse<Conversation[]>> {
+		const normalizedSearch = search?.trim() ?? ''
+		return API.get(`/llm/conversations`, {
+			params: normalizedSearch ? { search: normalizedSearch } : undefined,
+		})
 	}
 	getConversation(conversation_id: string): Promise<AxiosResponse<ConversationMessages>> {
 		return API.get(`/llm/conversation/${conversation_id}`)
@@ -54,6 +57,21 @@ class ChatService {
 	// Chatting
 	askLLM(conversation_id: string, params: { content: string }): Promise<AxiosResponse<Message>> {
 		return API.post(`/llm/conversation/${conversation_id}/message`, params)
+	}
+
+	listAttachments(conversation_id: string): Promise<AxiosResponse<ChatAttachment[]>> {
+		return API.get(`/llm/conversation/${conversation_id}/attachments`)
+	}
+
+	createAttachment(
+		conversation_id: string,
+		params: { filename: string; content: string; content_type?: string | null },
+	): Promise<AxiosResponse<ChatAttachment>> {
+		return API.post(`/llm/conversation/${conversation_id}/attachments`, params)
+	}
+
+	deleteAttachment(conversation_id: string, attachment_id: number): Promise<AxiosResponse<ChatAttachment>> {
+		return API.delete(`/llm/conversation/${conversation_id}/attachments/${attachment_id}`)
 	}
 
 	async askLLMStream(conversation_id: string, params: { content: string }, handlers: StreamHandlers = {}): Promise<void> {

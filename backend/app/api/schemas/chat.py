@@ -20,6 +20,12 @@ class MessageCreate(BaseModel):
     content: str
 
 
+class ConversationAttachmentCreate(BaseModel):
+    filename: str
+    content: str
+    content_type: str | None = None
+
+
 class FeedbackCreate(BaseModel):
     rating: FeedbackRating
     feedback_type: FeedbackType | None = None
@@ -117,6 +123,19 @@ class MessageResponse(ORMBaseModel):
 
 class ConversationCreate(BaseModel):
     title: str
+
+
+class ConversationAttachmentResponse(ORMBaseModel):
+    id: int
+    conversation_id: str
+    filename: str
+    content_type: str | None
+    size_bytes: int
+    estimated_tokens: int
+    truncated: bool
+    active: bool
+    created_at: datetime
+    updated_at: datetime
 
 
 class ConversationResponse(ORMBaseModel):

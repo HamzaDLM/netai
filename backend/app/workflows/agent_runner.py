@@ -1,5 +1,8 @@
 import asyncio
+import json
 from contextvars import ContextVar
+from dataclasses import asdict, is_dataclass
+from enum import Enum
 from time import perf_counter
 from typing import Any, AsyncIterator
 
@@ -7,6 +10,10 @@ from haystack.dataclasses import ChatMessage
 
 from app.agents.orchestrator_agent import SPECIALIST_DESCRIPTIONS, orchestrator_agent
 from app.prompts import FORMATTING_PROMPT
+from app.services.chat_attachments import (
+    load_active_attachments_for_prompt,
+    render_attachment_reference_text,
+)
 from app.workflows.context_manager import build_conversation_context
 from app.workflows.utils import AgentTraceExtractor
 
@@ -19,6 +26,12 @@ _STREAM_LOOP: ContextVar[asyncio.AbstractEventLoop | None] = ContextVar(
 )
 
 SkillInstruction = dict[str, str]
+
+
+def _estimate_text_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
 
 
 def _serialized_streaming_callback(chunk: Any) -> None:
@@ -94,6 +107,154 @@ def _with_runtime_skill_prompts(
     return [*messages, ChatMessage.from_system(skills_prompt)]
 
 
+def _with_runtime_attachment_context(
+    messages: list[Any],
+    *,
+    question: str,
+    attachment_reference_text: str,
+) -> list[Any]:
+    if not attachment_reference_text.strip():
+        return messages
+
+    out = list(messages)
+    latest_question = (
+        out.pop()
+        if out and getattr(out[-1], "text", None) == question
+        else ChatMessage.from_user(question)
+    )
+    out.append(ChatMessage.from_user(attachment_reference_text))
+    out.append(latest_question)
+    return out
+
+
+def _estimate_runtime_tokens(messages: list[Any]) -> int:
+    text = "\n".join(getattr(message, "text", "") or "" for message in messages)
+    return _estimate_text_tokens(text)
+
+
+def _normalize_message_role(message: Any) -> str:
+    role = getattr(message, "role", None)
+    if isinstance(role, Enum):
+        role = role.value
+    return str(role or "").strip().lower()
+
+
+def _serialize_tool_metadata_value(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, Enum):
+        return str(value.value)
+    if isinstance(value, (str, int, float, bool)):
+        return str(value)
+    if is_dataclass(value) and not isinstance(value, type):
+        value = asdict(value)
+    elif hasattr(value, "model_dump"):
+        value = value.model_dump()
+    elif hasattr(value, "dict"):
+        value = value.dict()
+    elif hasattr(value, "to_dict"):
+        value = value.to_dict()
+
+    if isinstance(value, (dict, list, tuple)):
+        try:
+            return json.dumps(value, sort_keys=True, ensure_ascii=False)
+        except TypeError:
+            return ""
+    return ""
+
+
+def _tool_context_text() -> str:
+    lines: list[str] = []
+
+    for tool in getattr(orchestrator_agent, "tools", []) or []:
+        tool_lines: list[str] = []
+        for attr in (
+            "name",
+            "description",
+            "parameters",
+            "inputs",
+            "input_schema",
+            "parameters_schema",
+            "tool_spec",
+        ):
+            raw_value = getattr(tool, attr, None)
+            value = _serialize_tool_metadata_value(raw_value)
+            if value:
+                tool_lines.append(f"{attr}: {value}")
+        if tool_lines:
+            lines.append("\n".join(tool_lines))
+
+    return "\n\n".join(lines).strip()
+
+
+def _runtime_context_breakdown(
+    messages: list[Any], *, attachment_reference_text: str = ""
+) -> dict[str, dict[str, int]]:
+    system_tokens = _estimate_text_tokens(
+        getattr(orchestrator_agent, "system_prompt", "") or ""
+    )
+    user_tokens = 0
+    assistant_tokens = 0
+    document_tokens = 0
+    tool_tokens = _estimate_text_tokens(_tool_context_text())
+
+    for message in messages:
+        text = getattr(message, "text", "") or ""
+        tokens = _estimate_text_tokens(text)
+        if tokens <= 0:
+            continue
+
+        if attachment_reference_text and text == attachment_reference_text:
+            document_tokens += tokens
+            continue
+
+        role = _normalize_message_role(message)
+        if role == "system":
+            system_tokens += tokens
+            continue
+        if role == "assistant":
+            assistant_tokens += tokens
+            continue
+        user_tokens += tokens
+
+    return {
+        "system": {"tokens": system_tokens},
+        "user": {"tokens": user_tokens},
+        "assistant": {"tokens": assistant_tokens},
+        "tools": {"tokens": tool_tokens},
+        "documents": {"tokens": document_tokens},
+    }
+
+
+def _runtime_context_metrics(
+    context: Any, messages: list[Any], *, attachment_reference_text: str = ""
+) -> dict[str, int | bool | None | dict[str, dict[str, int]]]:
+    breakdown = _runtime_context_breakdown(
+        messages, attachment_reference_text=attachment_reference_text
+    )
+    estimated_tokens = sum(item["tokens"] for item in breakdown.values())
+    context_window = getattr(context, "context_window", 0) or 0
+    used_percent = (
+        int(round((estimated_tokens / context_window) * 100))
+        if context_window > 0
+        else 0
+    )
+    used_percent = max(0, min(100, used_percent))
+    left_tokens = max(context_window - estimated_tokens, 0)
+    left_percent = max(0, min(100, 100 - used_percent))
+
+    return {
+        "context_window": context_window,
+        "used_tokens": estimated_tokens,
+        "used_percent": used_percent,
+        "left_tokens": left_tokens,
+        "left_percent": left_percent,
+        "compacted": bool(getattr(context, "compacted", False)),
+        "summary_id": getattr(context, "used_summary_id", None),
+        "breakdown": breakdown,
+    }
+
+
 def _tokenize(text: str) -> list[str]:
     if not text:
         return []
@@ -115,10 +276,25 @@ async def run_agent(
     question: str,
     skills: list[SkillInstruction] | None = None,
 ) -> dict:
-    _ = question
     context = await build_conversation_context(conversation_id=conversation_id)
+    attachments = await load_active_attachments_for_prompt(
+        conversation_id=conversation_id
+    )
+    attachment_reference_text = render_attachment_reference_text(attachments)
     messages = _with_runtime_formatting_prompt(
-        _with_runtime_skill_prompts(context.messages, skills)
+        _with_runtime_skill_prompts(
+            _with_runtime_attachment_context(
+                context.messages,
+                question=question,
+                attachment_reference_text=attachment_reference_text,
+            ),
+            skills,
+        )
+    )
+    runtime_metrics = _runtime_context_metrics(
+        context,
+        messages,
+        attachment_reference_text=attachment_reference_text,
     )
 
     start = perf_counter()
@@ -132,7 +308,7 @@ async def run_agent(
         "answer": answer,
         "events": events,
         "run_map": run_map,
-        "context_metrics": context.metrics(),
+        "context_metrics": runtime_metrics,
     }
 
 
@@ -142,12 +318,29 @@ async def run_agent_stream(
     question: str,
     skills: list[SkillInstruction] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
-    _ = question
     context = await build_conversation_context(conversation_id=conversation_id)
-    messages = _with_runtime_formatting_prompt(
-        _with_runtime_skill_prompts(context.messages, skills)
+    attachments = await load_active_attachments_for_prompt(
+        conversation_id=conversation_id
     )
-    yield {"type": "context_metrics", **context.metrics()}
+    attachment_reference_text = render_attachment_reference_text(attachments)
+    messages = _with_runtime_formatting_prompt(
+        _with_runtime_skill_prompts(
+            _with_runtime_attachment_context(
+                context.messages,
+                question=question,
+                attachment_reference_text=attachment_reference_text,
+            ),
+            skills,
+        )
+    )
+    yield {
+        "type": "context_metrics",
+        **_runtime_context_metrics(
+            context,
+            messages,
+            attachment_reference_text=attachment_reference_text,
+        ),
+    }
 
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
@@ -184,7 +377,9 @@ async def run_agent_stream(
     latency_ms = int((perf_counter() - start) * 1000)
     answer = _TRACE_EXTRACTOR.extract_answer(result)
     run_map = _TRACE_EXTRACTOR.build_run_map(result=result, total_latency_ms=latency_ms)
+
     print("FINAL ANSWER RUN MAP:", run_map)
+
     if not streamed_any_token:
         for token in _tokenize(answer):
             yield {"type": "token", "token": token}

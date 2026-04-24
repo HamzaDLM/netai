@@ -15,7 +15,7 @@ function escapeHtml(value: string): string {
 export async function initHighlighter(): Promise<void> {
 	highlighter = await createHighlighter({
 		themes: CODE_HIGHLIGHTER_OPTIONS,
-		langs: ['bash', 'json', 'log', 'python', 'yaml', 'ts', 'js', 'rust'],
+		langs: ['bash', 'json', 'log', 'python', 'yaml', 'ts', 'js', 'rust', 'c++', 'vue'],
 	})
 }
 

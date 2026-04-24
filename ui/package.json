@@ -67,11 +67,19 @@
 	"prettier": {
 		"semi": false,
 		"singleQuote": true,
-		"printWidth": 180,
+		"printWidth": 300,
 		"trailingComma": "es5",
 		"bracketSpacing": true,
 		"arrowParens": "avoid",
 		"vueIndentScriptAndStyle": true,
-		"useTabs": true
+		"useTabs": true,
+		"overrides": [
+			{
+				"files": "**/*.vue",
+				"options": {
+					"printWidth": 400
+				}
+			}
+		]
 	}
 }

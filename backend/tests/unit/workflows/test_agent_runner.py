@@ -15,6 +15,28 @@ def test_with_runtime_formatting_prompt_appends_system_message(monkeypatch) -> N
     assert "format-rules" in (getattr(out[1], "text", None) or str(out[1]))
 
 
+def test_with_runtime_attachment_context_inserts_reference_before_latest_question() -> (
+    None
+):
+    base = [
+        SimpleNamespace(text="Earlier context"),
+        SimpleNamespace(text="What changed?"),
+    ]
+
+    out = agent_runner._with_runtime_attachment_context(
+        base,
+        question="What changed?",
+        attachment_reference_text="Attached reference documents",
+    )
+
+    assert len(out) == 3
+    assert out[0] is base[0]
+    assert "Attached reference documents" in (
+        getattr(out[1], "text", None) or str(out[1])
+    )
+    assert (getattr(out[2], "text", None) or str(out[2])) == "What changed?"
+
+
 def test_tokenize_preserves_whitespace_boundaries() -> None:
     tokens = agent_runner._tokenize("a b")
     assert tokens == ["a ", "b"]
@@ -47,6 +69,52 @@ def test_serialized_streaming_callback_pushes_tokens_to_queue() -> None:
         agent_runner._STREAM_LOOP.reset(loop_token)
 
     assert queue.items == [{"type": "token", "token": "hello "}]
+
+
+def test_runtime_context_metrics_breaks_out_documents_and_tools(monkeypatch) -> None:
+    monkeypatch.setattr(
+        agent_runner.orchestrator_agent,
+        "system_prompt",
+        "system prompt rules",
+    )
+    monkeypatch.setattr(
+        agent_runner,
+        "_tool_context_text",
+        lambda: "tool interface payload",
+    )
+    context = SimpleNamespace(context_window=200, compacted=False, used_summary_id=None)
+    attachment_reference_text = "Attached reference documents"
+    messages = [
+        SimpleNamespace(role="system", text="runtime formatting"),
+        SimpleNamespace(role="user", text="How many BGP neighbors are down?"),
+        SimpleNamespace(role="assistant", text="I found two neighbors down."),
+        SimpleNamespace(role="user", text=attachment_reference_text),
+    ]
+
+    metrics = agent_runner._runtime_context_metrics(
+        context,
+        messages,
+        attachment_reference_text=attachment_reference_text,
+    )
+
+    breakdown = metrics["breakdown"]
+    assert isinstance(breakdown, dict)
+    assert breakdown["documents"]["tokens"] == agent_runner._estimate_text_tokens(
+        attachment_reference_text
+    )
+    assert breakdown["tools"]["tokens"] == agent_runner._estimate_text_tokens(
+        "tool interface payload"
+    )
+    assert breakdown["system"]["tokens"] == agent_runner._estimate_text_tokens(
+        "system prompt rules"
+    ) + agent_runner._estimate_text_tokens("runtime formatting")
+    assert breakdown["user"]["tokens"] == agent_runner._estimate_text_tokens(
+        "How many BGP neighbors are down?"
+    )
+    assert breakdown["assistant"]["tokens"] == agent_runner._estimate_text_tokens(
+        "I found two neighbors down."
+    )
+    assert metrics["used_tokens"] == sum(item["tokens"] for item in breakdown.values())
 
 
 def test_extract_tool_calls_from_messages_includes_result_payload() -> None:

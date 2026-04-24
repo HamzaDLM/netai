@@ -69,6 +69,10 @@ class Conversation(Base):
         back_populates="conversation",
         cascade="all, delete-orphan",
     )
+    attachments: Mapped[list["ConversationAttachment"]] = relationship(
+        back_populates="conversation",
+        cascade="all, delete-orphan",
+    )
 
 
 class ConversationSummary(Base):
@@ -84,6 +88,33 @@ class ConversationSummary(Base):
     )
     conversation: Mapped["Conversation"] = relationship(back_populates="summaries")
     up_to_message: Mapped["Message"] = relationship(foreign_keys=[up_to_message_id])
+
+
+class ConversationAttachment(Base):
+    __table_args__ = (
+        Index(
+            "ix_conversation_attachment_conversation_active_created",
+            "conversation_id",
+            "active",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    conversation_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("conversation.id"), index=True, nullable=False
+    )
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str | None] = mapped_column(String(120))
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    estimated_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    conversation: Mapped["Conversation"] = relationship(back_populates="attachments")
 
 
 class MessageRole(str, enum.Enum):

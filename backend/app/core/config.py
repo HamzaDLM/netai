@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     GEMINI_OUTPUT_COST_PER_1M_TOKENS: float = 0.0
 
     LLM_CONTEXT_WINDOW: int = 100_000
+    CHAT_ATTACHMENT_MAX_COUNT: int = 5
+    CHAT_ATTACHMENT_MAX_BYTES: int = 262_144
+    CHAT_ATTACHMENT_MAX_CHARS: int = 20_000
+    CHAT_ATTACHMENT_MAX_TOTAL_CHARS: int = 40_000
 
     @computed_field  # type: ignore[misc]
     @property

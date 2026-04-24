@@ -2,6 +2,7 @@ export interface Skill {
 	id: number
 	user_id: number
 	name: string
+	description: string
 	instructions: string
 	enabled: boolean
 	archived: boolean
@@ -11,12 +12,14 @@ export interface Skill {
 
 export interface SkillCreatePayload {
 	name: string
+	description: string
 	instructions: string
 	enabled?: boolean
 }
 
 export interface SkillUpdatePayload {
 	name?: string
+	description?: string
 	instructions?: string
 	enabled?: boolean
 }

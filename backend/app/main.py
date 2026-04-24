@@ -9,6 +9,8 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import project_settings
+from app.db.init_db import init_db
+from app.db.session import close_engine
 from app.observability import langfuse_client
 from app.utils import warmup_caches
 
@@ -18,10 +20,20 @@ def custom_generate_unique_id(route: APIRoute) -> str:
     return f"{primary_tag}-{route.name}"
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await init_db()
+    warmup_caches()
+    yield
+    langfuse_client.shutdown()
+    await close_engine()
+
+
 app = FastAPI(
     title=project_settings.PROJECT_NAME,
     openapi_url=f"{project_settings.API_V1_STR}/openapi.json",
     generate_unique_id_function=custom_generate_unique_id,
+    lifespan=lifespan,
 )
 
 if project_settings.all_cors_origins:
@@ -34,13 +46,6 @@ if project_settings.all_cors_origins:
     )
 
 app.include_router(api_router, prefix=project_settings.API_V1_STR)
-
-
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    warmup_caches()
-    yield
-    langfuse_client.shutdown()
 
 
 @app.get("/metrics", include_in_schema=False)

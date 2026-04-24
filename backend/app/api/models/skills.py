@@ -18,6 +18,7 @@ class Skill(Base):
         nullable=False,
     )
     name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(String(240), nullable=False, default="")
     instructions: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from haystack.dataclasses import ChatMessage
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import AsyncSessionDep, CheckUserSSODep
@@ -15,6 +15,7 @@ from app.api.models.chat import (
     AgentRunStatus,
     AgentType,
     Conversation,
+    ConversationAttachment,
     Feedback,
     Message,
     MessageRole,
@@ -24,6 +25,8 @@ from app.api.models.chat import (
 )
 from app.api.models.skills import Skill
 from app.api.schemas.chat import (
+    ConversationAttachmentCreate,
+    ConversationAttachmentResponse,
     ConversationCreate,
     ConversationMessagesResponse,
     ConversationResponse,
@@ -31,10 +34,17 @@ from app.api.schemas.chat import (
     MessageCreate,
     MessageResponse,
 )
+from app.core.config import project_settings
 from app.db.session import SessionLocal
 from app.llm import llm
 from app.observability import langfuse_client
 from app.prompts import TITLE_GENERATION_PROMPT
+from app.services.chat_attachments import (
+    get_active_attachment_count,
+    get_active_attachment_total_chars,
+    list_active_attachments,
+    parse_attachment_payload,
+)
 from app.workflows.agent_runner import run_agent, run_agent_stream
 
 router = APIRouter(prefix="/llm", tags=["chat"])
@@ -339,6 +349,24 @@ async def _generate_title_if_missing(
             trace.end(output={"error": str(exc)})
 
 
+async def _get_active_attachment(
+    *,
+    db: AsyncSessionDep,
+    conversation_id: str,
+    attachment_id: int,
+) -> ConversationAttachment:
+    stmt = select(ConversationAttachment).where(
+        ConversationAttachment.id == attachment_id,
+        ConversationAttachment.conversation_id == conversation_id,
+        ConversationAttachment.active.is_(True),
+    )
+    result = await db.execute(stmt)
+    attachment = result.scalar_one_or_none()
+    if not attachment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return attachment
+
+
 @router.post("/conversation", response_model=ConversationResponse)
 async def create_conversation(
     payload: ConversationCreate,
@@ -353,12 +381,38 @@ async def create_conversation(
 
 
 @router.get("/conversations", response_model=list[ConversationResponse])
-async def list_conversations(db: AsyncSessionDep):
+async def list_conversations(
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+    search: str | None = None,
+):
+    normalized_search = (search or "").strip()
     stmt = (
         select(Conversation)
-        .where(Conversation.archived.is_(False))
+        .where(
+            Conversation.archived.is_(False),
+            Conversation.user_id == user.id,
+        )
         .order_by(Conversation.updated_at.desc())
     )
+    if normalized_search:
+        pattern = f"%{normalized_search}%"
+        user_message_match = (
+            select(Message.id)
+            .where(
+                Message.conversation_id == Conversation.id,
+                Message.archived.is_(False),
+                Message.role == MessageRole.user,
+                Message.content.ilike(pattern),
+            )
+            .exists()
+        )
+        stmt = stmt.where(
+            or_(
+                Conversation.title.ilike(pattern),
+                user_message_match,
+            )
+        )
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -395,6 +449,103 @@ async def get_conversation(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return conversation
+
+
+@router.get(
+    "/conversation/{conversation_id}/attachments",
+    response_model=list[ConversationAttachmentResponse],
+)
+async def list_conversation_attachments(
+    conversation_id: str,
+    db: AsyncSessionDep,
+):
+    await _get_active_conversation(db, conversation_id)
+    return await list_active_attachments(db, conversation_id=conversation_id)
+
+
+@router.post(
+    "/conversation/{conversation_id}/attachments",
+    response_model=ConversationAttachmentResponse,
+)
+async def create_conversation_attachment(
+    conversation_id: str,
+    payload: ConversationAttachmentCreate,
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+):
+    _ = user
+    await _get_active_conversation(db, conversation_id)
+
+    try:
+        parsed = parse_attachment_payload(
+            filename=payload.filename,
+            content=payload.content,
+            content_type=payload.content_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    attachment_count = await get_active_attachment_count(
+        db, conversation_id=conversation_id
+    )
+    if attachment_count >= project_settings.CHAT_ATTACHMENT_MAX_COUNT:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="attachment_limit_reached",
+        )
+
+    total_chars = await get_active_attachment_total_chars(
+        db, conversation_id=conversation_id
+    )
+    if (
+        total_chars + len(parsed.content_text)
+        > project_settings.CHAT_ATTACHMENT_MAX_TOTAL_CHARS
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="attachment_total_size_exceeded",
+        )
+
+    attachment = ConversationAttachment(
+        conversation_id=conversation_id,
+        filename=parsed.filename,
+        content_type=parsed.content_type,
+        size_bytes=parsed.size_bytes,
+        estimated_tokens=parsed.estimated_tokens,
+        truncated=parsed.truncated,
+        active=True,
+        content_sha256=parsed.content_sha256,
+        content_text=parsed.content_text,
+    )
+    db.add(attachment)
+    await db.commit()
+    await db.refresh(attachment)
+    return attachment
+
+
+@router.delete(
+    "/conversation/{conversation_id}/attachments/{attachment_id}",
+    response_model=ConversationAttachmentResponse,
+)
+async def delete_conversation_attachment(
+    conversation_id: str,
+    attachment_id: int,
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+):
+    _ = user
+    attachment = await _get_active_attachment(
+        db=db,
+        conversation_id=conversation_id,
+        attachment_id=attachment_id,
+    )
+    attachment.active = False
+    await db.commit()
+    await db.refresh(attachment)
+    return attachment
 
 
 @router.post("/conversation/{conversation_id}/message", response_model=MessageResponse)

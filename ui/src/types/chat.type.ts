@@ -42,6 +42,18 @@ export interface AgentRun {
 	events: AgentEvent[]
 }
 
+export interface ContextBreakdownBucket {
+	tokens: number
+}
+
+export interface ContextBreakdown {
+	system: ContextBreakdownBucket
+	user: ContextBreakdownBucket
+	assistant: ContextBreakdownBucket
+	tools: ContextBreakdownBucket
+	documents: ContextBreakdownBucket
+}
+
 export interface ContextMetrics {
 	context_window: number
 	used_tokens: number
@@ -50,6 +62,7 @@ export interface ContextMetrics {
 	left_percent: number
 	compacted: boolean
 	summary_id?: number | null
+	breakdown?: ContextBreakdown
 }
 
 export type MessageRole = 'user' | 'assistant' | 'system'
@@ -78,6 +91,19 @@ export interface Message {
 	created_at: string
 	agent_runs: AgentRun[]
 	feedback: Feedback[]
+}
+
+export interface ChatAttachment {
+	id: number
+	conversation_id: string
+	filename: string
+	content_type?: string | null
+	size_bytes: number
+	estimated_tokens: number
+	truncated: boolean
+	active: boolean
+	created_at: string
+	updated_at: string
 }
 
 export interface Conversation {

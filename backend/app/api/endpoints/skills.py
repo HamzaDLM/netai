@@ -100,6 +100,7 @@ async def create_skill(
     skill = Skill(
         user_id=user.id,
         name=payload.name.strip(),
+        description=payload.description.strip(),
         instructions=payload.instructions.strip(),
         enabled=payload.enabled,
     )
@@ -130,6 +131,9 @@ async def update_skill(
                 detail="skill_name_already_exists",
             )
         skill.name = payload.name.strip()
+
+    if payload.description is not None:
+        skill.description = payload.description.strip()
 
     if payload.instructions is not None:
         skill.instructions = payload.instructions.strip()

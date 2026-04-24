@@ -1,10 +1,20 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { AgentRun, ContextMetrics, Conversation, ConversationMessages, Message, MessageRole } from '@/types/chat.type'
+import type {
+	AgentRun,
+	ChatAttachment,
+	ContextBreakdown,
+	ContextMetrics,
+	Conversation,
+	ConversationMessages,
+	Message,
+	MessageRole,
+} from '@/types/chat.type'
 import chatService from '@/services/chat.service'
 import { toast } from '@/components/ui/toast'
 
 let localIdCounter = 1000
+const supportedAttachmentExtensions = new Set(['conf', 'cfg', 'csv', 'ini', 'json', 'log', 'md', 'txt', 'yaml', 'yml'])
 
 function nextId(): number {
 	localIdCounter += 1
@@ -33,6 +43,33 @@ function normalizeConversationMessages(data: ConversationMessages): Conversation
 	}
 }
 
+function asContextBreakdown(value: unknown): ContextBreakdown | undefined {
+	if (!value || typeof value !== 'object') return undefined
+	const row = value as Record<string, unknown>
+	const readBucket = (key: string) => {
+		const bucket = row[key]
+		if (!bucket || typeof bucket !== 'object') return null
+		const bucketRow = bucket as Record<string, unknown>
+		return typeof bucketRow.tokens === 'number' ? { tokens: bucketRow.tokens } : null
+	}
+
+	const system = readBucket('system')
+	const user = readBucket('user')
+	const assistant = readBucket('assistant')
+	const tools = readBucket('tools')
+	const documents = readBucket('documents')
+
+	if (!system || !user || !assistant || !tools || !documents) return undefined
+
+	return {
+		system,
+		user,
+		assistant,
+		tools,
+		documents,
+	}
+}
+
 function asContextMetrics(value: unknown): ContextMetrics | null {
 	if (!value || typeof value !== 'object') return null
 	const row = value as Record<string, unknown>
@@ -54,6 +91,7 @@ function asContextMetrics(value: unknown): ContextMetrics | null {
 		left_percent: row.left_percent,
 		compacted: row.compacted,
 		summary_id: typeof row.summary_id === 'number' || row.summary_id === null ? row.summary_id : undefined,
+		breakdown: asContextBreakdown(row.breakdown),
 	}
 }
 
@@ -72,12 +110,15 @@ function extractLatestContextMetrics(conversation: ConversationMessages | null):
 export const useChatStore = defineStore('chat', function chatStore() {
 	const conversations = ref<Conversation[]>([])
 	const selectedConversation = ref<ConversationMessages | null>(null)
+	const conversationSearchQuery = ref('')
 	const isLoading = ref(false)
 	const isSyncing = ref(false)
 	const isStreamingResponse = ref(false)
 	const streamingAssistantMessageId = ref<number | null>(null)
 	const errorMessage = ref<string | null>(null)
 	const contextWindow = ref<ContextMetrics | null>(null)
+	const attachments = ref<ChatAttachment[]>([])
+	const isUploadingAttachment = ref(false)
 
 	const hasConversations = computed(function () {
 		return conversations.value.length > 0
@@ -93,18 +134,44 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		}
 	})
 
-	async function loadConversations(): Promise<void> {
+	type LoadConversationsOptions = {
+		searchQuery?: string
+		autoSelectFirst?: boolean
+		createIfEmpty?: boolean
+		preserveSelection?: boolean
+	}
+
+	async function loadConversations(options: LoadConversationsOptions = {}): Promise<void> {
+		const nextSearchQuery = options.searchQuery ?? conversationSearchQuery.value
+		const normalizedSearchQuery = nextSearchQuery.trim()
+		conversationSearchQuery.value = nextSearchQuery
 		isLoading.value = true
 		errorMessage.value = null
 
 		try {
-			const result = await chatService.getConversations()
+			const result = await chatService.getConversations(normalizedSearchQuery)
 			conversations.value = result.data
+			const preserveSelection = options.preserveSelection ?? true
+			const shouldAutoSelectFirst = options.autoSelectFirst ?? normalizedSearchQuery.length === 0
+			const shouldCreateIfEmpty = options.createIfEmpty ?? normalizedSearchQuery.length === 0
+			const selectedConversationId = selectedConversation.value?.id ?? null
+			const hasVisibleSelection =
+				selectedConversationId !== null &&
+				conversations.value.some(conversation => conversation.id === selectedConversationId)
+
+			if (hasVisibleSelection && preserveSelection) {
+				return
+			}
+
 			if (conversations.value.length > 0) {
-				await selectConversation(conversations.value[0].id)
-			} else {
+				if (shouldAutoSelectFirst) {
+					await selectConversation(conversations.value[0].id)
+				}
+			} else if (shouldCreateIfEmpty) {
 				await createConversation()
-				await selectConversation(conversations.value[0].id)
+				if (conversations.value.length > 0) {
+					await selectConversation(conversations.value[0].id)
+				}
 			}
 		} catch (err) {
 			errorMessage.value = 'Failed to load conversations'
@@ -125,6 +192,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			const result = await chatService.getConversation(conversationId)
 			selectedConversation.value = normalizeConversationMessages(result.data)
 			contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
+			await loadAttachments(conversationId)
 		} catch (err) {
 			errorMessage.value = 'Failed to load conversation'
 			toast({ title: errorMessage.value, variant: 'destructive' })
@@ -138,17 +206,29 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			? normalizeConversationMessages(conversation)
 			: null
 		contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
+		if (!conversation) attachments.value = []
 	}
 
 	async function createConversation(): Promise<void> {
 		try {
 			const result = await chatService.createConversation()
-			conversations.value.unshift(result.data)
-			selectConversation(result.data.id)
+			if (!conversationSearchQuery.value.trim()) {
+				conversations.value.unshift(result.data)
+			}
+			await selectConversation(result.data.id)
 		} catch (err) {
 			errorMessage.value = 'Failed to create conversation'
 			toast({ title: errorMessage.value, variant: 'destructive' })
 		}
+	}
+
+	async function setConversationSearchQuery(searchQuery: string): Promise<void> {
+		await loadConversations({
+			searchQuery,
+			autoSelectFirst: false,
+			createIfEmpty: false,
+			preserveSelection: true,
+		})
 	}
 
 	async function renameConversation(conversation_id: string, title: string): Promise<void> {
@@ -171,8 +251,62 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		}
 	}
 
+	async function loadAttachments(conversationId?: string): Promise<void> {
+		const targetConversationId = conversationId ?? selectedConversation.value?.id
+		if (!targetConversationId) {
+			attachments.value = []
+			return
+		}
+
+		try {
+			const result = await chatService.listAttachments(targetConversationId)
+			attachments.value = result.data
+		} catch (err) {
+			attachments.value = []
+			toast({ title: 'Failed to load attachments', variant: 'destructive' })
+		}
+	}
+
+	async function uploadAttachment(file: File): Promise<void> {
+		if (!selectedConversation.value) return
+		const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() ?? '' : ''
+		if (!supportedAttachmentExtensions.has(extension)) {
+			toast({ title: 'Unsupported file type', variant: 'destructive' })
+			return
+		}
+
+		isUploadingAttachment.value = true
+		try {
+			const content = await file.text()
+			const result = await chatService.createAttachment(selectedConversation.value.id, {
+				filename: file.name,
+				content,
+				content_type: file.type || null,
+			})
+			attachments.value = [...attachments.value, result.data]
+			toast({ title: `${file.name} attached` })
+		} catch (err: any) {
+			const detail = err?.response?.data?.detail
+			const title = typeof detail === 'string' && detail.length > 0 ? detail : 'Failed to attach document'
+			toast({ title, variant: 'destructive' })
+		} finally {
+			isUploadingAttachment.value = false
+		}
+	}
+
+	async function deleteAttachment(attachmentId: number): Promise<void> {
+		if (!selectedConversation.value) return
+		try {
+			await chatService.deleteAttachment(selectedConversation.value.id, attachmentId)
+			attachments.value = attachments.value.filter(attachment => attachment.id !== attachmentId)
+		} catch (err) {
+			toast({ title: 'Failed to remove attachment', variant: 'destructive' })
+		}
+	}
+
 	async function askLLM(userQuestion: string): Promise<void> {
 		if (!selectedConversation.value) return
+		if (!userQuestion.trim()) return
 		try {
 			addUserMessage(userQuestion)
 			const assistantDraft = createMessage('assistant', '')
@@ -412,22 +546,27 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	function clearSelectedConversation(): void {
 		selectedConversation.value = null
 		contextWindow.value = null
+		attachments.value = []
 	}
 
 	function resetChatState(): void {
 		conversations.value = []
 		selectedConversation.value = null
+		conversationSearchQuery.value = ''
 		isLoading.value = false
 		isSyncing.value = false
 		isStreamingResponse.value = false
 		streamingAssistantMessageId.value = null
 		errorMessage.value = null
 		contextWindow.value = null
+		attachments.value = []
+		isUploadingAttachment.value = false
 	}
 
 	return {
 		conversations,
 		selectedConversation,
+		conversationSearchQuery,
 		isLoading,
 		isSyncing,
 		isStreamingResponse,
@@ -437,12 +576,18 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		messages,
 		isMessageStreaming,
 		contextWindow,
+		attachments,
+		isUploadingAttachment,
 		loadConversations,
+		setConversationSearchQuery,
 		selectConversation,
 		setSelectedConversation,
 		renameConversation,
 		deleteConversation,
 		createConversation,
+		loadAttachments,
+		uploadAttachment,
+		deleteAttachment,
 		addMessage,
 		addUserMessage,
 		addAssistantMessage,
