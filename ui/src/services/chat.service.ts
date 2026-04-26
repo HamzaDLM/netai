@@ -1,6 +1,6 @@
 import { AxiosResponse } from 'axios'
 import API from './axios'
-import { ChatAttachment, ContextMetrics, Conversation, ConversationMessages, Message } from '@/types/chat.type'
+import { AdminFeedbackItem, ChatAttachment, ContextMetrics, Conversation, ConversationMessages, Message } from '@/types/chat.type'
 
 export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
@@ -44,6 +44,9 @@ class ChatService {
 	}
 	getConversation(conversation_id: string): Promise<AxiosResponse<ConversationMessages>> {
 		return API.get(`/llm/conversation/${conversation_id}`)
+	}
+	getAdminFeedbacks(limit = 100): Promise<AxiosResponse<AdminFeedbackItem[]>> {
+		return API.get(`/llm/admin/feedbacks`, { params: { limit } })
 	}
 	createConversation(): Promise<AxiosResponse<Conversation>> {
 		return API.post(`/llm/conversation`, { title: '' })

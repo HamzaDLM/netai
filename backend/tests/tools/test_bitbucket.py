@@ -4,6 +4,7 @@ from pathlib import Path
 from app.tools.bitbucket_tools import (
     clone_repo,
     get_device_file_info,
+    get_recent_commits_for_host,
     get_recent_commits_with_devices,
     list_device_files,
     sanitize_config_text,
@@ -98,6 +99,24 @@ def test_recent_commits_include_affected_devices(tmp_path: Path) -> None:
     assert commits[0]["message"] == "Tune core BGP and add dist-rtr-nyc-01"
     assert commits[0]["affected_devices"] == ["core-sw-par-01", "dist-rtr-nyc-01"]
     assert commits[1]["affected_devices"] == ["edge-fw-par-01"]
+
+
+def test_recent_commits_for_host_filters_to_host_file(tmp_path: Path) -> None:
+    source_repo = _build_source_repo(tmp_path)
+
+    result = get_recent_commits_for_host(source_repo, "edge-fw-par-01", limit=10)
+
+    assert result["hostname"] == "edge-fw-par-01"
+    assert result["file_path"] == "configs/edge-fw-par-01.conf"
+    assert result["count"] == 2
+    assert [commit["message"] for commit in result["commits"]] == [
+        "Harden SSH on edge-fw-par-01",
+        "Initial device configs",
+    ]
+    assert all(
+        commit["changed_files"] == ["configs/edge-fw-par-01.conf"]
+        for commit in result["commits"]
+    )
 
 
 def test_sanitize_config_text_covers_vendor_styles() -> None:

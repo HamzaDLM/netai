@@ -147,3 +147,17 @@ class ConversationResponse(ORMBaseModel):
 
 class ConversationMessagesResponse(ConversationResponse):
     messages: list[MessageResponse]
+
+
+class AdminFeedbackConversationResponse(ORMBaseModel):
+    id: str
+    title: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminFeedbackItemResponse(BaseModel):
+    feedback: FeedbackResponse
+    conversation: AdminFeedbackConversationResponse
+    user_message: MessageResponse | None
+    assistant_message: MessageResponse

@@ -1,6 +1,6 @@
 # log_ingestor
 
-Rust Kafka consumer that ingests syslogs, normalizes them, stores all events in ClickHouse, and stores unique normalized templates in Qdrant using real embedding vectors.
+Rust Kafka consumer that ingests syslogs, filters known noisy lines, normalizes remaining events, and stores them in ClickHouse.
 
 ## Current Flow
 
@@ -10,21 +10,15 @@ Rust Kafka consumer that ingests syslogs, normalizes them, stores all events in 
    - `syslog_hostname`
    - `syslog_message`
    - optional `vendor`
-3. Run vendor-aware parsing and normalization:
+3. Drop messages containing any configured ignored syslog text.
+4. Run vendor-aware parsing and normalization:
    - detect vendor from explicit `vendor` when present, otherwise heuristics
    - extract metadata where possible (`facility`, `severity`, `event_code`)
    - apply common normalization (`IP`, `MAC`, UUID, numbers, etc.)
    - apply vendor-specific normalization rules
-4. Build a normalized template string.
-5. Write **every event** to ClickHouse table `syslog_events` (raw + normalized + metadata).
-6. Deduplicate templates in-memory using key: `vendor::template`.
-7. For new templates only:
-   - call embedding endpoint (`EMBEDDING_URL`) using OpenAI-compatible request format
-   - validate vector size against `EMBEDDING_DIMENSION`
-   - upsert into Qdrant collection (`QDRANT_COLLECTION`) with payload:
-     - `template`
-     - `vendor`
-     - `dedup_key`
+5. Write remaining events to ClickHouse table `syslog_events` (raw + normalized + metadata).
+
+The ClickHouse `template` and `template_fingerprint` columns are still populated from the normalized message for compatibility, but the ingestion pipeline no longer embeds templates or upserts them into Qdrant.
 
 ## Environment Variables
 
@@ -42,12 +36,13 @@ Rust Kafka consumer that ingests syslogs, normalizes them, stores all events in 
 - `CLICKHOUSE_BATCH_SIZE` (default: `1000`)
 - `CLICKHOUSE_FLUSH_INTERVAL_MS` (default: `1000`)
 - `CLICKHOUSE_INSERT_QUEUE_CAPACITY` (default: `20000`)
+- `IGNORED_SYSLOG_TEXTS` (optional comma/newline-separated substrings; defaults include `vfork couldn't find enough ressources` and `vfork couldn't find enough resources`)
 
-### Qdrant
+### Qdrant (legacy, not used by current ingestion flow)
 - `QDRANT_URL` (default: `http://localhost:6333`)
 - `QDRANT_COLLECTION` (default: `syslogs`)
 
-### Embeddings
+### Embeddings (legacy, not used by current ingestion flow)
 - `EMBEDDING_URL` (default: `http://localhost:8080/openai/embed`)
 - `EMBEDDING_MODEL` (default: `text-embedding-3-small`)
 - `EMBEDDING_API_KEY` (optional)
@@ -74,9 +69,7 @@ Expected lookup API payload formats:
 - `syslog_events` is partitioned by event datetime day (`toDate(toDateTime(ts_unix))`).
 - ClickHouse TTL deletes rows older than `CLICKHOUSE_RETENTION_DAYS`.
 - Event writes to ClickHouse are batched in-memory and flushed by size/time thresholds.
-- If embedding endpoint is unavailable or returns wrong dimension, new template upserts fail for that event.
-- Embedding requests use bounded concurrency, request pacing, and retries for `429`/`5xx` responses.
-- Ingestion still writes raw/normalized event rows to ClickHouse before template vectorization.
+- Template vectorization is currently disabled to avoid high embedding cost on noisy production syslog data.
 - Vendor cache refresh is best-effort. Failed vendor API calls or Redis errors are logged and ingestion continues.
 
 ## Run

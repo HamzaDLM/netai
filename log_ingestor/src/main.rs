@@ -23,8 +23,8 @@ async fn main() -> Result<()> {
     let config = Arc::new(Config::from_env());
     let pipeline = Arc::new(Pipeline::new(config.clone()));
 
-    // Ensure collection exists before consuming
-    pipeline.ensure_collection().await?;
+    // Ensure storage exists before consuming.
+    pipeline.ensure_storage().await?;
     pipeline.refresh_vendor_cache().await;
 
     // Refresh vendor lookup cache periodically; never fail ingestion on warmup issues.

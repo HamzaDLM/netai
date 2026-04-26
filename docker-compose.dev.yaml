@@ -103,6 +103,7 @@ services:
       REDIS_URL: redis://redis:6379/
       VENDOR_LOOKUP_URL: ${VENDOR_LOOKUP_URL:-}
       VENDOR_REFRESH_SECS: ${VENDOR_REFRESH_SECS:-900}
+      IGNORED_SYSLOG_TEXTS: ${IGNORED_SYSLOG_TEXTS:-}
     depends_on:
       clickhouse:
         condition: service_healthy

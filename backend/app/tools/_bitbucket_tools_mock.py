@@ -196,17 +196,30 @@ def get_bitbucket_device_configuration(
     }
 
 
-@netai_tool(name="bitbucket_get_recent_commits")  # type: ignore[operator]
-def get_bitbucket_recent_commits(
+@netai_tool(name="bitbucket_get_recent_commits_for_host")  # type: ignore[operator]
+def get_bitbucket_recent_commits_for_host(
+    hostname: Annotated[str, "Hostname, device name (file stem), or exact filename"],
     limit: Annotated[int, "Maximum number of recent commits to return"] = 10,
 ) -> dict[str, Any]:
-    """Return fake latest commits and affected devices."""
+    """Return fake latest commits that affected one host."""
+    match = _match_device(hostname)
+    if not match:
+        return {
+            "error": "bitbucket_get_recent_commits_for_host_failed:"
+            f"device_not_found:{hostname}"
+        }
+
     safe_limit = max(1, min(int(limit), 50))
-    commits = _FAKE_COMMITS[:safe_limit]
-    devices = sorted({d for commit in commits for d in commit["affected_devices"]})
+    commits = [
+        commit
+        for commit in _FAKE_COMMITS
+        if match["device"] in commit["affected_devices"]
+    ][:safe_limit]
     return {
+        "hostname_query": hostname,
+        "hostname": match["device"],
+        "device": match["device"],
+        "file_path": match["file_path"],
         "count": len(commits),
-        "affected_device_count": len(devices),
-        "affected_devices": devices,
         "commits": commits,
     }

@@ -163,3 +163,59 @@ async def test_submit_feedback_accepts_multiple_feedback_types(
     )
     assert assistant_message is not None
     assert len(assistant_message["feedback"]) == 2
+
+
+@pytest.mark.anyio
+async def test_admin_feedbacks_returns_reviewable_conversation_context(
+    async_client, monkeypatch
+) -> None:
+    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
+    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+
+    included_create_resp = await async_client.post(
+        "/api/v1/llm/conversation", json={"title": "Included feedback"}
+    )
+    assert included_create_resp.status_code == 200
+    included_conversation_id = included_create_resp.json()["id"]
+    included_ask_resp = await async_client.post(
+        f"/api/v1/llm/conversation/{included_conversation_id}/message",
+        json={"content": "why is bgp down"},
+    )
+    assert included_ask_resp.status_code == 200
+    included_assistant_id = included_ask_resp.json()["id"]
+    feedback_resp = await async_client.post(
+        f"/api/v1/llm/messages/{included_assistant_id}/feedback",
+        json={"rating": "bad", "feedback_type": "wrong_diagnosis"},
+    )
+    assert feedback_resp.status_code == 200
+
+    excluded_create_resp = await async_client.post(
+        "/api/v1/llm/conversation", json={"title": "Excluded feedback"}
+    )
+    assert excluded_create_resp.status_code == 200
+    excluded_conversation_id = excluded_create_resp.json()["id"]
+    excluded_ask_resp = await async_client.post(
+        f"/api/v1/llm/conversation/{excluded_conversation_id}/message",
+        json={"content": "healthy check"},
+    )
+    assert excluded_ask_resp.status_code == 200
+    excluded_assistant_id = excluded_ask_resp.json()["id"]
+    excluded_feedback_resp = await async_client.post(
+        f"/api/v1/llm/messages/{excluded_assistant_id}/feedback",
+        json={"rating": "good"},
+    )
+    assert excluded_feedback_resp.status_code == 200
+
+    admin_resp = await async_client.get("/api/v1/llm/admin/feedbacks")
+    assert admin_resp.status_code == 200
+    rows = admin_resp.json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["feedback"]["rating"] == "bad"
+    assert row["feedback"]["feedback_type"] == "wrong_diagnosis"
+    assert row["conversation"]["id"] == included_conversation_id
+    assert row["user_message"]["content"] == "why is bgp down"
+    assert row["assistant_message"]["id"] == included_assistant_id
+    assert row["assistant_message"]["content"].startswith(
+        f"answer for {included_conversation_id}: why is bgp down"
+    )

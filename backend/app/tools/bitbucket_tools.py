@@ -489,6 +489,70 @@ def _get_recent_commits_with_devices(
     return commits
 
 
+def _get_recent_commits_for_host(
+    repo_path: str | Path,
+    hostname: str,
+    *,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Return recent commits that touched the configuration file for one host."""
+    if limit < 1:
+        raise BitbucketToolError("limit_must_be_positive")
+
+    file_path = _resolve_device_file(repo_path, hostname)
+    output = _run_git(
+        [
+            "log",
+            "-n",
+            str(limit),
+            "--date=iso-strict",
+            "--name-only",
+            "--pretty=format:__COMMIT__%n%H%x1f%an%x1f%ae%x1f%ad%x1f%s",
+            "--",
+            file_path,
+        ],
+        repo_path=repo_path,
+    )
+
+    commits: list[dict[str, Any]] = []
+    if output:
+        for block in output.split("__COMMIT__\n"):
+            if not block.strip():
+                continue
+
+            lines = [line for line in block.splitlines() if line.strip()]
+            if not lines:
+                continue
+
+            header = lines[0]
+            changed_files = lines[1:]
+            parts = header.split("\x1f")
+            if len(parts) != 5:
+                continue
+
+            commits.append(
+                {
+                    "hash": parts[0],
+                    "author": parts[1],
+                    "email": parts[2],
+                    "date": parts[3],
+                    "message": parts[4],
+                    "changed_files": changed_files,
+                    "affected_devices": [_device_name_from_path(file_path)],
+                }
+            )
+
+    device = _device_name_from_path(file_path)
+    return {
+        "hostname_query": hostname,
+        "hostname": device,
+        "device": device,
+        "file_path": file_path,
+        "count": len(commits),
+        "commits": commits,
+    }
+
+
 def get_recent_commits_with_devices(
     repo_path: str | Path,
     *,
@@ -496,6 +560,16 @@ def get_recent_commits_with_devices(
 ) -> list[dict[str, Any]]:
     """Helper alias exposed for tests and local programmatic usage."""
     return _get_recent_commits_with_devices(repo_path, limit=limit)
+
+
+def get_recent_commits_for_host(
+    repo_path: str | Path,
+    hostname: str,
+    *,
+    limit: int = 10,
+) -> dict[str, Any]:
+    """Helper alias exposed for tests and local programmatic usage."""
+    return _get_recent_commits_for_host(repo_path, hostname, limit=limit)
 
 
 def list_bitbucket_devices(
@@ -568,24 +642,15 @@ def get_bitbucket_device_configuration(
         return _error("bitbucket_get_device_configuration", exc)
 
 
-@netai_tool(name="bitbucket_get_recent_commits")  # type: ignore[operator]
-def get_bitbucket_recent_commits(
+@netai_tool(name="bitbucket_get_recent_commits_for_host")  # type: ignore[operator]
+def get_bitbucket_recent_commits_for_host(
+    hostname: Annotated[str, "Hostname, device name (file stem), or exact filename"],
     limit: Annotated[int, "Maximum number of recent commits to return"] = 10,
 ) -> dict[str, Any]:
-    """Return latest commits and which device files each commit changed."""
+    """Return recent commits that affected one host's configuration file."""
     try:
-        commits = _get_recent_commits_with_devices(
-            _ensure_bitbucket_repo(), limit=limit
+        return _get_recent_commits_for_host(
+            _ensure_bitbucket_repo(), hostname, limit=limit
         )
     except BitbucketToolError as exc:
-        return _error("bitbucket_get_recent_commits", exc)
-
-    all_devices = sorted(
-        {device for commit in commits for device in commit["affected_devices"]}
-    )
-    return {
-        "count": len(commits),
-        "affected_device_count": len(all_devices),
-        "affected_devices": all_devices,
-        "commits": commits,
-    }
+        return _error("bitbucket_get_recent_commits_for_host", exc)

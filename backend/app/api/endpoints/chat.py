@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from haystack.dataclasses import ChatMessage
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import AsyncSessionDep, CheckUserSSODep
@@ -24,13 +24,17 @@ from app.api.models.chat import (
     ToolCallStatus,
 )
 from app.api.models.skills import Skill
+from app.api.models.users import UserRole
 from app.api.schemas.chat import (
+    AdminFeedbackConversationResponse,
+    AdminFeedbackItemResponse,
     ConversationAttachmentCreate,
     ConversationAttachmentResponse,
     ConversationCreate,
     ConversationMessagesResponse,
     ConversationResponse,
     FeedbackCreate,
+    FeedbackResponse,
     MessageCreate,
     MessageResponse,
 )
@@ -449,6 +453,88 @@ async def get_conversation(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
     return conversation
+
+
+@router.get("/admin/feedbacks", response_model=list[AdminFeedbackItemResponse])
+async def list_admin_feedbacks(
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+    limit: int = 100,
+):
+    if user.role not in {UserRole.admin, UserRole.superuser}:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+
+    bounded_limit = min(max(limit, 1), 250)
+    has_comment = Feedback.comment.is_not(None) & (func.trim(Feedback.comment) != "")
+    stmt = (
+        select(Feedback)
+        .join(Feedback.message)
+        .join(Message.conversation)
+        .where(
+            Message.archived.is_(False),
+            Conversation.archived.is_(False),
+            or_(
+                Feedback.rating == "bad",
+                Feedback.feedback_type.is_not(None),
+                has_comment,
+            ),
+        )
+        .options(
+            selectinload(Feedback.message).selectinload(Message.conversation),
+            selectinload(Feedback.message)
+            .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.user_message),
+            selectinload(Feedback.message)
+            .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.sub_agent_calls),
+            selectinload(Feedback.message)
+            .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.tool_calls),
+            selectinload(Feedback.message)
+            .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.child_runs)
+            .selectinload(AgentRun.tool_calls),
+            selectinload(Feedback.message).selectinload(Message.feedback),
+        )
+        .order_by(Feedback.updated_at.desc())
+        .limit(bounded_limit)
+    )
+    result = await db.execute(stmt)
+    feedback_rows = result.scalars().all()
+
+    items: list[AdminFeedbackItemResponse] = []
+    for feedback in feedback_rows:
+        assistant_message = feedback.message
+        user_message = None
+        for run in assistant_message.agent_runs or []:
+            if run.user_message is not None:
+                user_message = run.user_message
+                break
+        user_message_response = (
+            MessageResponse(
+                id=user_message.id,
+                role=user_message.role,
+                content=user_message.content,
+                agent_runs=[],
+                feedback=[],
+                created_at=user_message.created_at,
+                updated_at=user_message.updated_at,
+            )
+            if user_message is not None
+            else None
+        )
+        items.append(
+            AdminFeedbackItemResponse(
+                feedback=FeedbackResponse.model_validate(feedback),
+                conversation=AdminFeedbackConversationResponse.model_validate(
+                    assistant_message.conversation
+                ),
+                user_message=user_message_response,
+                assistant_message=MessageResponse.model_validate(assistant_message),
+            )
+        )
+
+    return items
 
 
 @router.get(

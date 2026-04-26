@@ -11,7 +11,7 @@ if project_settings.TOOLS_USE_MOCK_DATA:
         bitbucket_device_config_exists,
         get_bitbucket_device_configuration,
         get_bitbucket_device_file_info,
-        get_bitbucket_recent_commits,
+        get_bitbucket_recent_commits_for_host,
         get_recent_device_config_diff,
     )
 else:
@@ -19,7 +19,7 @@ else:
         bitbucket_device_config_exists,
         get_bitbucket_device_configuration,
         get_bitbucket_device_file_info,
-        get_bitbucket_recent_commits,
+        get_bitbucket_recent_commits_for_host,
         get_recent_device_config_diff,
     )
 
@@ -35,7 +35,7 @@ bitbucket_tools: list[Tool] = [
     cast(Tool, get_bitbucket_device_file_info),
     cast(Tool, get_recent_device_config_diff),
     cast(Tool, get_bitbucket_device_configuration),
-    cast(Tool, get_bitbucket_recent_commits),
+    cast(Tool, get_bitbucket_recent_commits_for_host),
 ]
 
 bitbucket_agent = Agent(

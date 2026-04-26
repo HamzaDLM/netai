@@ -12,6 +12,7 @@ pub struct Config {
     pub clickhouse_batch_size: usize,
     pub clickhouse_flush_interval_ms: u64,
     pub clickhouse_insert_queue_capacity: usize,
+    pub ignored_syslog_texts: Vec<String>,
     pub embedding_url: String,
     pub embedding_model: String,
     pub embedding_api_key: Option<String>,
@@ -39,6 +40,8 @@ impl Config {
             get("REDIS_URL").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
         let vendor_lookup_url =
             get("VENDOR_LOOKUP_URL").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
+        let ignored_syslog_texts =
+            parse_ignored_syslog_texts(get("IGNORED_SYSLOG_TEXTS").as_deref());
 
         Self {
             kafka_brokers: get("KAFKA_BROKERS").unwrap_or("localhost:9092".into()),
@@ -62,6 +65,7 @@ impl Config {
             clickhouse_insert_queue_capacity: get("CLICKHOUSE_INSERT_QUEUE_CAPACITY")
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(20000),
+            ignored_syslog_texts,
             embedding_url: get("EMBEDDING_URL")
                 .unwrap_or("http://localhost:8080/openai/embed".into()),
             embedding_model: get("EMBEDDING_MODEL").unwrap_or("text-embedding-3-small".into()),
@@ -94,6 +98,26 @@ impl Config {
     }
 }
 
+fn parse_ignored_syslog_texts(value: Option<&str>) -> Vec<String> {
+    let configured = value
+        .map(|raw| {
+            raw.split('\n')
+                .flat_map(|line| line.split(','))
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|items| !items.is_empty());
+
+    configured.unwrap_or_else(|| {
+        vec![
+            "vfork couldn't find enough ressources".to_string(),
+            "vfork couldn't find enough resources".to_string(),
+        ]
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::Config;
@@ -106,6 +130,13 @@ mod tests {
         assert_eq!(cfg.clickhouse_retention_days, 30);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1000);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 20000);
+        assert_eq!(
+            cfg.ignored_syslog_texts,
+            vec![
+                "vfork couldn't find enough ressources".to_string(),
+                "vfork couldn't find enough resources".to_string(),
+            ]
+        );
         assert_eq!(cfg.embedding_max_in_flight, 4);
         assert_eq!(cfg.embedding_max_requests_per_second, 4);
         assert_eq!(cfg.embedding_max_retries, 5);
@@ -119,6 +150,7 @@ mod tests {
             ("CLICKHOUSE_RETENTION_DAYS", "45"),
             ("CLICKHOUSE_FLUSH_INTERVAL_MS", "1500"),
             ("CLICKHOUSE_INSERT_QUEUE_CAPACITY", "64000"),
+            ("IGNORED_SYSLOG_TEXTS", "noise one,noise two\nnoise three"),
             ("EMBEDDING_MAX_IN_FLIGHT", "8"),
             ("EMBEDDING_MAX_REQUESTS_PER_SECOND", "12"),
             ("EMBEDDING_MAX_RETRIES", "9"),
@@ -130,6 +162,14 @@ mod tests {
         assert_eq!(cfg.clickhouse_retention_days, 45);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1500);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 64000);
+        assert_eq!(
+            cfg.ignored_syslog_texts,
+            vec![
+                "noise one".to_string(),
+                "noise two".to_string(),
+                "noise three".to_string(),
+            ]
+        );
         assert_eq!(cfg.embedding_max_in_flight, 8);
         assert_eq!(cfg.embedding_max_requests_per_second, 12);
         assert_eq!(cfg.embedding_max_retries, 9);

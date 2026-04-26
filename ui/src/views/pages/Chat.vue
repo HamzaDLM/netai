@@ -5,6 +5,7 @@ import Main from '../layout/Main.vue'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue';
 import ChatSkillsPanel from '@/components/chat/ChatSkillsPanel.vue';
 import ChatConnectorsPanel from '@/components/chat/ChatConnectorsPanel.vue';
+import ChatAdminPanel from '@/components/chat/ChatAdminPanel.vue';
 import ConfigDiffViewer from '@/components/chat/ConfigDiffViewer.vue';
 import ChatActions from '@/components/chat/ChatActions.vue';
 import ChatAttachmentBar from '@/components/chat/ChatAttachmentBar.vue';
@@ -42,7 +43,9 @@ const chatTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
 const maxChatInputHeight = 220
 const isSidebarCollapsed = ref(false)
-const activePage = ref<'chat' | 'skills' | 'connectors'>('chat')
+type ChatWorkspaceView = 'chat' | 'skills' | 'connectors' | 'admin'
+
+const activePage = ref<ChatWorkspaceView>('chat')
 const historySearchQuery = computed(() => chatStore.conversationSearchQuery)
 const isDisclaimerOpen = ref(false)
 const hasAcknowledgedDisclaimer = ref(false)
@@ -928,7 +931,7 @@ function toggleSidebar() {
     isSidebarCollapsed.value = !isSidebarCollapsed.value
 }
 
-function handleSidebarNavigate(nextPage: 'chat' | 'skills' | 'connectors') {
+function handleSidebarNavigate(nextPage: ChatWorkspaceView) {
     activePage.value = nextPage
     if (nextPage !== 'chat' && !isSidebarCollapsed.value) {
         isSidebarCollapsed.value = true
@@ -1464,7 +1467,8 @@ onBeforeUnmount(() => {
                     </div>
                 </template>
                 <ChatSkillsPanel v-else-if="activePage === 'skills'" class="flex-1 min-h-0" />
-                <ChatConnectorsPanel v-else class="flex-1 min-h-0" />
+                <ChatConnectorsPanel v-else-if="activePage === 'connectors'" class="flex-1 min-h-0" />
+                <ChatAdminPanel v-else class="flex-1 min-h-0" />
             </div>
         </div>
         <AlertDialog :open="isDisclaimerOpen">

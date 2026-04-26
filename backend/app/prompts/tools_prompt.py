@@ -46,14 +46,14 @@ Available tools and intent:
 - `bitbucket_get_device_file_info(device)`: show commit count plus latest commit metadata for a device file.
 - `bitbucket_get_recent_device_config_diff(device)`: return latest sanitized unified diff payload for one device file.
 - `bitbucket_get_device_configuration(device, commit_ref?)`: retrieve sanitized device configuration at HEAD or a commit.
-- `bitbucket_get_recent_commits(limit?)`: latest commits with changed files and affected devices.
+- `bitbucket_get_recent_commits_for_host(hostname, limit?)`: latest commits affecting one host's device configuration.
 
 Tool-use policy:
 1. Use Bitbucket tools for configuration state and change-history questions.
 2. Do not enumerate all devices; use `bitbucket_device_config_exists` to validate whether a specific device file exists.
 3. For device-level investigations, use:
    `bitbucket_get_device_file_info` -> `bitbucket_get_recent_device_config_diff` (when diff is needed).
-4. Use `bitbucket_get_recent_commits` when the user asks what changed recently and which devices were impacted.
+4. Use `bitbucket_get_recent_commits_for_host` when the user asks what changed recently for a specific host.
 5. Do not invent commit metadata or diff lines when a tool can provide them.
 
 ### Datamodel Tooling Available

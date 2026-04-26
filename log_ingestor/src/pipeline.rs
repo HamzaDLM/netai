@@ -14,17 +14,10 @@ use uuid::Uuid;
 
 use crate::{
     config::Config,
-    embedding::client::EmbeddingClient,
-    processing::{
-        dedup::TemplateDeduplicator, normalizer::normalize_message, parser::parse_syslog,
-        template::build_template,
-    },
-    storage::{
-        clickhouse::{
-            SyslogEventRow, build_client as build_clickhouse_client, ensure_events_table_exists,
-            insert_events,
-        },
-        qdrant::{ensure_collection_exists, fetch_existing_templates, upsert_point},
+    processing::{normalizer::normalize_message, parser::parse_syslog},
+    storage::clickhouse::{
+        SyslogEventRow, build_client as build_clickhouse_client, ensure_events_table_exists,
+        insert_events,
     },
     types::IncomingSyslog,
     vendor_cache::VendorCache,
@@ -36,8 +29,6 @@ static IPV4_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 pub struct Pipeline {
-    dedup: TemplateDeduplicator,
-    embedder: EmbeddingClient,
     http: Client,
     clickhouse: ClickHouseClient,
     clickhouse_tx: mpsc::Sender<SyslogEventRow>,
@@ -72,8 +63,6 @@ impl Pipeline {
         });
 
         return Self {
-            dedup: TemplateDeduplicator::new(),
-            embedder: EmbeddingClient::new(&config),
             http: Client::new(),
             clickhouse,
             clickhouse_tx,
@@ -82,31 +71,7 @@ impl Pipeline {
         };
     }
 
-    pub async fn ensure_collection(&self) -> Result<()> {
-        ensure_collection_exists(
-            &self.http,
-            &self.config.qdrant_url,
-            &self.config.qdrant_collection,
-            self.embedder.dimension(),
-        )
-        .await?;
-
-        let templates = fetch_existing_templates(
-            &self.http,
-            &self.config.qdrant_url,
-            &self.config.qdrant_collection,
-        )
-        .await?;
-
-        for template in templates {
-            self.dedup.mark_seen(template);
-        }
-
-        debug!(
-            "dedup warmup loaded {} templates from Qdrant",
-            self.dedup.len()
-        );
-
+    pub async fn ensure_storage(&self) -> Result<()> {
         ensure_events_table_exists(&self.clickhouse, self.config.clickhouse_retention_days).await?;
         Ok(())
     }
@@ -117,6 +82,11 @@ impl Pipeline {
 
     pub async fn process(&self, log: IncomingSyslog) -> Result<()> {
         debug!("processing log: {}", log.syslog_message);
+        if should_ignore_message(&log.syslog_message, &self.config.ignored_syslog_texts) {
+            debug!("ignoring syslog line matched configured ignored text");
+            return Ok(());
+        }
+
         let parsed = parse_syslog(&log);
         let normalized = normalize_message(&parsed);
         debug!("normalized result: {}", normalized);
@@ -131,10 +101,8 @@ impl Pipeline {
             _ => parsed.vendor.clone(),
         };
 
-        let template = build_template(normalized.clone());
-        debug!("template result: {}", template.template);
-        let dedup_key = format!("{}::{}", vendor, template.template);
-        let template_fingerprint = fingerprint_template(&template.template);
+        let template = normalized.clone();
+        let template_fingerprint = fingerprint_template(&template);
 
         let event_row = SyslogEventRow {
             event_id: Uuid::new_v4().to_string(),
@@ -146,7 +114,7 @@ impl Pipeline {
             event_code: parsed.event_code.clone().unwrap_or_default(),
             raw_message: log.syslog_message.clone(),
             normalized_message: normalized.clone(),
-            template: template.template.clone(),
+            template,
             template_fingerprint,
         };
 
@@ -154,27 +122,6 @@ impl Pipeline {
             .send(event_row)
             .await
             .map_err(|err| anyhow::anyhow!("clickhouse writer task unavailable: {err}"))?;
-
-        if !self.dedup.is_new(&dedup_key) {
-            debug!("dedup decision: not new");
-            return Ok(());
-        }
-        debug!("dedup decision: new");
-
-        let vector = self.embedder.embed(&template.template).await?;
-        debug!("embedding result vector: {:?}", vector);
-
-        upsert_point(
-            &self.http,
-            &self.config.qdrant_url,
-            &self.config.qdrant_collection,
-            template.id,
-            vector,
-            &template.template,
-            &vendor,
-            &dedup_key,
-        )
-        .await?;
 
         Ok(())
     }
@@ -254,4 +201,38 @@ fn fingerprint_template(template: &str) -> u64 {
 
 fn extract_ip(message: &str) -> Option<String> {
     IPV4_RE.find(message).map(|m| m.as_str().to_string())
+}
+
+fn should_ignore_message(message: &str, ignored_texts: &[String]) -> bool {
+    let message = message.to_lowercase();
+    ignored_texts
+        .iter()
+        .map(|text| text.trim())
+        .filter(|text| !text.is_empty())
+        .any(|text| message.contains(&text.to_lowercase()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_ignore_message;
+
+    #[test]
+    fn should_ignore_message_matches_configured_substrings_case_insensitively() {
+        let ignored_texts = vec!["vfork couldn't find enough ressources".to_string()];
+
+        assert!(should_ignore_message(
+            "kernel: VFORK couldn't find enough ressources for process 123",
+            &ignored_texts
+        ));
+    }
+
+    #[test]
+    fn should_ignore_message_ignores_blank_patterns() {
+        let ignored_texts = vec!["".to_string(), "   ".to_string()];
+
+        assert!(!should_ignore_message(
+            "ordinary interface state transition",
+            &ignored_texts
+        ));
+    }
 }
