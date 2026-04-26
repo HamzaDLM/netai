@@ -77,17 +77,13 @@ def test_runtime_context_metrics_breaks_out_documents_and_tools(monkeypatch) -> 
         "system_prompt",
         "system prompt rules",
     )
-    monkeypatch.setattr(
-        agent_runner,
-        "_tool_context_text",
-        lambda: "tool interface payload",
-    )
     context = SimpleNamespace(context_window=200, compacted=False, used_summary_id=None)
     attachment_reference_text = "Attached reference documents"
     messages = [
         SimpleNamespace(role="system", text="runtime formatting"),
         SimpleNamespace(role="user", text="How many BGP neighbors are down?"),
         SimpleNamespace(role="assistant", text="I found two neighbors down."),
+        SimpleNamespace(role="tool", text='{"neighbors_down": 2}'),
         SimpleNamespace(role="user", text=attachment_reference_text),
     ]
 
@@ -103,7 +99,7 @@ def test_runtime_context_metrics_breaks_out_documents_and_tools(monkeypatch) -> 
         attachment_reference_text
     )
     assert breakdown["tools"]["tokens"] == agent_runner._estimate_text_tokens(
-        "tool interface payload"
+        '{"neighbors_down": 2}'
     )
     assert breakdown["system"]["tokens"] == agent_runner._estimate_text_tokens(
         "system prompt rules"

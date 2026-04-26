@@ -196,7 +196,7 @@ def _runtime_context_breakdown(
     user_tokens = 0
     assistant_tokens = 0
     document_tokens = 0
-    tool_tokens = _estimate_text_tokens(_tool_context_text())
+    tool_tokens = 0
 
     for message in messages:
         text = getattr(message, "text", "") or ""
@@ -211,6 +211,9 @@ def _runtime_context_breakdown(
         role = _normalize_message_role(message)
         if role == "system":
             system_tokens += tokens
+            continue
+        if role == "tool":
+            tool_tokens += tokens
             continue
         if role == "assistant":
             assistant_tokens += tokens

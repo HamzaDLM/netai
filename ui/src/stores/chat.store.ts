@@ -1,15 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type {
-	AgentRun,
-	ChatAttachment,
-	ContextBreakdown,
-	ContextMetrics,
-	Conversation,
-	ConversationMessages,
-	Message,
-	MessageRole,
-} from '@/types/chat.type'
+import type { AgentRun, ChatAttachment, ContextBreakdown, ContextMetrics, Conversation, ConversationMessages, Message, MessageRole } from '@/types/chat.type'
 import chatService from '@/services/chat.service'
 import { toast } from '@/components/ui/toast'
 
@@ -73,14 +64,7 @@ function asContextBreakdown(value: unknown): ContextBreakdown | undefined {
 function asContextMetrics(value: unknown): ContextMetrics | null {
 	if (!value || typeof value !== 'object') return null
 	const row = value as Record<string, unknown>
-	if (
-		typeof row.context_window !== 'number' ||
-		typeof row.used_tokens !== 'number' ||
-		typeof row.used_percent !== 'number' ||
-		typeof row.left_tokens !== 'number' ||
-		typeof row.left_percent !== 'number' ||
-		typeof row.compacted !== 'boolean'
-	) {
+	if (typeof row.context_window !== 'number' || typeof row.used_tokens !== 'number' || typeof row.used_percent !== 'number' || typeof row.left_tokens !== 'number' || typeof row.left_percent !== 'number' || typeof row.compacted !== 'boolean') {
 		return null
 	}
 	return {
@@ -155,9 +139,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			const shouldAutoSelectFirst = options.autoSelectFirst ?? normalizedSearchQuery.length === 0
 			const shouldCreateIfEmpty = options.createIfEmpty ?? normalizedSearchQuery.length === 0
 			const selectedConversationId = selectedConversation.value?.id ?? null
-			const hasVisibleSelection =
-				selectedConversationId !== null &&
-				conversations.value.some(conversation => conversation.id === selectedConversationId)
+			const hasVisibleSelection = selectedConversationId !== null && conversations.value.some(conversation => conversation.id === selectedConversationId)
 
 			if (hasVisibleSelection && preserveSelection) {
 				return
@@ -202,9 +184,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	}
 
 	function setSelectedConversation(conversation: ConversationMessages | null): void {
-		selectedConversation.value = conversation
-			? normalizeConversationMessages(conversation)
-			: null
+		selectedConversation.value = conversation ? normalizeConversationMessages(conversation) : null
 		contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
 		if (!conversation) attachments.value = []
 	}
@@ -269,7 +249,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 
 	async function uploadAttachment(file: File): Promise<void> {
 		if (!selectedConversation.value) return
-		const extension = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() ?? '' : ''
+		const extension = file.name.includes('.') ? (file.name.split('.').pop()?.toLowerCase() ?? '') : ''
 		if (!supportedAttachmentExtensions.has(extension)) {
 			toast({ title: 'Unsupported file type', variant: 'destructive' })
 			return
@@ -284,7 +264,6 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				content_type: file.type || null,
 			})
 			attachments.value = [...attachments.value, result.data]
-			toast({ title: `${file.name} attached` })
 		} catch (err: any) {
 			const detail = err?.response?.data?.detail
 			const title = typeof detail === 'string' && detail.length > 0 ? detail : 'Failed to attach document'
@@ -365,12 +344,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				return run
 			}
 
-			const pushRunEvent = (
-				assistant: Message,
-				eventType: string,
-				payload: Record<string, unknown>,
-				actorName?: string
-			) => {
+			const pushRunEvent = (assistant: Message, eventType: string, payload: Record<string, unknown>, actorName?: string) => {
 				const run = ensureDraftRun(assistant)
 				const event_sequence = (run.events.at(-1)?.event_sequence ?? 0) + 1
 				run.events.push({
@@ -412,22 +386,12 @@ export const useChatStore = defineStore('chat', function chatStore() {
 					onSpecialistPlan: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushRunEvent(
-							assistant,
-							'specialist_plan',
-							{ specialist: payload.specialist, plan: payload.plan ?? '' },
-							payload.specialist
-						)
+						pushRunEvent(assistant, 'specialist_plan', { specialist: payload.specialist, plan: payload.plan ?? '' }, payload.specialist)
 					},
 					onSpecialistPrompt: payload => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushRunEvent(
-							assistant,
-							'specialist_prompt',
-							{ prompt: payload.prompt },
-							payload.specialist
-						)
+						pushRunEvent(assistant, 'specialist_prompt', { prompt: payload.prompt }, payload.specialist)
 					},
 					onSpecialistToolCall: payload => {
 						const assistant = getAssistantMessage()
