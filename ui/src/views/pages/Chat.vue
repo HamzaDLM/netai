@@ -1090,8 +1090,8 @@ onBeforeUnmount(() => {
                     </div>
                 </div>
                 <Button v-if="isSidebarCollapsed && activePage !== 'chat'" @click="handleSidebarNavigate('chat')"
-                    variant="outline"
-                    class="absolute left-5 top-5 z-20 inline-flex items-center gap-2 border-stone-800 bg-stone-950/90 px-3 py-2 text-stone-200 shadow-lg shadow-black/20 backdrop-blur-sm transition hover:border-stone-600 hover:bg-stone-900">
+                    variant="link"
+                    class="absolute top-5 z-20 inline-flex items-center gap-2 px-3 py-2 text-stone-200 transition hover:text-stone-200">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24">
                         <path fill="currentColor" d="m10 17l-5-5l5-5l1.4 1.4L8.8 11H20v2H8.8l2.6 2.6z" />
                     </svg>
