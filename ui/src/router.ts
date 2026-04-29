@@ -11,7 +11,7 @@ export const routes = [
 		component: Home,
 		meta: {
 			requiresAuth: true,
-			inSidebar: true,
+			inSidebar: false,
 			icon: 'solar:home-smile-bold',
 		},
 	},

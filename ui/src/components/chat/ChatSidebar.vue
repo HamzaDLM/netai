@@ -161,8 +161,8 @@ async function selectConversation(conversationId: string) {
             <div class="flex items-center justify-between gap-2 text-stone-300"
                 :class="props.collapsed ? 'flex-col w-min h-full justify-between' : ''">
                 <!-- Logo -->
-                <div class="flex flex-col items-center gap-4">
-                    <button @click="router.push('/')" class="flex items-center gap-1"
+                <div class="flex flex-col items-center gap-3">
+                    <button @click="router.push('/chat')" class="flex items-center gap-1"
                         :class="props.collapsed ? ' pb-5 border-b border-stone-700' : ''">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6 text-stone-200" viewBox="1 0 24 24">
                             <path fill="currentColor"
@@ -171,32 +171,54 @@ async function selectConversation(conversationId: string) {
                         <span class="text-xl font-semibold tracking-wide text-stone-200"
                             v-if="!props.collapsed">NetAI</span>
                     </button>
-                    <Button v-if="props.collapsed" @click="handleChatClick()" variant="outline"
-                        class="flex w-full gap-2 text-stone-300" size="sm">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
+                    <Button v-if="props.collapsed" @click="emit('navigate', 'chat')" variant="ghost"
+                        class="flex w-full gap-2 text-stone-300" size="default" title="Messages"
+                        aria-label="Messages">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
                             <path fill="currentColor"
-                                d="M15.275 12.475L11.525 8.7L14.3 5.95l-.725-.725L8.1 10.7L6.7 9.3l5.45-5.475q.6-.6 1.413-.6t1.412.6l.725.725l1.25-1.25q.3-.3.713-.3t.712.3L20.7 5.625q.3.3.3.713t-.3.712zM6.75 21H3v-3.75l7.1-7.125l3.775 3.75z" />
+                                d="M4 19h12V5H4zm0 2q-.825 0-1.412-.587T2 19V5q0-.825.588-1.412T4 3h12q.825 0 1.413.588T18 5v14q0 .825-.587 1.413T16 21zm16-4v-8h2v8zm0-10V5h2v2zM4 21V3z" />
                         </svg>
                     </Button>
-                    <Button v-if="props.collapsed" @click="resetState" variant="outline" class="w-min text-stone-300"
-                        size="sm">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
+                    <Button v-if="props.collapsed" @click="handleConnectorsClick" variant="ghost"
+                        class="flex w-full gap-2 text-stone-300" size="default" title="Connectors"
+                        aria-label="Connectors">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
                             <path fill="currentColor"
-                                d="M5.53 17.506q-.978-1.142-1.504-2.558T3.5 12q0-3.616 2.664-6.058T12.5 3.5V2l3.673 2.75L12.5 7.5V6Q9.86 6 7.93 7.718T6 12q0 1.13.399 2.15t1.13 1.846zM11.5 22l-3.673-2.75L11.5 16.5V18q2.64 0 4.57-1.718T18 12q0-1.13-.399-2.16q-.399-1.028-1.13-1.855l1.998-1.51q.979 1.142 1.505 2.558T20.5 12q0 3.616-2.664 6.058T11.5 20.5z" />
+                                d="M7 19q-.825 0-1.412-.587T5 17v-2H3q-.825 0-1.412-.587T1 13t.588-1.412T3 11h2V9q0-.825.588-1.412T7 7h3V5H9q-.825 0-1.412-.587T7 3t.588-1.412T9 1h6q.825 0 1.413.588T17 3t-.587 1.413T15 5h-1v2h3q.825 0 1.413.588T19 9v2h2q.825 0 1.413.588T23 13t-.587 1.413T21 15h-2v2q0 .825-.587 1.413T17 19zm0-2h10V9H7zm4-10h2V5h-2z" />
+                        </svg>
+                    </Button>
+                    <Button v-if="props.collapsed" @click="handleSkillsClick" variant="ghost"
+                        class="flex w-full gap-2 text-stone-300" size="default" title="Skills"
+                        aria-label="Skills">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
+                            <path fill="currentColor"
+                                d="M5 20q-1.25 0-2.125-.875T2 17v-5h14.025q.125-.85.675-1.487t1.35-.913l4.625-1.55l.625 1.9l-4.625 1.55q-.3.1-.488.363T18 12.45V17q0 1.25-.875 2.125T15 20zm-.575-10q.35-.9.113-1.6T3.725 7Q2.9 6 2.637 5.112T2.55 3H4.5q-.2.95-.062 1.55t.712 1.3Q6.1 7 6.363 7.888T6.375 10zm4 0q.35-.9.125-1.6T7.75 7q-.825-1-1.1-1.888T6.55 3H8.5q-.2.95-.062 1.55t.712 1.3Q10.1 7 10.363 7.888T10.375 10zm4 0q.35-.9.125-1.6t-.8-1.4q-.825-1-1.1-1.888T10.55 3h1.95q-.2.95-.062 1.55t.712 1.3Q14.1 7 14.363 7.888T14.375 10z" />
                         </svg>
                     </Button>
                 </div>
                 <!-- Collapse sidebar -->
-                <button
-                    class="p-1 transition border rounded-md border-stone-900 text-stone-400 hover:border-stone-600 hover:bg-stone-900/60"
+                <Button
+                    class="p-1 transition text-stone-400 hover:bg-stone-900/60" variant="ghost"
                     @click="emit('toggle')" :aria-label="props.collapsed ? 'Expand sidebar' : 'Collapse sidebar'">
-                    <svg v-if="props.collapsed" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="currentColor" d="m9 18l6-6l-6-6l-1.4 1.4L12.2 12l-4.6 4.6z" />
+                    <svg v-if="props.collapsed" xmlns="http://www.w3.org/2000/svg" class="w-6 h-6"
+                        viewBox="0 0 24 24"><!-- Icon from MingCute Icon by MingCute Design - https://github.com/Richard9394/MingCute/blob/main/LICENSE -->
+                        <g fill="none" fill-rule="evenodd">
+                            <path
+                                d="M24 0v24H0V0zM12.594 23.258l-.012.002l-.071.035l-.02.004l-.014-.004l-.071-.036q-.016-.004-.024.006l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.016-.018m.264-.113l-.014.002l-.184.093l-.01.01l-.003.011l.018.43l.005.012l.008.008l.201.092q.019.005.029-.008l.004-.014l-.034-.614q-.005-.018-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.003-.011l.018-.43l-.003-.012l-.01-.01z" />
+                            <path fill="currentColor"
+                                d="M6.293 6.293a1 1 0 0 1 1.414 0l5 5a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414-1.414L10.586 12L6.293 7.707a1 1 0 0 1 0-1.414m6 0a1 1 0 0 1 1.414 0l5 5a1 1 0 0 1 0 1.414l-5 5a1 1 0 0 1-1.414-1.414L16.586 12l-4.293-4.293a1 1 0 0 1 0-1.414" />
+                        </g>
                     </svg>
-                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="currentColor" d="m15 18l-6-6l6-6l1.4 1.4L11.8 12l4.6 4.6z" />
+                    <svg v-else xmlns="http://www.w3.org/2000/svg" class="w-6 h-6"
+                        viewBox="0 0 24 24">
+                        <g fill="none" fill-rule="evenodd">
+                            <path
+                                d="M24 0v24H0V0zM12.594 23.258l-.012.002l-.071.035l-.02.004l-.014-.004l-.071-.036q-.016-.004-.024.006l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.016-.018m.264-.113l-.014.002l-.184.093l-.01.01l-.003.011l.018.43l.005.012l.008.008l.201.092q.019.005.029-.008l.004-.014l-.034-.614q-.005-.018-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.003-.011l.018-.43l-.003-.012l-.01-.01z" />
+                            <path fill="currentColor"
+                                d="M11.707 6.293a1 1 0 0 1 0 1.414L7.414 12l4.293 4.293a1 1 0 0 1-1.414 1.414l-5-5a1 1 0 0 1 0-1.414l5-5a1 1 0 0 1 1.414 0m6 0a1 1 0 0 1 0 1.414L13.414 12l4.293 4.293a1 1 0 0 1-1.414 1.414l-5-5a1 1 0 0 1 0-1.414l5-5a1 1 0 0 1 1.414 0" />
+                        </g>
                     </svg>
-                </button>
+                </Button>
             </div>
             <!-- Search chat history -->
             <div v-if="!props.collapsed" class="mt-4">
@@ -205,23 +227,21 @@ async function selectConversation(conversationId: string) {
                     placeholder="Search conversations..." type="text" />
             </div>
         </div>
-        <div class="flex flex-col gap-2" :class="props.collapsed ? 'mx-auto my-3 flex-col items-center' : 'mx-4 my-4'">
+        <div v-if="!props.collapsed" class="mx-4 my-4 flex flex-col gap-2">
             <Button @click="handleChatClick" variant="outline" size="sm" :class="[
                 'flex gap-2 text-stone-300',
-                props.collapsed ? 'h-10 w-10 justify-center px-0' : 'w-full']"
-                :aria-label="props.collapsed ? 'Chat' : undefined" :title="props.collapsed ? 'Chat' : undefined">
+                'w-full']">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z" />
                 </svg>
-                <span v-if="!props.collapsed">Chat</span>
+                <span>Chat</span>
             </Button>
             <div class="flex gap-2">
                 <Button @click="handleConnectorsClick" variant="outline" size="sm" :class="[
                     'flex gap-2 text-stone-300 bg-stone-900/40 border-stone-800',
-                    props.collapsed ? 'h-10 w-10 justify-center px-0' : 'w-full',
+                    'w-full',
                     props.activeView === 'connectors' ? 'border-red-500/40 bg-stone-900/70 text-stone-100' : '',
-                ]" :aria-label="props.collapsed ? 'Connectors' : undefined"
-                    :title="props.collapsed ? 'Connectors' : undefined">
+                ]">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                         <path fill="currentColor"
                             d="M7 19q-.825 0-1.412-.587T5 17v-2H3q-.825 0-1.412-.587T1 13t.588-1.412T3 11h2V9q0-.825.588-1.412T7 7h3V5H9q-.825 0-1.412-.587T7 3t.588-1.412T9 1h6q.825 0 1.413.588T17 3t-.587 1.413T15 5h-1v2h3q.825 0 1.413.588T19 9v2h2q.825 0 1.413.588T23 13t-.587 1.413T21 15h-2v2q0 .825-.587 1.413T17 19zm0-2h10V9H7zm4-10h2V5h-2z" />
@@ -230,10 +250,9 @@ async function selectConversation(conversationId: string) {
                 </Button>
                 <Button @click="handleSkillsClick" variant="outline" size="sm" :class="[
                     'flex gap-2 text-stone-300 bg-stone-900/40 border-stone-800',
-                    props.collapsed ? 'h-10 w-10 justify-center px-0' : 'w-full',
+                    'w-full',
                     props.activeView === 'skills' ? 'border-red-500/40 bg-stone-900/70 text-stone-100' : '',
-                ]" :aria-label="props.collapsed ? 'Skills' : undefined"
-                    :title="props.collapsed ? 'Skills' : undefined">
+                ]">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4"
                         viewBox="0 0 24 24"><!-- Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE -->
                         <path fill="currentColor"
@@ -244,14 +263,14 @@ async function selectConversation(conversationId: string) {
             </div>
             <Button @click="handleAdminClick" variant="outline" size="sm" :class="[
                 'flex gap-2 text-stone-300 bg-stone-900/40 border-stone-800',
-                props.collapsed ? 'h-10 w-10 justify-center px-0' : 'w-full',
+                'w-full',
                 props.activeView === 'admin' ? 'border-red-500/40 bg-stone-900/70 text-stone-100' : '',
-            ]" :aria-label="props.collapsed ? 'Admin' : undefined" :title="props.collapsed ? 'Admin' : undefined">
+            ]">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="currentColor"
                         d="M12 12q-1.65 0-2.825-1.175T8 8t1.175-2.825T12 4t2.825 1.175T16 8t-1.175 2.825T12 12m-8 8v-2.8q0-.85.438-1.562T5.6 14.55q1.55-.775 3.15-1.162T12 13t3.25.388t3.15 1.162q.725.375 1.163 1.088T20 17.2V20zm2-2h12v-.8q0-.275-.137-.5t-.363-.35q-1.35-.675-2.725-1.012T12 15t-2.775.338T6.5 16.35q-.225.125-.362.35T6 17.2zm6-8q.825 0 1.413-.587T14 8t-.587-1.412T12 6t-1.412.588T10 8t.588 1.413T12 10" />
                 </svg>
-                <span v-if="!props.collapsed">Admin</span>
+                <span>Admin</span>
             </Button>
             <!-- <Button @click="resetState" variant="outline" class="w-min text-stone-300" size="sm">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
