@@ -34,6 +34,9 @@ import {
 type ChatWorkspaceView = 'chat' | 'skills' | 'connectors' | 'admin'
 
 const chatStore = useChatStore()
+const renderedTitles = ref<Record<string, string>>({})
+const typingStates = ref<Record<string, boolean>>({})
+const typingTimers = new Map<string, ReturnType<typeof setInterval>>()
 
 const props = defineProps<{
     collapsed?: boolean
@@ -152,6 +155,85 @@ async function selectConversation(conversationId: string) {
     historySearchQuery.value = ''
     emit('update:historySearchQuery', '')
 }
+
+function getConversationTitle(title: string): string {
+    return title.trim() ? title : 'Unnamed'
+}
+
+function stopTyping(conversationId: string) {
+    const timer = typingTimers.get(conversationId)
+    if (timer) clearInterval(timer)
+    typingTimers.delete(conversationId)
+    delete typingStates.value[conversationId]
+}
+
+function startTypingTitle(conversationId: string, nextTitle: string) {
+    stopTyping(conversationId)
+    renderedTitles.value[conversationId] = ''
+    typingStates.value[conversationId] = true
+
+    let index = 0
+    const timer = setInterval(() => {
+        index += 1
+        renderedTitles.value[conversationId] = nextTitle.slice(0, index)
+        if (index >= nextTitle.length) {
+            stopTyping(conversationId)
+        }
+    }, 28)
+
+    typingTimers.set(conversationId, timer)
+}
+
+watch(
+    () => chatStore.conversations.map(conversation => ({
+        id: conversation.id,
+        title: conversation.title,
+    })),
+    (nextConversations, previousConversations = []) => {
+        const previousTitles = new Map(
+            previousConversations.map(conversation => [
+                conversation.id,
+                getConversationTitle(conversation.title),
+            ])
+        )
+
+        const activeIds = new Set(nextConversations.map(conversation => conversation.id))
+        for (const conversationId of Object.keys(renderedTitles.value)) {
+            if (activeIds.has(conversationId)) continue
+            delete renderedTitles.value[conversationId]
+            stopTyping(conversationId)
+        }
+
+        for (const conversation of nextConversations) {
+            const nextTitle = getConversationTitle(conversation.title)
+            const previousTitle = previousTitles.get(conversation.id)
+            const wasUntitled = previousTitle === undefined || previousTitle === 'Unnamed'
+            const becameGeneratedTitle =
+                nextTitle !== 'Unnamed' && previousTitle === 'Unnamed'
+
+            if (becameGeneratedTitle) {
+                startTypingTitle(conversation.id, nextTitle)
+                continue
+            }
+
+            if (wasUntitled && nextTitle === 'Unnamed') {
+                renderedTitles.value[conversation.id] = nextTitle
+                continue
+            }
+
+            if (renderedTitles.value[conversation.id] !== nextTitle) {
+                stopTyping(conversation.id)
+                renderedTitles.value[conversation.id] = nextTitle
+            }
+        }
+    },
+    { immediate: true }
+)
+
+onBeforeUnmount(() => {
+    for (const timer of typingTimers.values()) clearInterval(timer)
+    typingTimers.clear()
+})
 </script>
 
 <template>
@@ -321,7 +403,9 @@ async function selectConversation(conversationId: string) {
                     </DropdownMenu>
                 </div>
                 <p class="text-sm text-stone-300">
-                    {{ conversation.title === '' ? 'Unnamed' : conversation.title }}
+                    <span>{{ renderedTitles[conversation.id] ?? getConversationTitle(conversation.title) }}</span>
+                    <span v-if="typingStates[conversation.id]"
+                        class="ml-0.5 inline-block h-4 w-px animate-pulse bg-stone-300 align-middle" />
                 </p>
                 <!-- <p class="text-sm text-stone-500">{{ conversation.content.slice(0, 100) }}...</p> -->
             </div>

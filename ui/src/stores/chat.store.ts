@@ -6,6 +6,7 @@ import { toast } from '@/components/ui/toast'
 
 let localIdCounter = 1000
 const supportedAttachmentExtensions = new Set(['conf', 'cfg', 'csv', 'ini', 'json', 'log', 'md', 'txt', 'yaml', 'yml'])
+const titleRefreshTimers = new Map<string, ReturnType<typeof setTimeout>[]>()
 
 function nextId(): number {
 	localIdCounter += 1
@@ -128,6 +129,47 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		preserveSelection?: boolean
 	}
 
+	function syncSelectedConversationTitle(): void {
+		if (!selectedConversation.value) return
+		const updatedConversation = conversations.value.find(
+			conversation => conversation.id === selectedConversation.value?.id
+		)
+		if (!updatedConversation) return
+		selectedConversation.value.title = updatedConversation.title
+	}
+
+	function clearScheduledTitleRefresh(conversationId: string): void {
+		const timers = titleRefreshTimers.get(conversationId) ?? []
+		for (const timer of timers) clearTimeout(timer)
+		titleRefreshTimers.delete(conversationId)
+	}
+
+	async function refreshConversationTitle(conversationId: string): Promise<boolean> {
+		await loadConversations({
+			searchQuery: conversationSearchQuery.value,
+			autoSelectFirst: false,
+			createIfEmpty: false,
+			preserveSelection: true,
+		})
+		syncSelectedConversationTitle()
+		const refreshedConversation = conversations.value.find(
+			conversation => conversation.id === conversationId
+		)
+		return Boolean(refreshedConversation?.title?.trim())
+	}
+
+	function scheduleConversationTitleRefresh(conversationId: string): void {
+		clearScheduledTitleRefresh(conversationId)
+		const retryDelays = [0, 700, 1600]
+		const timers = retryDelays.map(delay =>
+			setTimeout(async () => {
+				const titleFound = await refreshConversationTitle(conversationId)
+				if (titleFound) clearScheduledTitleRefresh(conversationId)
+			}, delay)
+		)
+		titleRefreshTimers.set(conversationId, timers)
+	}
+
 	async function loadConversations(options: LoadConversationsOptions = {}): Promise<void> {
 		const nextSearchQuery = options.searchQuery ?? conversationSearchQuery.value
 		const normalizedSearchQuery = nextSearchQuery.trim()
@@ -138,6 +180,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		try {
 			const result = await chatService.getConversations(normalizedSearchQuery)
 			conversations.value = result.data
+			syncSelectedConversationTitle()
 			const preserveSelection = options.preserveSelection ?? true
 			const shouldAutoSelectFirst = options.autoSelectFirst ?? normalizedSearchQuery.length === 0
 			const shouldCreateIfEmpty = options.createIfEmpty ?? normalizedSearchQuery.length === 0
@@ -218,6 +261,9 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		try {
 			await chatService.renameConversation(conversation_id, title)
 			conversations.value = conversations.value.map(convo => (convo.id === conversation_id ? { ...convo, title: title } : convo))
+			if (selectedConversation.value?.id === conversation_id) {
+				selectedConversation.value.title = title
+			}
 		} catch (err) {
 			errorMessage.value = 'Failed to rename conversation'
 			toast({ title: errorMessage.value, variant: 'destructive' })
@@ -498,6 +544,12 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			while (pendingTokenText.length > 0 || flushTimer !== null) {
 				await new Promise(resolve => setTimeout(resolve, 20))
 			}
+
+			const currentConversationId = selectedConversation.value.id
+			const hasPlaceholderTitle = !selectedConversation.value.title?.trim()
+			if (hasPlaceholderTitle) {
+				scheduleConversationTitleRefresh(currentConversationId)
+			}
 		} catch (err) {
 			errorMessage.value = 'Something went wrong'
 			toast({ title: errorMessage.value, variant: 'destructive' })
@@ -544,6 +596,10 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	}
 
 	function resetChatState(): void {
+		for (const timers of titleRefreshTimers.values()) {
+			for (const timer of timers) clearTimeout(timer)
+		}
+		titleRefreshTimers.clear()
 		conversations.value = []
 		selectedConversation.value = null
 		conversationSearchQuery.value = ''

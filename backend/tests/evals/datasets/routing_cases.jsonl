@@ -4,3 +4,4 @@
 {"question": "List open ServiceNow incidents tied to CI edge-01", "expected_specialist": "servicenow"}
 {"question": "Which topology neighbors does core-sw-01 have?", "expected_specialist": "datamodel"}
 {"question": "Is this configuration vulnerable to known CVEs?", "expected_specialist": "security"}
+{"question": "Tell me about Rust's &str type", "expected_specialist": "orchestrator"}
