@@ -106,3 +106,75 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     convo_payload = convo_resp.json()
     assert convo_payload["id"] == conversation_id
     assert len(convo_payload["messages"]) == 2
+
+
+@pytest.mark.anyio
+async def test_chat_skill_commands_only_apply_explicitly_selected_skills(
+    async_client, monkeypatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    async def _fake_run_agent(
+        *,
+        conversation_id: str,
+        question: str,
+        skills: list[dict[str, str]] | None = None,
+    ) -> dict:
+        captured["conversation_id"] = conversation_id
+        captured["question"] = question
+        captured["skills"] = skills
+        return {
+            "answer": "ok",
+            "events": [],
+            "run_map": {
+                "orchestrator": {
+                    "agent_name": "orchestrator",
+                    "status": "completed",
+                    "duration_ms": 1,
+                }
+            },
+            "context_metrics": {"used_tokens": 3},
+        }
+
+    async def _no_title(
+        *, conversation_id: str, user_question: str, assistant_content: str
+    ) -> None:
+        return None
+
+    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
+    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+
+    skill_resp = await async_client.post(
+        "/api/v1/skills",
+        json={
+            "name": "WAN Flap Triage",
+            "description": "test",
+            "instructions": "Investigate WAN instability.",
+            "enabled": True,
+        },
+    )
+    assert skill_resp.status_code == 201
+    assert skill_resp.json()["slug"] == "wan-flap-triage"
+
+    create_resp = await async_client.post(
+        "/api/v1/llm/conversation", json={"title": "Ops"}
+    )
+    conversation_id = create_resp.json()["id"]
+
+    ask_resp = await async_client.post(
+        f"/api/v1/llm/conversation/{conversation_id}/message",
+        json={"content": "/wan-flap-triage investigate edge-01"},
+    )
+    assert ask_resp.status_code == 200
+    assert captured["question"] == "investigate edge-01"
+    assert captured["skills"] == [
+        {"name": "WAN Flap Triage", "instructions": "Investigate WAN instability."}
+    ]
+
+    ask_without_skill_resp = await async_client.post(
+        f"/api/v1/llm/conversation/{conversation_id}/message",
+        json={"content": "investigate edge-02"},
+    )
+    assert ask_without_skill_resp.status_code == 200
+    assert captured["question"] == "investigate edge-02"
+    assert captured["skills"] is None

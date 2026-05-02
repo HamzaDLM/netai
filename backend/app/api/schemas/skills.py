@@ -2,6 +2,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.api.models.skills import SkillMarketplaceStatus
+from app.api.models.users import UserRole
+
 
 class ORMBaseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -29,9 +32,30 @@ class SkillResponse(ORMBaseModel):
     id: int
     user_id: int
     name: str
+    slug: str
     description: str
     instructions: str
     enabled: bool
+    archived: bool
+    installed_from_listing_id: int | None
+    marketplace_listing_id: int | None = None
+    marketplace_status: SkillMarketplaceStatus | None = None
+    marketplace_review_notes: str = ""
+    created_at: datetime
+    updated_at: datetime
+
+
+class SkillMarketplaceListingResponse(ORMBaseModel):
+    id: int
+    owner_user_id: int
+    owner_skill_id: int
+    name: str
+    slug: str
+    description: str
+    instructions: str
+    status: SkillMarketplaceStatus
+    review_notes: str
+    reviewed_by_user_id: int | None
     archived: bool
     created_at: datetime
     updated_at: datetime
@@ -51,5 +75,12 @@ class ToolCatalogAgent(BaseModel):
 
 
 class SkillBootstrapResponse(BaseModel):
+    viewer_role: UserRole
     skills: list[SkillResponse]
     catalog: list[ToolCatalogAgent]
+    marketplace: list[SkillMarketplaceListingResponse]
+    review_queue: list[SkillMarketplaceListingResponse]
+
+
+class SkillMarketplaceReview(BaseModel):
+    review_notes: str = Field(default="", max_length=4000)

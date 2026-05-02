@@ -1,6 +1,6 @@
 import { AxiosResponse } from 'axios'
 import API from './axios'
-import { AdminFeedbackItem, ChatAttachment, ContextMetrics, Conversation, ConversationMessages, Message } from '@/types/chat.type'
+import { AdminFeedbackItem, ChatAttachment, ChatUserSettings, ContextMetrics, Conversation, ConversationMessages, Message } from '@/types/chat.type'
 
 export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
@@ -47,6 +47,12 @@ class ChatService {
 	}
 	getAdminFeedbacks(limit = 100): Promise<AxiosResponse<AdminFeedbackItem[]>> {
 		return API.get(`/llm/admin/feedbacks`, { params: { limit } })
+	}
+	getChatSettings(): Promise<AxiosResponse<ChatUserSettings>> {
+		return API.get(`/llm/settings/chat`)
+	}
+	updateChatSettings(params: { custom_instructions: string }): Promise<AxiosResponse<ChatUserSettings>> {
+		return API.patch(`/llm/settings/chat`, params)
 	}
 	createConversation(): Promise<AxiosResponse<Conversation>> {
 		return API.post(`/llm/conversation`, { title: '' })

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from sqlalchemy import func, select
@@ -8,6 +9,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.api.models.skills import Skill
 from app.api.models.users import User, UserRole
 from app.db.session import SessionLocal
+
+_SLUG_SANITIZE_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(value: str) -> str:
+    normalized = _SLUG_SANITIZE_RE.sub("-", value.strip().lower()).strip("-")
+    return normalized[:80] or "skill"
+
 
 DEMO_USER_ID = 0
 DEMO_USERNAME = "testuser"
@@ -92,6 +101,7 @@ async def init_db(
                 Skill(
                     user_id=user.id,
                     name=name,
+                    slug=_slugify(name),
                     description=str(skill["description"]).strip(),
                     instructions=str(skill["instructions"]).strip(),
                     enabled=bool(skill.get("enabled", True)),

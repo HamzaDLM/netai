@@ -1,6 +1,6 @@
 import { AxiosResponse } from 'axios'
 import API from './axios'
-import type { Skill, SkillCreatePayload, SkillsBootstrap, SkillUpdatePayload, ToolCatalogAgent } from '@/types/skill.type'
+import type { Skill, SkillCreatePayload, SkillMarketplaceListing, SkillsBootstrap, SkillUpdatePayload, ToolCatalogAgent } from '@/types/skill.type'
 
 class SkillsService {
 	getSkills(): Promise<AxiosResponse<Skill[]>> {
@@ -17,6 +17,22 @@ class SkillsService {
 
 	createSkill(payload: SkillCreatePayload): Promise<AxiosResponse<Skill>> {
 		return API.post('/skills', payload)
+	}
+
+	requestShare(skillId: number): Promise<AxiosResponse<Skill>> {
+		return API.post(`/skills/${skillId}/share`)
+	}
+
+	installMarketplaceSkill(listingId: number): Promise<AxiosResponse<Skill>> {
+		return API.post(`/skills/marketplace/${listingId}/install`)
+	}
+
+	approveMarketplaceSkill(listingId: number, review_notes = ''): Promise<AxiosResponse<SkillMarketplaceListing>> {
+		return API.post(`/skills/marketplace/${listingId}/approve`, { review_notes })
+	}
+
+	rejectMarketplaceSkill(listingId: number, review_notes = ''): Promise<AxiosResponse<SkillMarketplaceListing>> {
+		return API.post(`/skills/marketplace/${listingId}/reject`, { review_notes })
 	}
 
 	updateSkill(skillId: number, payload: SkillUpdatePayload): Promise<AxiosResponse<Skill>> {

@@ -32,4 +32,8 @@ async def test_init_db_seeds_demo_user_and_example_skills(
         "WAN Flap Triage",
         "Network Change Impact Correlation",
     ]
+    assert [skill.slug for skill in skills] == [
+        "wan-flap-triage",
+        "network-change-impact-correlation",
+    ]
     assert all(skill.enabled is True for skill in skills)

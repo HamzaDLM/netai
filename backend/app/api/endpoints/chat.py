@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -24,10 +25,13 @@ from app.api.models.chat import (
     ToolCallStatus,
 )
 from app.api.models.skills import Skill
+from app.api.models.users import User as UserModel
 from app.api.models.users import UserRole
 from app.api.schemas.chat import (
     AdminFeedbackConversationResponse,
     AdminFeedbackItemResponse,
+    ChatUserSettingsResponse,
+    ChatUserSettingsUpdate,
     ConversationAttachmentCreate,
     ConversationAttachmentResponse,
     ConversationCreate,
@@ -52,6 +56,7 @@ from app.services.chat_attachments import (
 from app.workflows.agent_runner import run_agent, run_agent_stream
 
 router = APIRouter(prefix="/llm", tags=["chat"])
+_SKILL_COMMAND_RE = re.compile(r"(?<!\S)/([a-z0-9][a-z0-9-]{0,79})", re.IGNORECASE)
 
 
 def _event_actor(event: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -118,6 +123,30 @@ def _derive_times(duration_ms: Any) -> tuple[datetime, datetime]:
     return ended_at, ended_at
 
 
+def _normalize_custom_instructions(value: str | None) -> str | None:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+async def _get_or_create_user_record(
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+) -> UserModel:
+    record = await db.get(UserModel, user.id)
+    if record is not None:
+        return record
+
+    record = UserModel(
+        id=user.id,
+        username=user.username,
+        role=user.role,
+        custom_instructions=None,
+    )
+    db.add(record)
+    await db.flush()
+    return record
+
+
 def _message_load_options():
     return [
         selectinload(Message.agent_runs).selectinload(AgentRun.sub_agent_calls),
@@ -143,29 +172,63 @@ async def _get_active_conversation(
     return conversation
 
 
-async def _load_enabled_skills(
+def _extract_requested_skill_slugs(content: str) -> tuple[list[str], str]:
+    seen: set[str] = set()
+    slugs: list[str] = []
+    for match in _SKILL_COMMAND_RE.finditer(content):
+        slug = str(match.group(1) or "").strip().lower()
+        if slug and slug not in seen:
+            seen.add(slug)
+            slugs.append(slug)
+
+    cleaned = _SKILL_COMMAND_RE.sub(" ", content)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return slugs, cleaned
+
+
+async def _load_requested_skills(
     *,
     db: AsyncSessionDep,
     user_id: int,
+    content: str,
 ) -> list[dict[str, str]]:
+    requested_slugs, _ = _extract_requested_skill_slugs(content)
+    if not requested_slugs:
+        return []
+
     stmt = (
         select(Skill)
         .where(
             Skill.user_id == user_id,
             Skill.archived.is_(False),
             Skill.enabled.is_(True),
+            Skill.slug.in_(requested_slugs),
         )
         .order_by(Skill.created_at.asc())
     )
     result = await db.execute(stmt)
     skills = result.scalars().all()
-    return [
-        {
-            "name": str(skill.name or "").strip(),
-            "instructions": str(skill.instructions or "").strip(),
-        }
+    skills_by_slug = {
+        str(skill.slug or "").strip().lower(): skill
         for skill in skills
         if str(skill.instructions or "").strip()
+    }
+    missing = [slug for slug in requested_slugs if slug not in skills_by_slug]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unknown_skill_commands",
+                "commands": missing,
+            },
+        )
+
+    return [
+        {
+            "name": str(skills_by_slug[slug].name or "").strip(),
+            "instructions": str(skills_by_slug[slug].instructions or "").strip(),
+        }
+        for slug in requested_slugs
     ]
 
 
@@ -382,6 +445,34 @@ async def create_conversation(
     await db.commit()
     await db.refresh(conversation)
     return conversation
+
+
+@router.get("/settings/chat", response_model=ChatUserSettingsResponse)
+async def get_chat_settings(
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+):
+    record = await _get_or_create_user_record(db, user)
+    custom_instructions = record.custom_instructions or ""
+    await db.commit()
+    return ChatUserSettingsResponse(custom_instructions=custom_instructions)
+
+
+@router.patch("/settings/chat", response_model=ChatUserSettingsResponse)
+async def update_chat_settings(
+    payload: ChatUserSettingsUpdate,
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+):
+    record = await _get_or_create_user_record(db, user)
+    record.custom_instructions = _normalize_custom_instructions(
+        payload.custom_instructions
+    )
+    await db.commit()
+    await db.refresh(record)
+    return ChatUserSettingsResponse(
+        custom_instructions=record.custom_instructions or ""
+    )
 
 
 @router.get("/conversations", response_model=list[ConversationResponse])
@@ -642,6 +733,15 @@ async def ask_llm(
     user: CheckUserSSODep,
 ):
     await _get_active_conversation(db, conversation_id)
+    user_record = await _get_or_create_user_record(db, user)
+    custom_instructions = user_record.custom_instructions
+    requested_skills = await _load_requested_skills(
+        db=db,
+        user_id=user.id,
+        content=payload.content,
+    )
+    _, normalized_question = _extract_requested_skill_slugs(payload.content)
+    question_for_agent = normalized_question or payload.content.strip()
 
     trace = langfuse_client.start_trace(
         "chat.ask_llm",
@@ -658,14 +758,19 @@ async def ask_llm(
     await db.flush()
     user_message_id = user_message.id
     await db.commit()
-    enabled_skills = await _load_enabled_skills(db=db, user_id=user.id)
 
-    agent_span = trace.span("chat.agent_run", input={"question": payload.content})
+    agent_span = trace.span("chat.agent_run", input={"question": question_for_agent})
     try:
+        run_agent_kwargs: dict[str, Any] = {
+            "conversation_id": conversation_id,
+            "question": question_for_agent,
+            "skills": requested_skills or None,
+        }
+        if custom_instructions:
+            run_agent_kwargs["custom_instructions"] = custom_instructions
+
         agent_result = await run_agent(
-            conversation_id=conversation_id,
-            question=payload.content,
-            skills=enabled_skills,
+            **run_agent_kwargs,
         )
         agent_span.end(
             output={
@@ -749,6 +854,15 @@ async def ask_llm_stream(
     user: CheckUserSSODep,
 ):
     await _get_active_conversation(db, conversation_id)
+    user_record = await _get_or_create_user_record(db, user)
+    custom_instructions = user_record.custom_instructions
+    requested_skills = await _load_requested_skills(
+        db=db,
+        user_id=user.id,
+        content=payload.content,
+    )
+    _, normalized_question = _extract_requested_skill_slugs(payload.content)
+    question_for_agent = normalized_question or payload.content.strip()
 
     trace = langfuse_client.start_trace(
         "chat.ask_llm_stream",
@@ -765,7 +879,6 @@ async def ask_llm_stream(
     await db.flush()
     user_message_id = user_message.id
     await db.commit()
-    enabled_skills = await _load_enabled_skills(db=db, user_id=user.id)
 
     async def event_generator():
         assistant_tokens: list[str] = []
@@ -776,11 +889,15 @@ async def ask_llm_stream(
         stream_span = trace.span("chat.stream_agent_run")
 
         try:
-            async for event in run_agent_stream(
-                conversation_id=conversation_id,
-                question=payload.content,
-                skills=enabled_skills,
-            ):
+            run_agent_stream_kwargs: dict[str, Any] = {
+                "conversation_id": conversation_id,
+                "question": question_for_agent,
+                "skills": requested_skills or None,
+            }
+            if custom_instructions:
+                run_agent_stream_kwargs["custom_instructions"] = custom_instructions
+
+            async for event in run_agent_stream(**run_agent_stream_kwargs):
                 event_type = str(event.get("type") or "")
                 if event_type == "token":
                     token = str(event.get("token") or "")

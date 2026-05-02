@@ -20,6 +20,14 @@ class MessageCreate(BaseModel):
     content: str
 
 
+class ChatUserSettingsUpdate(BaseModel):
+    custom_instructions: str | None = None
+
+
+class ChatUserSettingsResponse(BaseModel):
+    custom_instructions: str
+
+
 class ConversationAttachmentCreate(BaseModel):
     filename: str
     content: str

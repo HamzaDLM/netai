@@ -68,13 +68,20 @@ function truncate(value: string | undefined | null, maxLength = 110): string {
 	return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized
 }
 
-function formatJson(value: unknown): string {
-	if (value == null) return 'null'
+function stringifyForThoughts(value: unknown): string {
+	if (value == null) return ''
+	if (typeof value === 'string') return value
 	try {
 		return JSON.stringify(value, null, 2)
 	} catch {
 		return String(value)
 	}
+}
+
+function toThinkingCodeBlock(value: unknown): string {
+	const text = stringifyForThoughts(value) || '{}'
+	const lang = typeof value === 'string' ? 'txt' : 'json'
+	return `\`\`\`\`${lang}\n${text}\n\`\`\`\``
 }
 
 async function loadFeedbacks() {
@@ -202,11 +209,11 @@ onMounted(async () => {
 									<div class="grid gap-0 lg:grid-cols-2">
 										<div class="border-b border-stone-800 p-4 lg:border-b-0 lg:border-r">
 											<p class="text-xs font-medium uppercase tracking-[0.2em] text-stone-500">Input</p>
-											<pre class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-stone-300">{{ formatJson(call.input_params ?? {}) }}</pre>
+											<MarkdownRenderer class="thinking-code mt-3 max-h-80 overflow-auto" :content="toThinkingCodeBlock(call.input_params ?? {})" />
 										</div>
 										<div class="p-4">
 											<p class="text-xs font-medium uppercase tracking-[0.2em] text-stone-500">Output</p>
-											<pre class="mt-3 max-h-80 overflow-auto whitespace-pre-wrap text-xs leading-5 text-stone-300">{{ formatJson(call.output ?? null) }}</pre>
+											<MarkdownRenderer class="thinking-code mt-3 max-h-80 overflow-auto" :content="toThinkingCodeBlock(call.output ?? null)" />
 										</div>
 									</div>
 								</div>
@@ -218,3 +225,21 @@ onMounted(async () => {
 		</section>
 	</div>
 </template>
+
+<style scoped>
+:deep(.thinking-code.llm-content) {
+	@apply text-xs leading-5 text-stone-300;
+}
+
+:deep(.thinking-code.llm-content p) {
+	@apply pb-0;
+}
+
+:deep(.thinking-code.llm-content pre) {
+	@apply my-1 rounded-md border-stone-700/70 bg-stone-950/30 p-2;
+}
+
+:deep(.thinking-code.llm-content code) {
+	@apply text-[11px];
+}
+</style>

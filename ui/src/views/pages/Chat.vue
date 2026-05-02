@@ -12,7 +12,9 @@ import ChatAttachmentBar from '@/components/chat/ChatAttachmentBar.vue';
 import Button from '@/components/ui/button/Button.vue';
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
 import { useChatStore } from '@/stores/chat.store';
+import { useSkillsStore } from '@/stores/skills.store';
 import type { AgentEvent, AgentRun, ContextBreakdown, Message, ToolCall } from '@/types/chat.type';
+import type { Skill } from '@/types/skill.type';
 import {
     Tooltip,
     TooltipContent,
@@ -30,6 +32,7 @@ import {
 import TopologyMapper from '@/components/chat/TopologyMapper.vue';
 
 const chatStore = useChatStore()
+const skillsStore = useSkillsStore()
 const disclaimerStorageKey = 'netai-chat-beta-disclaimer-acknowledged-v1'
 
 const chatDialogueRef = ref<HTMLElement | null>(null)
@@ -41,6 +44,9 @@ const showButtonThreshold = 320
 const chatInputValue = ref('')
 const chatTextareaRef = ref<HTMLTextAreaElement | null>(null)
 const attachmentInputRef = ref<HTMLInputElement | null>(null)
+const slashQuery = ref('')
+const slashActiveIndex = ref(0)
+const slashReplaceRange = ref<{ start: number; end: number } | null>(null)
 const maxChatInputHeight = 220
 const isSidebarCollapsed = ref(false)
 type ChatWorkspaceView = 'chat' | 'skills' | 'connectors' | 'admin'
@@ -106,6 +112,7 @@ type ContextBreakdownSegment = {
     width: number
     swatchClass: string
 }
+type SlashSuggestion = Pick<Skill, 'id' | 'name' | 'slug' | 'description'>
 
 function getQuestionPreview(content: string, maxWords = 6): string {
     const normalized = content.replace(/\s+/g, ' ').trim()
@@ -123,6 +130,26 @@ const questionNavItems = computed<QuestionNavItem[]>(() =>
             preview: getQuestionPreview(message.content),
         }))
 )
+
+const slashSuggestions = computed<SlashSuggestion[]>(() => {
+    const query = slashQuery.value.trim().toLowerCase()
+    const available = skillsStore.availableSkills
+        .map(skill => ({
+            id: skill.id,
+            name: skill.name,
+            slug: skill.slug,
+            description: skill.description,
+        }))
+        .sort((left, right) => left.name.localeCompare(right.name))
+
+    if (!query) return available.slice(0, 8)
+
+    return available
+        .filter(skill => skill.slug.includes(query) || skill.name.toLowerCase().includes(query))
+        .slice(0, 8)
+})
+
+const showSlashSuggestions = computed(() => slashReplaceRange.value !== null && slashSuggestions.value.length > 0)
 
 function setUserMessageAnchor(
     messageId: number,
@@ -879,6 +906,94 @@ async function resizeChatTextarea() {
     textarea.style.overflowY = textarea.scrollHeight > maxChatInputHeight ? 'auto' : 'hidden'
 }
 
+function updateSlashSuggestions() {
+    const textarea = chatTextareaRef.value
+    if (!textarea) {
+        slashReplaceRange.value = null
+        slashQuery.value = ''
+        return
+    }
+
+    const previousRange = slashReplaceRange.value
+    const previousQuery = slashQuery.value
+    const cursor = textarea.selectionStart ?? chatInputValue.value.length
+    const beforeCursor = chatInputValue.value.slice(0, cursor)
+    const match = beforeCursor.match(/(^|\s)\/([a-z0-9-]*)$/i)
+    if (!match) {
+        slashReplaceRange.value = null
+        slashQuery.value = ''
+        return
+    }
+
+    const prefix = match[1] ?? ''
+    const query = match[2] ?? ''
+    const start = cursor - query.length - 1
+    slashReplaceRange.value = {
+        start: prefix ? start + prefix.length : start,
+        end: cursor,
+    }
+    slashQuery.value = query
+
+    const rangeChanged =
+        previousRange?.start !== slashReplaceRange.value.start ||
+        previousRange?.end !== slashReplaceRange.value.end
+
+    if (rangeChanged || previousQuery !== query) {
+        slashActiveIndex.value = 0
+    }
+}
+
+async function selectSlashSuggestion(skill: SlashSuggestion) {
+    const textarea = chatTextareaRef.value
+    const range = slashReplaceRange.value
+    if (!textarea || !range) return
+
+    const nextValue = `${chatInputValue.value.slice(0, range.start)}/${skill.slug} ${chatInputValue.value.slice(range.end)}`
+    chatInputValue.value = nextValue
+    slashReplaceRange.value = null
+    slashQuery.value = ''
+
+    await nextTick()
+    const nextCursor = range.start + skill.slug.length + 2
+    textarea.focus()
+    textarea.setSelectionRange(nextCursor, nextCursor)
+    await resizeChatTextarea()
+}
+
+function handleChatKeydown(event: KeyboardEvent) {
+    if (showSlashSuggestions.value) {
+        if (event.key === 'ArrowDown') {
+            event.preventDefault()
+            slashActiveIndex.value = (slashActiveIndex.value + 1) % slashSuggestions.value.length
+            return
+        }
+        if (event.key === 'ArrowUp') {
+            event.preventDefault()
+            slashActiveIndex.value =
+                (slashActiveIndex.value - 1 + slashSuggestions.value.length) % slashSuggestions.value.length
+            return
+        }
+        if ((event.key === 'Enter' || event.key === 'Tab') && !event.ctrlKey) {
+            event.preventDefault()
+            const selected = slashSuggestions.value[slashActiveIndex.value]
+            if (selected) {
+                void selectSlashSuggestion(selected)
+            }
+            return
+        }
+        if (event.key === 'Escape') {
+            slashReplaceRange.value = null
+            slashQuery.value = ''
+            return
+        }
+    }
+
+    if (event.key === 'Enter' && event.ctrlKey) {
+        event.preventDefault()
+        void submit()
+    }
+}
+
 function getDistanceFromBottom() {
     const container = chatDialogueRef.value
     if (!container) return 0
@@ -964,6 +1079,8 @@ async function submit() {
     const message = chatInputValue.value.trim()
     if (!message) return
     chatInputValue.value = ""
+    slashReplaceRange.value = null
+    slashQuery.value = ''
     await resizeChatTextarea()
     await chatStore.askLLM(message)
 }
@@ -1034,6 +1151,16 @@ watch(() => chatStore.selectedConversation,
     async () => { await scrollToBottom() }
 )
 
+watch(slashSuggestions, suggestions => {
+    if (!suggestions.length) {
+        slashActiveIndex.value = 0
+        return
+    }
+    if (slashActiveIndex.value >= suggestions.length) {
+        slashActiveIndex.value = 0
+    }
+})
+
 watch(activePage, async page => {
     if (page !== 'chat') {
         disconnectContentObserver()
@@ -1049,6 +1176,7 @@ watch(activePage, async page => {
 onMounted(async () => {
     isDisclaimerOpen.value = !readDisclaimerAcknowledgement()
     await chatStore.loadConversations()
+    await skillsStore.loadBootstrap()
     await loadConnectorStatus()
     await scrollToBottom()
     await resizeChatTextarea()
@@ -1089,7 +1217,7 @@ onBeforeUnmount(() => {
                         </div>
                     </div>
                 </div>
-                <Button v-if="isSidebarCollapsed && activePage !== 'chat'" @click="handleSidebarNavigate('chat')"
+                <Button v-if="isSidebarCollapsed && activePage !== 'chat' && activePage !== 'admin'" @click="handleSidebarNavigate('chat')"
                     variant="link"
                     class="absolute top-5 z-20 inline-flex items-center gap-2 px-3 py-2 text-stone-200 transition hover:text-stone-200">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24">
@@ -1105,10 +1233,11 @@ onBeforeUnmount(() => {
                 <Transition mode="out-in" enter-active-class="transform-gpu transition-all duration-300 ease-out motion-reduce:transition-none" enter-from-class="translate-y-3 opacity-0 blur-sm" enter-to-class="translate-y-0 opacity-100 blur-0" leave-active-class="transform-gpu transition-all duration-200 ease-in motion-reduce:transition-none" leave-from-class="translate-y-0 opacity-100 blur-0" leave-to-class="-translate-y-2 opacity-0 blur-sm">
                     <div v-if="activePage === 'chat'" key="chat" class="flex flex-1 min-h-0 flex-col">
                         <!-- Chat dialogue -->
-                        <div ref="chatDialogueRef" @scroll="updateScrollState"
+                        <div
                             class="flex flex-1 min-h-0 flex-col overflow-hidden transition-all duration-300 ease-out motion-reduce:transition-none"
                             :class="chatStore.isSyncing ? 'translate-y-2 opacity-0' : 'translate-y-0 opacity-100'">
-                            <div class="flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-10 px-20">
+                            <div ref="chatDialogueRef" @scroll="updateScrollState"
+                                class="flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-10 px-20">
                         <!-- v-if="!selectedConversation || selectedConversation.messages.length < 1" -->
                                 <div v-if="chatStore.messages.length == 0"
                                     class="flex h-full flex-col items-center justify-center gap-2">
@@ -1360,9 +1489,32 @@ onBeforeUnmount(() => {
                             <input ref="attachmentInputRef" type="file" class="hidden" :accept="attachmentAccept"
                                 @change="handleAttachmentChange" />
                             <div
-                                class="rounded-md border border-stone-800 bg-stone-900/60 px-3 py-2.5 focus:border-stone-800">
-                                <textarea ref="chatTextareaRef" v-model="chatInputValue" @input="resizeChatTextarea"
-                                    @keydown.ctrl.enter.prevent="submit" rows="1" data-slot="input-group-control"
+                                class="relative rounded-md border border-stone-800 bg-stone-900/60 px-3 py-2.5 focus:border-stone-800">
+                                <div v-if="showSlashSuggestions"
+                                    class="absolute bottom-[calc(100%+0.75rem)] left-0 right-0 z-30 overflow-hidden rounded-xl border border-stone-800 bg-stone-950/95 shadow-2xl shadow-black/40 backdrop-blur">
+                                    <div class="border-b border-stone-800 px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-stone-500">
+                                        Skills
+                                    </div>
+                                    <button
+                                        v-for="(skill, index) in slashSuggestions"
+                                        :key="skill.id"
+                                        type="button"
+                                        class="flex w-full items-start justify-between gap-3 px-3 py-3 text-left transition"
+                                        :class="index === slashActiveIndex ? 'bg-stone-900 text-stone-100' : 'text-stone-300 hover:bg-stone-900/70'"
+                                        @mousedown.prevent="selectSlashSuggestion(skill)">
+                                        <div>
+                                            <p class="text-sm font-medium">/{{ skill.slug }}</p>
+                                            <p class="mt-1 text-xs text-stone-500">{{ skill.name }}</p>
+                                            <p v-if="skill.description" class="mt-2 text-xs leading-5 text-stone-400">
+                                                {{ skill.description }}
+                                            </p>
+                                        </div>
+                                    </button>
+                                </div>
+                                <textarea ref="chatTextareaRef" v-model="chatInputValue"
+                                    @input="() => { resizeChatTextarea(); updateSlashSuggestions() }"
+                                    @click="updateSlashSuggestions" @keyup="updateSlashSuggestions"
+                                    @keydown="handleChatKeydown" rows="1" data-slot="input-group-control"
                                     class="min-h-15 flex w-full resize-none bg-transparent text-base outline-none transition-[color,box-shadow] placeholder:text-stone-600 md:text-sm"
                                     placeholder="How can I help you today?" />
                                 <div class="flex items-end justify-between gap-4 py-1 pt-5">

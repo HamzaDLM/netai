@@ -1,20 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogHeader,
-    DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useGenericStore } from '@/stores/generic.store'
+import { useChatStore } from '@/stores/chat.store'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 
 const genericStore = useGenericStore()
+const chatStore = useChatStore()
 const {
     codeHighlighter,
     uiVersion,
@@ -23,6 +23,12 @@ const {
     backendGitSha,
     backendVersionStatus,
 } = storeToRefs(genericStore)
+const {
+    customInstructions,
+    isLoadingSettings,
+    isSavingSettings,
+} = storeToRefs(chatStore)
+const customInstructionsDraft = ref('')
 
 const appearancePreviewMarkdown = `
 \`\`\`ts
@@ -48,8 +54,19 @@ const backendStatusLabel = computed(() => {
     return 'Not checked yet'
 })
 
+watch(
+    customInstructions,
+    value => {
+        customInstructionsDraft.value = value
+    },
+    { immediate: true }
+)
+
 onMounted(async () => {
-    await genericStore.ensureBackendVersion()
+    await Promise.all([
+        genericStore.ensureBackendVersion(),
+        chatStore.loadChatSettings(),
+    ])
 })
 </script>
 
@@ -67,10 +84,6 @@ onMounted(async () => {
         <DialogContent
             class="flex flex-col border-stone-800 bg-stone-950 text-stone-200 w-[70vw] max-w-[92vw] h-[70vh] max-h-[85vh] overflow-hidden gap-0 p-0">
             <DialogHeader class="px-6 pt-6 pb-4 h-min">
-                <DialogTitle>Settings</DialogTitle>
-                <DialogDescription class="text-stone-400">
-                    Configure your preferences here.
-                </DialogDescription>
             </DialogHeader>
             <Tabs default-value="general" class="flex w-full h-full min-h-0 gap-4 px-6 pb-6">
                 <TabsList
@@ -85,13 +98,43 @@ onMounted(async () => {
                             <p class="text-2xl font-semibold text-stone-300">
                                 General
                             </p>
-                            <!-- <p class="text-sm text-stone-400">
-                                Create skills that will customize the way NetAI works.
-                            </p> -->
+                        </div>
+
+                            <div class="flex items-start justify-between gap-4">
+                                <div>
+                                    <p class="text-base font-semibold text-stone-400">Custom instructions</p>
+                                    <p class="mt-1 max-w-2xl text-sm text-stone-500">
+                                        These are injected into every request.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    :disabled="isSavingSettings || isLoadingSettings"
+                                    @click="chatStore.saveCustomInstructions(customInstructionsDraft)"
+                                    class="inline-flex h-9 shrink-0 items-center rounded-md border border-stone-800 px-3 text-sm text-stone-300 transition hover:border-stone-600 hover:bg-stone-900 disabled:cursor-not-allowed disabled:opacity-50">
+                                    {{ isSavingSettings ? 'Saving...' : 'Save' }}
+                                </button>
+                            </div>
+
+                            <div class="mt-4">
+                                <textarea
+                                    v-model="customInstructionsDraft"
+                                    :disabled="isLoadingSettings"
+                                    rows="10"
+                                    class="min-h-48 w-full rounded-md border border-stone-800 bg-stone-950/70 px-3 py-3 text-sm leading-6 text-stone-200 outline-none transition placeholder:text-stone-600 focus:border-stone-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    placeholder="Example: Be concise. Prefer actionable answers. For operational questions, start with the most likely cause and then list the evidence." />
+                            </div>
+                        <div v-if="isLoadingSettings" class="mt-3 text-xs text-stone-500">
+                            Loading saved chat settings...
                         </div>
                     </TabsContent>
 
                     <TabsContent value="appearance" class="h-full pr-2 space-y-3 overflow-y-auto">
+                        <div class="mb-4">
+                            <p class="text-2xl font-semibold text-stone-300">
+                                Appearance 
+                            </p>
+                        </div>
                         <div class="text-sm text-stone-300">Code highlighter</div>
                         <Select v-model="codeHighlighter">
                             <SelectTrigger class="w-full border-stone-700 bg-zinc-900 text-stone-200">
@@ -107,7 +150,7 @@ onMounted(async () => {
                         <MarkdownRenderer :content="appearancePreviewMarkdown" />
                     </TabsContent>
 
-                    <TabsContent value="about" class="h-full px-4 overflow-y-auto text-sm text-stone-400">
+                    <TabsContent value="about" class="h-full overflow-y-auto text-sm text-stone-400">
                         <div class="mb-4">
                             <p class="text-2xl font-semibold text-stone-300">
                                 About

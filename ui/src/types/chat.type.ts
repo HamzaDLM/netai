@@ -134,6 +134,10 @@ export interface ChatAttachment {
 	updated_at: string
 }
 
+export interface ChatUserSettings {
+	custom_instructions: string
+}
+
 export interface Conversation {
 	id: string
 	title: string

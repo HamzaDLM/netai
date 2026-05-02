@@ -85,8 +85,8 @@ def _build_skills_prompt(skills: list[SkillInstruction] | None) -> str:
         return ""
 
     lines: list[str] = [
-        "Enabled user skills (custom behavior preferences):",
-        "Apply these preferences when relevant, unless they conflict with safety or factual correctness.",
+        "User-selected skills explicitly invoked for this request:",
+        "Apply these instructions for this request unless they conflict with safety or factual correctness.",
     ]
     for index, skill in enumerate(skills, start=1):
         name = str(skill.get("name") or f"Skill {index}").strip() or f"Skill {index}"
@@ -98,6 +98,19 @@ def _build_skills_prompt(skills: list[SkillInstruction] | None) -> str:
     return "\n".join(lines).strip()
 
 
+def _build_custom_instructions_prompt(custom_instructions: str | None) -> str:
+    normalized = str(custom_instructions or "").strip()
+    if not normalized:
+        return ""
+
+    return (
+        "Custom instructions from the user:\n"
+        "Apply these instructions when answering unless they conflict with safety, "
+        "factual accuracy, or higher-priority instructions.\n\n"
+        f"{normalized}"
+    )
+
+
 def _with_runtime_skill_prompts(
     messages: list[Any], skills: list[SkillInstruction] | None
 ) -> list[Any]:
@@ -105,6 +118,27 @@ def _with_runtime_skill_prompts(
     if not skills_prompt:
         return messages
     return [*messages, ChatMessage.from_system(skills_prompt)]
+
+
+def _with_runtime_custom_instructions(
+    messages: list[Any],
+    *,
+    question: str,
+    custom_instructions: str | None,
+) -> list[Any]:
+    custom_prompt = _build_custom_instructions_prompt(custom_instructions)
+    if not custom_prompt:
+        return messages
+
+    out = list(messages)
+    latest_question = (
+        out.pop()
+        if out and getattr(out[-1], "text", None) == question
+        else ChatMessage.from_user(question)
+    )
+    out.append(ChatMessage.from_user(custom_prompt))
+    out.append(latest_question)
+    return out
 
 
 def _with_runtime_attachment_context(
@@ -278,6 +312,7 @@ async def run_agent(
     conversation_id: str,
     question: str,
     skills: list[SkillInstruction] | None = None,
+    custom_instructions: str | None = None,
 ) -> dict:
     context = await build_conversation_context(conversation_id=conversation_id)
     attachments = await load_active_attachments_for_prompt(
@@ -286,10 +321,14 @@ async def run_agent(
     attachment_reference_text = render_attachment_reference_text(attachments)
     messages = _with_runtime_formatting_prompt(
         _with_runtime_skill_prompts(
-            _with_runtime_attachment_context(
-                context.messages,
+            _with_runtime_custom_instructions(
+                _with_runtime_attachment_context(
+                    context.messages,
+                    question=question,
+                    attachment_reference_text=attachment_reference_text,
+                ),
                 question=question,
-                attachment_reference_text=attachment_reference_text,
+                custom_instructions=custom_instructions,
             ),
             skills,
         )
@@ -320,6 +359,7 @@ async def run_agent_stream(
     conversation_id: str,
     question: str,
     skills: list[SkillInstruction] | None = None,
+    custom_instructions: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     context = await build_conversation_context(conversation_id=conversation_id)
     attachments = await load_active_attachments_for_prompt(
@@ -328,10 +368,14 @@ async def run_agent_stream(
     attachment_reference_text = render_attachment_reference_text(attachments)
     messages = _with_runtime_formatting_prompt(
         _with_runtime_skill_prompts(
-            _with_runtime_attachment_context(
-                context.messages,
+            _with_runtime_custom_instructions(
+                _with_runtime_attachment_context(
+                    context.messages,
+                    question=question,
+                    attachment_reference_text=attachment_reference_text,
+                ),
                 question=question,
-                attachment_reference_text=attachment_reference_text,
+                custom_instructions=custom_instructions,
             ),
             skills,
         )

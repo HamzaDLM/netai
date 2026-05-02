@@ -103,6 +103,9 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	const contextWindow = ref<ContextMetrics | null>(null)
 	const attachments = ref<ChatAttachment[]>([])
 	const isUploadingAttachment = ref(false)
+	const customInstructions = ref('')
+	const isLoadingSettings = ref(false)
+	const isSavingSettings = ref(false)
 
 	const hasConversations = computed(function () {
 		return conversations.value.length > 0
@@ -270,6 +273,33 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			toast({ title, variant: 'destructive' })
 		} finally {
 			isUploadingAttachment.value = false
+		}
+	}
+
+	async function loadChatSettings(): Promise<void> {
+		isLoadingSettings.value = true
+		try {
+			const result = await chatService.getChatSettings()
+			customInstructions.value = result.data.custom_instructions ?? ''
+		} catch (err) {
+			toast({ title: 'Failed to load chat settings', variant: 'destructive' })
+		} finally {
+			isLoadingSettings.value = false
+		}
+	}
+
+	async function saveCustomInstructions(nextValue?: string): Promise<void> {
+		isSavingSettings.value = true
+		try {
+			const result = await chatService.updateChatSettings({
+				custom_instructions: nextValue ?? customInstructions.value,
+			})
+			customInstructions.value = result.data.custom_instructions ?? ''
+			toast({ title: 'Custom instructions saved' })
+		} catch (err) {
+			toast({ title: 'Failed to save custom instructions', variant: 'destructive' })
+		} finally {
+			isSavingSettings.value = false
 		}
 	}
 
@@ -525,6 +555,9 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		contextWindow.value = null
 		attachments.value = []
 		isUploadingAttachment.value = false
+		customInstructions.value = ''
+		isLoadingSettings.value = false
+		isSavingSettings.value = false
 	}
 
 	return {
@@ -542,6 +575,9 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		contextWindow,
 		attachments,
 		isUploadingAttachment,
+		customInstructions,
+		isLoadingSettings,
+		isSavingSettings,
 		loadConversations,
 		setConversationSearchQuery,
 		selectConversation,
@@ -552,6 +588,8 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		loadAttachments,
 		uploadAttachment,
 		deleteAttachment,
+		loadChatSettings,
+		saveCustomInstructions,
 		addMessage,
 		addUserMessage,
 		addAssistantMessage,

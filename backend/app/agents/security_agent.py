@@ -31,5 +31,8 @@ security_agent = Agent(
 security_specialist_tool = ComponentTool(
     component=security_agent,
     name="security_specialist",
-    description="",
+    description=(
+        "Network security and hardening specialist. Use for ACLs, firewall posture, "
+        "device exposure, protocol security, segmentation, and configuration risk review."
+    ),
 )
