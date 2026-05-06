@@ -8,7 +8,7 @@ User={{ netai_user }}
 Group={{ netai_group }}
 WorkingDirectory={{ netai_release_dir }}
 Environment=PATH={{ netai_home }}/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-EnvironmentFile={{ netai_release_dir }}/backend/.env
+EnvironmentFile={{ netai_release_dir }}/log_ingestor/.env
 ExecStart={{ netai_release_dir }}/target/release/log_ingestor
 Restart=always
 RestartSec=5

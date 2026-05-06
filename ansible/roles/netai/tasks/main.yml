@@ -72,6 +72,17 @@
   no_log: true
   notify: Restart netai backend
 
+- name: Render log ingestor environment file
+  ansible.builtin.template:
+    src: log-ingestor.env.j2
+    dest: "{{ netai_release_dir }}/log_ingestor/.env"
+    owner: "{{ netai_user }}"
+    group: "{{ netai_group }}"
+    mode: "0640"
+  no_log: true
+  when: netai_enable_log_ingestor | bool
+  notify: Restart netai log ingestor
+
 - name: Render UI production environment file
   ansible.builtin.copy:
     dest: "{{ netai_release_dir }}/ui/.env.production"

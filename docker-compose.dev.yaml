@@ -93,7 +93,7 @@ services:
       context: ./log_ingestor
       dockerfile: Dockerfile
     env_file:
-      - ./backend/.env
+      - ./log_ingestor/.env.skeleton
     environment:
       KAFKA_BROKERS: kafka:29092
       KAFKA_TOPIC: syslogs

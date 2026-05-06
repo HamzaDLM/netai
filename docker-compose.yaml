@@ -102,7 +102,7 @@ services:
       dockerfile: Dockerfile
     container_name: netai_log_ingestor
     env_file:
-      - ./backend/.env
+      - ./log_ingestor/.env.skeleton
     environment:
       KAFKA_BROKERS: kafka:29092
       KAFKA_TOPIC: syslogs

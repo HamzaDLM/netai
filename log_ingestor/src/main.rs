@@ -11,7 +11,7 @@ use log_ingestor::kafka::consumer::create_stream_consumer;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _ = dotenvy::dotenv();
+    let _ = dotenvy::from_filename(".env").or_else(|_| dotenvy::from_filename("log_ingestor/.env"));
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(
         if cfg!(debug_assertions) {
             "debug"

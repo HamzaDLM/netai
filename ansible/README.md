@@ -56,6 +56,13 @@ netai_backend_env:
   GEMINI_API_KEY: "<set-me>"
   OPENAI_API_KEY: ""
 
+netai_log_ingestor_env:
+  KAFKA_BROKERS: 127.0.0.1:9092
+  CLICKHOUSE_URL: http://127.0.0.1:8123
+  CLICKHOUSE_PASSWORD: "<set-me>"
+  REDIS_URL: redis://127.0.0.1:6379/
+  VENDOR_LOOKUP_URL: ""
+
 # Datastores role vars (optional overrides)
 netai_clickhouse_db: netops
 netai_clickhouse_user: admin

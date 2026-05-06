@@ -22,6 +22,12 @@ The ClickHouse `template` and `template_fingerprint` columns are still populated
 
 ## Environment Variables
 
+Copy the skeleton if you want a dedicated local config:
+
+```bash
+cp log_ingestor/.env.skeleton log_ingestor/.env
+```
+
 ### Kafka
 - `KAFKA_BROKERS` (default: `localhost:9092`)
 - `KAFKA_TOPIC` (default: `syslogs`)
@@ -79,6 +85,8 @@ From repo root:
 ```bash
 cargo run --manifest-path log_ingestor/Cargo.toml
 ```
+
+The binary will try `.env` in the current working directory first, then `log_ingestor/.env` when launched from the repo root.
 
 ## TODO
 
