@@ -1457,7 +1457,7 @@ onBeforeUnmount(() => {
                                         <div v-if="message.role == 'user'" :ref="(el) => setUserMessageAnchor(message.id, el)"
                                             class="flex justify-end">
                                             <p
-                                                class="w-fit max-w-[75%] break-words rounded-2xl border border-stone-600 bg-stone-800 px-4 py-2 text-left">
+                                                class="w-fit max-w-[75%] break-words whitespace-pre-wrap rounded-2xl border border-stone-600 bg-stone-800 px-4 py-2 text-left">
                                                 {{ message.content }}
                                             </p>
                                         </div>
