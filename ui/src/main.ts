@@ -3,7 +3,6 @@ import './assets/index.css'
 import App from './App.vue'
 import router from './router'
 import { createPinia } from 'pinia'
-import { Icon } from '@iconify/vue'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 import { initHighlighter } from '@/lib/markdown'
 
@@ -18,7 +17,6 @@ async function bootstrap(): Promise<void> {
 		return str.charAt(0).toUpperCase() + str.slice(1)
 	}
 
-	app.component('Icon', Icon)
 	app.use(router)
 	app.use(pinia)
 	app.mount('#app')

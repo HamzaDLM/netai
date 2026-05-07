@@ -237,8 +237,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="flex flex-col h-full min-h-0 overflow-hidden transition-all duration-200 border-r border-stone-900/50 bg-stone-950"
-        :class="props.collapsed ? 'col-span-1 py-4 w-min' : 'col-span-2 py-5'">
+    <div class="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-stone-900/50 bg-stone-950 transition-[width,padding] duration-200"
+        :class="props.collapsed ? 'w-20 py-4' : 'w-80 py-5'">
         <div class="px-4 shrink-0" :class="props.collapsed ? 'h-full' : ''">
             <div class="flex items-center justify-between gap-2 text-stone-300"
                 :class="props.collapsed ? 'flex-col w-min h-full justify-between' : ''">
@@ -251,7 +251,7 @@ onBeforeUnmount(() => {
                                 d="M5 22v-4q0-.575.3-1.037t.8-.738L11 13.75V12l-3.475 1.725q-.3.15-.625.225t-.65.075q-.775 0-1.463-.4t-1.062-1.15q-.35-.675-.3-1.437T3.9 9.625L7 5L5 2h6q3.325 0 5.663 2.325T19 10v12zm2-2h10V10q0-2.5-1.75-4.25T11 4H8.75l.65 1l-3.825 5.75q-.125.2-.137.413t.087.412q.125.275.338.363t.412.087q.075 0 .375-.075L13 8.75V15l-6 3zm4-8" />
                         </svg>
                         <span class="text-xl font-semibold tracking-wide text-stone-200"
-                            v-if="!props.collapsed">NetAI</span>
+                            v-if="!props.collapsed">NetAI <span class="text-xs">beta</span></span>
                     </button>
                     <Button v-if="props.collapsed" @click="emit('navigate', 'chat')" variant="ghost"
                         class="flex w-full gap-2 text-stone-300" size="default" title="Messages"
@@ -282,7 +282,7 @@ onBeforeUnmount(() => {
                         aria-label="Admin">
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
                             <path fill="currentColor"
-                                d="M12 12q-1.65 0-2.825-1.175T8 8t1.175-2.825T12 4t2.825 1.175T16 8t-1.175 2.825T12 12m-8 8v-2.8q0-.85.438-1.562T5.6 14.55q1.55-.775 3.15-1.162T12 13t3.25.388t3.15 1.162q.725.375 1.163 1.088T20 17.2V20zm2-2h12v-.8q0-.275-.137-.5t-.363-.35q-1.35-.675-2.725-1.012T12 15t-2.775.338T6.5 16.35q-.225.125-.362.35T6 17.2zm6-8q.825 0 1.413-.587T14 8t-.587-1.412T12 6t-1.412.588T10 8t.588 1.413T12 10" />
+                                d="m5 19l-2-9l5.5 3L12 6l3.5 7L21 10l-2 9zm2.4-2h9.2l.8-3.55l-2.7 1.45L12 9.5l-2.7 5.4l-2.7-1.45z" />
                         </svg>
                     </Button>
                 </div>
@@ -358,7 +358,7 @@ onBeforeUnmount(() => {
             ]">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                     <path fill="currentColor"
-                        d="M12 12q-1.65 0-2.825-1.175T8 8t1.175-2.825T12 4t2.825 1.175T16 8t-1.175 2.825T12 12m-8 8v-2.8q0-.85.438-1.562T5.6 14.55q1.55-.775 3.15-1.162T12 13t3.25.388t3.15 1.162q.725.375 1.163 1.088T20 17.2V20zm2-2h12v-.8q0-.275-.137-.5t-.363-.35q-1.35-.675-2.725-1.012T12 15t-2.775.338T6.5 16.35q-.225.125-.362.35T6 17.2zm6-8q.825 0 1.413-.587T14 8t-.587-1.412T12 6t-1.412.588T10 8t.588 1.413T12 10" />
+                        d="m5 19l-2-9l5.5 3L12 6l3.5 7L21 10l-2 9zm2.4-2h9.2l.8-3.55l-2.7 1.45L12 9.5l-2.7 5.4l-2.7-1.45z" />
                 </svg>
                 <span>Admin</span>
             </Button>

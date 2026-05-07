@@ -178,3 +178,19 @@ async def test_chat_skill_commands_only_apply_explicitly_selected_skills(
     assert ask_without_skill_resp.status_code == 200
     assert captured["question"] == "investigate edge-02"
     assert captured["skills"] is None
+
+    ask_with_path_resp = await async_client.post(
+        f"/api/v1/llm/conversation/{conversation_id}/message",
+        json={"content": "check /var/log/syslog for edge-03"},
+    )
+    assert ask_with_path_resp.status_code == 200
+    assert captured["question"] == "check /var/log/syslog for edge-03"
+    assert captured["skills"] is None
+
+    ask_with_unknown_prefix_resp = await async_client.post(
+        f"/api/v1/llm/conversation/{conversation_id}/message",
+        json={"content": "/var/log edge-04 is flapping"},
+    )
+    assert ask_with_unknown_prefix_resp.status_code == 200
+    assert captured["question"] == "/var/log edge-04 is flapping"
+    assert captured["skills"] is None

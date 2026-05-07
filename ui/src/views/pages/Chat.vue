@@ -49,6 +49,10 @@ const slashActiveIndex = ref(0)
 const slashReplaceRange = ref<{ start: number; end: number } | null>(null)
 const maxChatInputHeight = 220
 const isSidebarCollapsed = ref(false)
+const largeScreenBreakpoint = '(min-width: 1024px)'
+const isLargeScreen = ref(true)
+let largeScreenMediaQuery: MediaQueryList | null = null
+let handleLargeScreenChange: ((event: MediaQueryListEvent) => void) | null = null
 type ChatWorkspaceView = 'chat' | 'skills' | 'connectors' | 'admin'
 
 const activePage = ref<ChatWorkspaceView>('chat')
@@ -150,6 +154,18 @@ const slashSuggestions = computed<SlashSuggestion[]>(() => {
 })
 
 const showSlashSuggestions = computed(() => slashReplaceRange.value !== null && slashSuggestions.value.length > 0)
+
+function syncSidebarWithViewport(matchesLargeScreen: boolean) {
+    isLargeScreen.value = matchesLargeScreen
+    if (!matchesLargeScreen) {
+        isSidebarCollapsed.value = true
+        return
+    }
+
+    if (activePage.value === 'chat') {
+        isSidebarCollapsed.value = false
+    }
+}
 
 function setUserMessageAnchor(
     messageId: number,
@@ -918,18 +934,17 @@ function updateSlashSuggestions() {
     const previousQuery = slashQuery.value
     const cursor = textarea.selectionStart ?? chatInputValue.value.length
     const beforeCursor = chatInputValue.value.slice(0, cursor)
-    const match = beforeCursor.match(/(^|\s)\/([a-z0-9-]*)$/i)
+    const match = beforeCursor.match(/^\s*\/([a-z0-9-]*)$/i)
     if (!match) {
         slashReplaceRange.value = null
         slashQuery.value = ''
         return
     }
 
-    const prefix = match[1] ?? ''
-    const query = match[2] ?? ''
+    const query = match[1] ?? ''
     const start = cursor - query.length - 1
     slashReplaceRange.value = {
-        start: prefix ? start + prefix.length : start,
+        start,
         end: cursor,
     }
     slashQuery.value = query
@@ -1043,6 +1058,7 @@ async function setupContentObserver() {
 }
 
 function toggleSidebar() {
+    if (!isLargeScreen.value) return
     isSidebarCollapsed.value = !isSidebarCollapsed.value
 }
 
@@ -1174,6 +1190,15 @@ watch(activePage, async page => {
 })
 
 onMounted(async () => {
+    if (typeof window !== 'undefined') {
+        largeScreenMediaQuery = window.matchMedia(largeScreenBreakpoint)
+        syncSidebarWithViewport(largeScreenMediaQuery.matches)
+        handleLargeScreenChange = event => {
+            syncSidebarWithViewport(event.matches)
+        }
+        largeScreenMediaQuery.addEventListener('change', handleLargeScreenChange)
+    }
+
     isDisclaimerOpen.value = !readDisclaimerAcknowledgement()
     await chatStore.loadConversations()
     await skillsStore.loadBootstrap()
@@ -1184,19 +1209,21 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+    if (largeScreenMediaQuery && handleLargeScreenChange) {
+        largeScreenMediaQuery.removeEventListener('change', handleLargeScreenChange)
+    }
     disconnectContentObserver()
 })
 </script>
 
 <template>
     <Main title="Chat">
-        <div class="grid w-full h-full min-h-0 grid-cols-12 overflow-hidden">
+        <div class="flex h-full w-full min-h-0 overflow-hidden">
             <ChatSidebar :collapsed="isSidebarCollapsed" :active-view="activePage"
                 :history-search-query="historySearchQuery" @toggle="toggleSidebar" @navigate="handleSidebarNavigate"
                 @update:history-search-query="handleHistorySearchQueryUpdate" />
             <!-- Main section -->
-            <div class="relative flex flex-col h-full min-h-0"
-                :class="isSidebarCollapsed ? 'col-span-11' : 'col-span-10'">
+            <div class="relative flex min-w-0 flex-1 flex-col h-full min-h-0">
                 <!-- Question Navbar -->
                 <div v-if="activePage === 'chat' && questionNavItems.length > 1"
                     class="absolute top-0 bottom-0 z-20 items-center hidden pointer-events-none right-2 lg:flex">
@@ -1206,7 +1233,7 @@ onBeforeUnmount(() => {
                             <div v-for="n in 5" :key="n" class="w-1 h-1 text-transparent rounded-lg bg-stone-600" />
                         </div>
                         <div
-                            class="absolute w-64 p-2 text-xs transition-all duration-300 translate-x-2 -translate-y-1/2 border rounded-lg shadow-xl opacity-0 right-4 top-1/2 border-stone-700/70 bg-stone-950/95 backdrop-blur group-hover:translate-x-0 group-hover:opacity-100">
+                            class="pointer-events-none absolute right-4 top-1/2 w-64 -translate-y-1/2 translate-x-2 rounded-lg border border-stone-700/70 bg-stone-950/95 p-2 text-xs opacity-0 shadow-xl backdrop-blur transition-all duration-300 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100">
                             <div class="max-h-[30vh] space-y-1 overflow-y-auto pr-1">
                                 <button v-for="item in questionNavItems" :key="`jump-question-${item.messageId}`"
                                     type="button" @click="jumpToQuestion(item.messageId)"
@@ -1219,7 +1246,7 @@ onBeforeUnmount(() => {
                 </div>
                 <Button v-if="isSidebarCollapsed && activePage !== 'chat' && activePage !== 'admin'" @click="handleSidebarNavigate('chat')"
                     variant="link"
-                    class="absolute top-5 z-20 inline-flex items-center gap-2 px-3 py-2 text-stone-200 transition hover:text-stone-200">
+                    class="absolute top-5 z-20 inline-flex items-center gap-2 px-3 py-2 pl-10 text-stone-200 transition hover:text-stone-200">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24">
                         <path fill="currentColor" d="m10 17l-5-5l5-5l1.4 1.4L8.8 11H20v2H8.8l2.6 2.6z" />
                     </svg>
@@ -1457,7 +1484,7 @@ onBeforeUnmount(() => {
                                         <div v-if="message.role == 'user'" :ref="(el) => setUserMessageAnchor(message.id, el)"
                                             class="flex justify-end">
                                             <p
-                                                class="w-fit max-w-[75%] break-words whitespace-pre-wrap rounded-2xl border border-stone-600 bg-stone-800 px-4 py-2 text-left">
+                                                class="w-fit max-w-[75%] break-words whitespace-pre-wrap rounded-2xl border border-stone-800 bg-stone-900 px-4 py-2 text-left">
                                                 {{ message.content }}
                                             </p>
                                         </div>

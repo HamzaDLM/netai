@@ -120,8 +120,8 @@ onMounted(async () => {
                     </p>
                 </div>
 
-                <div class="grid gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(18rem,0.8fr)]">
-                    <div class="p-6 border rounded-2xl border-stone-800 bg-zinc-900/30">
+                <div class="">
+                    <div class="border-t border-stone-800 pt-5">
                         <div class="flex items-center justify-between gap-3">
                             <div>
                                 <p class="text-lg font-semibold text-stone-300">Available Connectors</p>
@@ -130,19 +130,24 @@ onMounted(async () => {
                                     workspace.
                                 </p>
                             </div>
-                            <p class="text-xs uppercase tracking-[0.24em] text-stone-500">
-                                {{ connectorCards.length }} total
+							<div class="flex flex-col gap-2 justify-end">
+                            <p class="text-xs text-right uppercase tracking-[0.24em] text-stone-500">
+                                {{ connectorCards.length }} connectors 
                             </p>
+                            <p class="text-xs text-right uppercase tracking-[0.24em] text-stone-500">
+								{{ availableToolCount }} tool{{ availableToolCount === 1 ? '' : 's' }}
+                            </p>
+							</div>
                         </div>
                     </div>
 
-                    <div class="p-6 border rounded-2xl border-stone-800 bg-zinc-900/20">
-                        <p class="text-sm font-medium text-stone-300">Tool Coverage</p>
-                        <p class="mt-2 text-sm leading-6 text-stone-500">
-                            {{ availableToolCount }} tool{{ availableToolCount === 1 ? '' : 's' }} are currently mapped
-                            to these connectors.
-                        </p>
-                    </div>
+                    <!-- <div class="p-6 border rounded-2xl border-stone-800 bg-zinc-900/20"> -->
+                    <!--     <p class="text-sm font-medium text-stone-300">Tool Coverage</p> -->
+                    <!--     <p class="mt-2 text-sm leading-6 text-stone-500"> -->
+                    <!--         {{ availableToolCount }} tool{{ availableToolCount === 1 ? '' : 's' }} are currently mapped -->
+                    <!--         to these connectors. -->
+                    <!--     </p> -->
+                    <!-- </div> -->
                 </div>
 
                 <div v-if="connectorsLoading" class="text-sm text-stone-500">

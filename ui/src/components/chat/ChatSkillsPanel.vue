@@ -24,8 +24,27 @@
 	const skillFormDescription = ref('')
 	const skillFormInstructions = ref('')
 	const skillFormEnabled = ref(true)
+	const isReviewQueueExpanded = ref(false)
+	const reviewQueueSearch = ref('')
 
 	const isEditMode = computed(() => skillDialogMode.value === 'edit' && activeSkillId.value !== null)
+	const filteredReviewQueue = computed(() => {
+		const query = reviewQueueSearch.value.trim().toLowerCase()
+		if (!query) return skillsStore.reviewQueue
+
+		return skillsStore.reviewQueue.filter(listing => {
+			const haystack = [
+				listing.name,
+				listing.slug,
+				listing.description,
+				listing.review_notes,
+			]
+				.filter(Boolean)
+				.join(' ')
+				.toLowerCase()
+			return haystack.includes(query)
+		})
+	})
 	function resetSkillForm() {
 		skillDialogMode.value = 'create'
 		activeSkillId.value = null
@@ -51,7 +70,7 @@
 	}
 
 	function marketplaceStatusLabel(skill: Skill): string {
-		if (!skill.marketplace_status) return 'Private'
+		if (!skill.marketplace_status) return ''
 		if (skill.marketplace_status === 'approved') return 'Marketplace Live'
 		if (skill.marketplace_status === 'pending') return 'Pending Review'
 		return 'Rejected'
@@ -114,7 +133,7 @@
 						<p class="max-w-3xl text-sm leading-6 text-stone-400">
 							Skills are now explicit chat commands. Create or install them here, then invoke them inside
 							chat with
-							<span class="font-medium text-stone-200">`/skill-slug`</span>.
+							<span class="font-medium text-stone-200">`/skill-name`</span>.
 						</p>
 					</div>
 					<div class="flex gap-2">
@@ -123,7 +142,16 @@
 								<button type="button"
 									class="inline-flex h-11 items-center gap-3 self-start rounded-full px-4 text-sm font-medium text-stone-200 transition hover:bg-stone-800">
 									<span class="inline-flex h-6 w-6 items-center justify-center text-stone-200">
-										<Icon icon="solar:shop-2-linear" class="h-4 w-4" />
+										<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+											stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+											aria-hidden="true">
+											<path d="M3 7.5h18" />
+											<path
+												d="M6 7.5V6a2 2 0 0 1 2-2h2.5a1.5 1.5 0 0 1 3 0H16a2 2 0 0 1 2 2v1.5" />
+											<path d="M5 7.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5" />
+											<path d="M9 11h6" />
+											<path d="M12 8.5V14" />
+										</svg>
 									</span>
 									Marketplace
 								</button>
@@ -177,7 +205,12 @@
 									class="inline-flex h-11 items-center gap-3 self-start rounded-full px-4 text-sm font-medium text-stone-200 transition hover:bg-stone-800"
 									@click="openCreateSkillDialog">
 									<span class="inline-flex h-6 w-6 items-center justify-center text-stone-200">
-										<Icon icon="fluent-emoji-high-contrast:plus" class="h-3.5 w-3.5" />
+										<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+											stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
+											aria-hidden="true">
+											<path d="M12 5v14" />
+											<path d="M5 12h14" />
+										</svg>
 									</span>
 									Create Skill
 								</button>
@@ -220,7 +253,7 @@
 										class="flex items-center gap-3 rounded-lg border border-stone-800 bg-stone-900/40 px-4 py-3 text-sm text-stone-300">
 										<input v-model="skillFormEnabled" type="checkbox"
 											class="h-4 w-4 accent-red-500" />
-										<span>Available in slash autocomplete and chat invocation</span>
+										<span>Enabled</span>
 									</label>
 								</div>
 
@@ -244,46 +277,84 @@
 
 				<div v-if="skillsStore.isAdmin && skillsStore.reviewQueue.length > 0"
 					class="rounded-2xl border border-amber-700/40 bg-amber-950/20 p-6">
-					<div class="flex items-center justify-between gap-4">
+					<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
 						<div>
 							<p class="text-lg font-semibold text-stone-200">Marketplace Review Queue</p>
 							<p class="mt-1 text-sm text-stone-400">Approve or reject submitted skills before they become
 								installable.</p>
 						</div>
-						<p class="text-xs uppercase tracking-[0.22em] text-amber-300">{{ skillsStore.reviewQueue.length
-							}} pending</p>
+						<div class="flex items-center gap-3 self-start">
+							<p class="text-xs uppercase tracking-[0.22em] text-amber-300">{{
+								skillsStore.reviewQueue.length
+								}} pending</p>
+							<button type="button"
+								class="inline-flex h-10 items-center gap-2 px-3 text-sm text-amber-100 transition hover:text-amber-200"
+								@click="isReviewQueueExpanded = !isReviewQueueExpanded">
+								<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+									stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+									<path v-if="isReviewQueueExpanded" d="m18 15-6-6-6 6" />
+									<path v-else d="m6 9 6 6 6-6" />
+								</svg>
+							</button>
+						</div>
 					</div>
-					<div class="mt-5 grid gap-3 lg:grid-cols-2">
-						<article v-for="listing in skillsStore.reviewQueue" :key="listing.id"
-							class="rounded-xl border border-stone-800 bg-stone-950/60 p-4">
-							<div class="flex items-start justify-between gap-3">
-								<div>
-									<p class="text-base font-medium text-stone-200">{{ listing.name }}</p>
-									<p class="mt-1 text-xs uppercase tracking-[0.18em] text-stone-500">/{{ listing.slug
-										}}</p>
-								</div>
+					<div v-if="isReviewQueueExpanded" class="mt-5 space-y-5">
+						<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+							<label class="relative block w-full max-w-md">
 								<span
-									class="rounded-full border border-amber-700/50 px-2 py-0.5 text-[11px] uppercase tracking-wide text-amber-300">Pending</span>
-							</div>
-							<p v-if="listing.description" class="mt-4 text-sm leading-6 text-stone-400">{{
-								listing.description }}</p>
-							<div class="mt-4 flex justify-end gap-2">
-								<button type="button" :disabled="skillsStore.isBusy"
-									class="rounded-md px-3 py-1.5 text-sm text-red-300 transition hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
-									@click="skillsStore.rejectMarketplaceSkill(listing.id)">
-									Reject
-								</button>
-								<button type="button" :disabled="skillsStore.isBusy"
-									class="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-sm text-emerald-200 transition hover:bg-emerald-900/40 disabled:opacity-50"
-									@click="skillsStore.approveMarketplaceSkill(listing.id)">
-									Approve
-								</button>
-							</div>
-						</article>
+									class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-stone-500">
+									<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+										stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+										aria-hidden="true">
+										<circle cx="11" cy="11" r="7" />
+										<path d="m20 20-3.5-3.5" />
+									</svg>
+								</span>
+								<input v-model="reviewQueueSearch" type="text" placeholder="Search pending skills"
+									class="h-11 w-full rounded-md border border-stone-800 bg-stone-950/70 pl-10 pr-4 text-sm text-stone-200 outline-none placeholder:text-stone-500 focus:border-amber-700/50" />
+							</label>
+							<p class="text-sm text-stone-400">
+								{{ filteredReviewQueue.length }} of {{ skillsStore.reviewQueue.length }} shown
+							</p>
+						</div>
+
+						<div v-if="filteredReviewQueue.length === 0"
+							class="rounded-xl border border-dashed border-stone-700 bg-stone-950/30 px-5 py-10 text-sm text-stone-500">
+							No pending skills match this search.
+						</div>
+						<div v-else class="grid gap-3 lg:grid-cols-2">
+							<article v-for="listing in filteredReviewQueue" :key="listing.id"
+								class="rounded-xl border border-stone-800 bg-stone-950/60 p-4">
+								<div class="flex items-start justify-between gap-3">
+									<div>
+										<p class="text-base font-medium text-stone-200">{{ listing.name }}</p>
+										<p class="mt-1 text-xs uppercase tracking-[0.18em] text-stone-500">/{{
+											listing.slug
+											}}</p>
+									</div>
+									<span
+										class="rounded-full border border-amber-700/50 px-2 py-0.5 text-[11px] uppercase tracking-wide text-amber-300">Pending</span>
+								</div>
+								<p v-if="listing.description" class="mt-4 text-sm leading-6 text-stone-400">{{
+									listing.description }}</p>
+								<div class="mt-4 flex justify-end gap-2">
+									<button type="button" :disabled="skillsStore.isBusy"
+										class="rounded-md border border-red-700/50 bg-red-950/20 px-3 py-1.5 text-sm text-red-200 transition hover:bg-red-900/40 disabled:opacity-50"
+										@click="skillsStore.rejectMarketplaceSkill(listing.id)">
+										Reject	
+									</button>
+									<button type="button" :disabled="skillsStore.isBusy"
+										class="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-sm text-emerald-200 transition hover:bg-emerald-900/40 disabled:opacity-50"
+										@click="skillsStore.approveMarketplaceSkill(listing.id)">
+										Approve
+									</button>
+								</div>
+							</article>
+						</div>
 					</div>
 				</div>
 
-				<div class="rounded-2xl border border-stone-800 bg-zinc-900/30 p-6">
+				<div>
 					<div class="flex items-center justify-between gap-3">
 						<div>
 							<p class="text-lg font-semibold text-stone-300">Your Skills</p>
@@ -304,28 +375,27 @@
 						No skills yet. Use the <span class="font-medium text-stone-300">+</span> button to create your
 						first one.
 					</div>
-					<div v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+					<div v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
 						<article v-for="skill in skillsStore.skills" :key="skill.id"
 							class="flex min-h-[15rem] flex-col rounded-xl border border-stone-800 bg-stone-950/50 p-4">
-							<div class="flex items-start justify-between gap-3">
-								<div>
-									<p class="text-base font-medium text-stone-200">{{ skill.name }}</p>
-									<p class="mt-1 text-xs tracking-[0.18em] text-stone-500">/{{ skill.slug }}</p>
+							<div class="flex gap-2 mb-3 justify-end items-center">
+								<div class="flex flex-wrap gap-2 text-xs tracking-wide">
+									<span v-if="marketplaceStatusLabel(skill) !== ''" class="rounded-full border border-stone-700 px-2 py-0.5 text-stone-400">{{
+										marketplaceStatusLabel(skill) }}</span>
+									<span v-if="skill.installed_from_listing_id"
+										class="rounded-full border border-sky-700/40 px-2 py-0.5 text-sky-300">Marketplace
+										Install</span>
 								</div>
-								<span
-									class="shrink-0 rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide"
+								<div class="w-min shrink-0 rounded-full border px-2 py-0.5 text-xs tracking-wide"
 									:class="skill.enabled ? 'border-emerald-700/50 text-emerald-300' : 'border-stone-700 text-stone-400'">
-									{{ skill.enabled ? 'Available' : 'Hidden' }}
-								</span>
+									{{ skill.enabled ? 'Enabled' : 'Disabled' }}
+								</div>
+							</div>
+							<div>
+								<p class="text-sm font-medium text-stone-200">{{ skill.name }}</p>
+								<p class="mt-1 text-xs tracking-[0.18em] text-stone-500">/{{ skill.slug }}</p>
 							</div>
 
-							<div class="mt-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-wide">
-								<span class="rounded-full border border-stone-700 px-2 py-0.5 text-stone-400">{{
-									marketplaceStatusLabel(skill) }}</span>
-								<span v-if="skill.installed_from_listing_id"
-									class="rounded-full border border-sky-700/40 px-2 py-0.5 text-sky-300">Marketplace
-									Install</span>
-							</div>
 
 							<p v-if="skill.description" class="pt-5 text-sm leading-6 text-stone-500">{{
 								skill.description }}</p>
@@ -335,21 +405,20 @@
 							</p>
 
 							<div class="mt-auto flex text-xs flex-wrap justify-end gap-2 pt-5">
+								<Button v-if="!skill.installed_from_listing_id" type="button"
+									:disabled="skillsStore.isBusy || skill.marketplace_status === 'pending'"
+									class="rounded-md flex items-center gap-2 px-3 py-1.5 text-stone-300 transition disabled:opacity-50"
+									:class="skill.marketplace_status === 'pending' ? '' : 'hover:bg-sky-500/10'"
+									@click="skillsStore.requestShare(skill.id)">
+									{{ shareButtonLabel(skill) }}
+								</Button>
 								<Button type="button"
-									class="px-3 py-1.5 text-sm text-stone-300 transition hover:bg-stone-800/40"
+									class="px-3 py-1.5 text-stone-300 transition rounded-md hover:bg-stone-800/40"
 									@click="openEditSkillDialog(skill)">
 									Edit
 								</Button>
-								<Button v-if="!skill.installed_from_listing_id" type="button"
-									:disabled="skillsStore.isBusy || skill.marketplace_status === 'pending'"
-									class="rounded-md flex items-center gap-2 px-3 py-1.5 text-sm text-stone-400 transition hover:text-sky-200 disabled:opacity-50"
-									@click="skillsStore.requestShare(skill.id)">
-									{{ shareButtonLabel(skill) }} 
-
-			                        <svg xmlns="http://www.w3.org/2000/svg" class="w-6 h-6" viewBox="0 0 24 24"><!-- Icon from Material Symbols Light by Google - https://github.com/google/material-design-icons/blob/master/LICENSE --><path fill="currentColor" d="M6.616 21q-.691 0-1.153-.462T5 19.385v-8.77q0-.69.463-1.152T6.616 9H8.73v1H6.616q-.231 0-.424.192T6 10.616v8.769q0 .23.192.423t.423.192h10.77q.23 0 .423-.192t.192-.423v-8.77q0-.23-.192-.423T17.384 10H15.27V9h2.115q.691 0 1.153.463T19 10.616v8.769q0 .69-.463 1.153T17.385 21zm4.884-5.5V4.614l-2.1 2.1L8.692 6L12 2.692L15.308 6l-.708.714l-2.1-2.1V15.5z"/></svg>
-								</Button>
 								<Button type="button" :disabled="skillsStore.isBusy"
-									class="rounded-md px-3 py-1.5 text-sm text-red-300 transition hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
+									class="rounded-md px-3 py-1.5 text-red-300 transition hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
 									@click="skillsStore.deleteSkill(skill.id)">
 									Delete
 								</Button>

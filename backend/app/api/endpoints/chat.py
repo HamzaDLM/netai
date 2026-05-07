@@ -56,7 +56,7 @@ from app.services.chat_attachments import (
 from app.workflows.agent_runner import run_agent, run_agent_stream
 
 router = APIRouter(prefix="/llm", tags=["chat"])
-_SKILL_COMMAND_RE = re.compile(r"(?<!\S)/([a-z0-9][a-z0-9-]{0,79})", re.IGNORECASE)
+_SKILL_COMMAND_RE = re.compile(r"/([a-z0-9][a-z0-9-]{0,79})(?=$|\s)", re.IGNORECASE)
 
 
 def _event_actor(event: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -173,17 +173,38 @@ async def _get_active_conversation(
 
 
 def _extract_requested_skill_slugs(content: str) -> tuple[list[str], str]:
+    stripped = content.strip()
+    if not stripped:
+        return [], ""
+
+    leading_offset = len(content) - len(content.lstrip())
+    cursor = leading_offset
     seen: set[str] = set()
     slugs: list[str] = []
-    for match in _SKILL_COMMAND_RE.finditer(content):
+    matched_any = False
+
+    while cursor < len(content):
+        match = _SKILL_COMMAND_RE.match(content[cursor:])
+        if not match:
+            break
+
         slug = str(match.group(1) or "").strip().lower()
         if slug and slug not in seen:
             seen.add(slug)
             slugs.append(slug)
+        matched_any = True
+        cursor += match.end()
 
-    cleaned = _SKILL_COMMAND_RE.sub(" ", content)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return slugs, cleaned
+        while cursor < len(content) and content[cursor].isspace():
+            cursor += 1
+
+        if cursor >= len(content) or content[cursor] != "/":
+            break
+
+    if not matched_any:
+        return [], stripped
+
+    return slugs, content[cursor:].strip()
 
 
 async def _load_requested_skills(
@@ -191,10 +212,10 @@ async def _load_requested_skills(
     db: AsyncSessionDep,
     user_id: int,
     content: str,
-) -> list[dict[str, str]]:
-    requested_slugs, _ = _extract_requested_skill_slugs(content)
+) -> tuple[list[dict[str, str]], str]:
+    requested_slugs, normalized_question = _extract_requested_skill_slugs(content)
     if not requested_slugs:
-        return []
+        return [], content.strip()
 
     stmt = (
         select(Skill)
@@ -215,21 +236,18 @@ async def _load_requested_skills(
     }
     missing = [slug for slug in requested_slugs if slug not in skills_by_slug]
     if missing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "unknown_skill_commands",
-                "commands": missing,
-            },
-        )
+        return [], content.strip()
 
-    return [
-        {
-            "name": str(skills_by_slug[slug].name or "").strip(),
-            "instructions": str(skills_by_slug[slug].instructions or "").strip(),
-        }
-        for slug in requested_slugs
-    ]
+    return (
+        [
+            {
+                "name": str(skills_by_slug[slug].name or "").strip(),
+                "instructions": str(skills_by_slug[slug].instructions or "").strip(),
+            }
+            for slug in requested_slugs
+        ],
+        normalized_question,
+    )
 
 
 async def _persist_run_graph(
@@ -735,13 +753,11 @@ async def ask_llm(
     await _get_active_conversation(db, conversation_id)
     user_record = await _get_or_create_user_record(db, user)
     custom_instructions = user_record.custom_instructions
-    requested_skills = await _load_requested_skills(
+    requested_skills, question_for_agent = await _load_requested_skills(
         db=db,
         user_id=user.id,
         content=payload.content,
     )
-    _, normalized_question = _extract_requested_skill_slugs(payload.content)
-    question_for_agent = normalized_question or payload.content.strip()
 
     trace = langfuse_client.start_trace(
         "chat.ask_llm",
@@ -856,13 +872,11 @@ async def ask_llm_stream(
     await _get_active_conversation(db, conversation_id)
     user_record = await _get_or_create_user_record(db, user)
     custom_instructions = user_record.custom_instructions
-    requested_skills = await _load_requested_skills(
+    requested_skills, question_for_agent = await _load_requested_skills(
         db=db,
         user_id=user.id,
         content=payload.content,
     )
-    _, normalized_question = _extract_requested_skill_slugs(payload.content)
-    question_for_agent = normalized_question or payload.content.strip()
 
     trace = langfuse_client.start_trace(
         "chat.ask_llm_stream",
