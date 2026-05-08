@@ -59,8 +59,7 @@ class MockAuthProvider:
             if force_refresh or self._token is None or self._token_is_stale():
                 self._issue_count += 1
                 self._token = AuthToken(
-                    value="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",
-                    # value=f"sk-fake-rotating-token-{self._issue_count}",
+                    value=f"fake-{self._issue_count}",
                     expires_at=datetime.now(UTC) + self.token_lifetime,
                 )
             return self._token
