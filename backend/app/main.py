@@ -4,15 +4,20 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import Response
 from fastapi.routing import APIRoute
+from fastapi_insights import Config, FastAPIInsights
+from fastapi_insights.backends.in_memory import InMemoryMetricsStore
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
 from app.core.config import project_settings
+from app.core.logging import configure_logging
 from app.db.init_db import init_db
 from app.db.session import close_engine
 from app.observability import langfuse_client
 from app.utils import warmup_caches
+
+configure_logging()
 
 
 def custom_generate_unique_id(route: APIRoute) -> str:
@@ -34,6 +39,12 @@ app = FastAPI(
     openapi_url=f"{project_settings.API_V1_STR}/openapi.json",
     generate_unique_id_function=custom_generate_unique_id,
     lifespan=lifespan,
+)
+
+FastAPIInsights.init(
+    app,
+    InMemoryMetricsStore(),
+    config=Config(custom_path="/insights"),
 )
 
 if project_settings.all_cors_origins:

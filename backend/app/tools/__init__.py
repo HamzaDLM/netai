@@ -1,15 +1,14 @@
 import functools
 import inspect
-import logging
 import time
 from typing import Any, Awaitable, Callable, TypeVar, Union
 
 from haystack.tools import tool
 
-T = TypeVar("T")
-logger = logging.getLogger(__name__)
+from app.core.logging import get_business_logger
 
-_PINK_BULLET = "\x1b[95m⦿ TOOLCALL: \x1b[0m"
+T = TypeVar("T")
+logger = get_business_logger(__name__)
 
 
 def netai_tool(
@@ -27,25 +26,29 @@ def netai_tool(
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> T:
                 start: float = time.perf_counter()
-                print(
-                    "{} Tool {} running with args={} kwargs={}\n".format(
-                        _PINK_BULLET,
-                        name,
-                        args,
-                        kwargs,
-                    )
+                logger.info(
+                    "Tool started: %s",
+                    name,
+                    extra={
+                        "event": "tool.start",
+                        "tool_name": name,
+                        "tool_args": repr(args),
+                        "tool_kwargs": repr(kwargs),
+                    },
                 )
 
                 result: T = await fn(*args, **kwargs)
 
                 duration_ms: float = (time.perf_counter() - start) * 1000
-                print(
-                    "{} Tool {} finished in {:.2f} ms with result={}\n".format(
-                        _PINK_BULLET,
-                        name,
-                        duration_ms,
-                        result,
-                    )
+                logger.info(
+                    "Tool finished: %s",
+                    name,
+                    extra={
+                        "event": "tool.finish",
+                        "tool_name": name,
+                        "duration_ms": round(duration_ms, 2),
+                        "tool_result": repr(result),
+                    },
                 )
                 return result
 
@@ -56,25 +59,29 @@ def netai_tool(
             @functools.wraps(fn)
             def sync_wrapper(*args: Any, **kwargs: Any) -> T:
                 start: float = time.perf_counter()
-                print(
-                    "{} Tool {} running with args={} kwargs={}\n".format(
-                        _PINK_BULLET,
-                        name,
-                        args,
-                        kwargs,
-                    )
+                logger.info(
+                    "Tool started: %s",
+                    name,
+                    extra={
+                        "event": "tool.start",
+                        "tool_name": name,
+                        "tool_args": repr(args),
+                        "tool_kwargs": repr(kwargs),
+                    },
                 )
 
                 result: T = fn(*args, **kwargs)
 
                 duration_ms: float = (time.perf_counter() - start) * 1000
-                print(
-                    "{} Tool {} finished in {:.2f} ms with result={}\n".format(
-                        _PINK_BULLET,
-                        name,
-                        duration_ms,
-                        result,
-                    )
+                logger.info(
+                    "Tool finished: %s",
+                    name,
+                    extra={
+                        "event": "tool.finish",
+                        "tool_name": name,
+                        "duration_ms": round(duration_ms, 2),
+                        "tool_result": repr(result),
+                    },
                 )
                 return result
 

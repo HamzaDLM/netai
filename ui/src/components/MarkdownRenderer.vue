@@ -44,6 +44,8 @@ async function handleContentClick(event: MouseEvent): Promise<void> {
 <style>
 .llm-content {
     @apply text-base leading-relaxed text-zinc-200;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .llm-content p {
@@ -83,8 +85,27 @@ async function handleContentClick(event: MouseEvent): Promise<void> {
     @apply rounded-md border border-stone-800 bg-stone-900/60 px-1.5 py-0.5 text-stone-100;
 }
 
-.llm-content table {
-    @apply w-min whitespace-nowrap border-collapse text-xs my-6;
+.llm-content .markdown-table-scroll {
+    @apply my-6 max-w-full overflow-x-auto rounded-lg border border-stone-900;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(87 83 78) transparent;
+}
+
+.llm-content .markdown-table-scroll table {
+    @apply min-w-full border-collapse whitespace-nowrap text-xs;
+    width: max-content;
+}
+
+.llm-content .markdown-table-scroll::-webkit-scrollbar {
+    height: 0.5rem;
+}
+
+.llm-content .markdown-table-scroll::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-stone-700;
+}
+
+.llm-content .markdown-table-scroll::-webkit-scrollbar-track {
+    @apply bg-transparent;
 }
 
 .llm-content th,

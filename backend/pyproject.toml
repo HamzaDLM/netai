@@ -22,6 +22,7 @@ dependencies = [
     "pytest>=9.0.2",
     "fastmcp>=3.2.3",
     "mcp-haystack>=1.3.0",
+    "fastapi-insights>=0.1.2",
 ]
 
 [dependency-groups]

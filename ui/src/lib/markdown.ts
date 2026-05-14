@@ -55,7 +55,7 @@ export async function initHighlighter(): Promise<void> {
 }
 
 export function createMarkdown(codeHighlighter: CodeHighlighterOption = 'kanagawa-dragon'): MarkdownIt {
-	return new MarkdownIt({
+	const md = new MarkdownIt({
 		html: false,
 		linkify: true,
 		breaks: true,
@@ -74,6 +74,11 @@ export function createMarkdown(codeHighlighter: CodeHighlighterOption = 'kanagaw
 			return wrapCodeBlock(`<pre><code>${escapeHtml(code)}</code></pre>`, lang)
 		},
 	})
+
+	md.renderer.rules.table_open = () => '<div class="markdown-table-scroll"><table>'
+	md.renderer.rules.table_close = () => '</table></div>'
+
+	return md
 }
 
 export function renderMarkdown(md: MarkdownIt, content: string): string {
