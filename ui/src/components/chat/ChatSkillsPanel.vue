@@ -1,5 +1,6 @@
 <script setup lang="ts">
 	import {computed, onMounted, ref, watch} from 'vue'
+	import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 	import {useSkillsStore} from '@/stores/skills.store'
 	import type {Skill} from '@/types/skill.type'
 	import {
@@ -18,8 +19,10 @@
 
 	const skillDialogOpen = ref(false)
 	const marketplaceDialogOpen = ref(false)
+	const skillViewerOpen = ref(false)
 	const skillDialogMode = ref < 'create' | 'edit' > ('create')
 	const activeSkillId = ref < number | null > (null)
+	const selectedSkill = ref < Skill | null > (null)
 	const skillFormName = ref('')
 	const skillFormDescription = ref('')
 	const skillFormInstructions = ref('')
@@ -69,6 +72,11 @@
 		skillDialogOpen.value = true
 	}
 
+	function openSkillViewer(skill: Skill) {
+		selectedSkill.value = skill
+		skillViewerOpen.value = true
+	}
+
 	function marketplaceStatusLabel(skill: Skill): string {
 		if (!skill.marketplace_status) return ''
 		if (skill.marketplace_status === 'approved') return 'Marketplace Live'
@@ -116,6 +124,11 @@
 	watch(skillDialogOpen, isOpen => {
 		if (isOpen) return
 		resetSkillForm()
+	})
+
+	watch(skillViewerOpen, isOpen => {
+		if (isOpen) return
+		selectedSkill.value = null
 	})
 
 	onMounted(async () => {
@@ -378,48 +391,50 @@
 					<div v-else class="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-3">
 						<article v-for="skill in skillsStore.skills" :key="skill.id"
 							class="flex min-h-[15rem] flex-col rounded-xl border border-stone-800 bg-stone-950/50 p-4">
-							<div class="flex gap-2 mb-3 justify-end items-center">
-								<div class="flex flex-wrap gap-2 text-xs tracking-wide">
-									<span v-if="marketplaceStatusLabel(skill) !== ''" class="rounded-full border border-stone-700 px-2 py-0.5 text-stone-400">{{
-										marketplaceStatusLabel(skill) }}</span>
-									<span v-if="skill.installed_from_listing_id"
-										class="rounded-full border border-sky-700/40 px-2 py-0.5 text-sky-300">Marketplace
-										Install</span>
+							<button type="button"
+								class="flex flex-1 flex-col rounded-lg text-left transition hover:bg-stone-900/50 focus:outline-none focus:ring-2 focus:ring-stone-700/80"
+								@click="openSkillViewer(skill)">
+								<div class="flex mb-3 items-center justify-end gap-2">
+									<div class="flex flex-wrap gap-2 text-xs tracking-wide">
+										<span v-if="marketplaceStatusLabel(skill) !== ''" class="rounded-full border border-stone-700 px-2 py-0.5 text-stone-400">{{
+											marketplaceStatusLabel(skill) }}</span>
+										<span v-if="skill.installed_from_listing_id"
+											class="rounded-full border border-sky-700/40 px-2 py-0.5 text-sky-300">Marketplace
+											Install</span>
+									</div>
+									<div class="w-min shrink-0 rounded-full border px-2 py-0.5 text-xs tracking-wide"
+										:class="skill.enabled ? 'border-emerald-700/50 text-emerald-300' : 'border-stone-700 text-stone-400'">
+										{{ skill.enabled ? 'Enabled' : 'Disabled' }}
+									</div>
 								</div>
-								<div class="w-min shrink-0 rounded-full border px-2 py-0.5 text-xs tracking-wide"
-									:class="skill.enabled ? 'border-emerald-700/50 text-emerald-300' : 'border-stone-700 text-stone-400'">
-									{{ skill.enabled ? 'Enabled' : 'Disabled' }}
+								<div>
+									<p class="text-sm font-medium text-stone-200">{{ skill.name }}</p>
+									<p class="mt-1 text-xs tracking-[0.18em] text-stone-500">/{{ skill.slug }}</p>
 								</div>
-							</div>
-							<div>
-								<p class="text-sm font-medium text-stone-200">{{ skill.name }}</p>
-								<p class="mt-1 text-xs tracking-[0.18em] text-stone-500">/{{ skill.slug }}</p>
-							</div>
-
-
-							<p v-if="skill.description" class="pt-5 text-sm leading-6 text-stone-500">{{
-								skill.description }}</p>
-							<p v-if="skill.marketplace_review_notes"
-								class="mt-3 rounded-md border border-stone-800 bg-black/20 px-3 py-2 text-xs leading-5 text-stone-400">
-								{{ skill.marketplace_review_notes }}
-							</p>
+								<p v-if="skill.description" class="pt-5 text-sm leading-6 text-stone-500">{{
+									skill.description }}</p>
+								<p v-if="skill.marketplace_review_notes"
+									class="mt-3 rounded-md border border-stone-800 bg-black/20 px-3 py-2 text-xs leading-5 text-stone-400">
+									{{ skill.marketplace_review_notes }}
+								</p>
+							</button>
 
 							<div class="mt-auto flex text-xs flex-wrap justify-end gap-2 pt-5">
 								<Button v-if="!skill.installed_from_listing_id" type="button"
 									:disabled="skillsStore.isBusy || skill.marketplace_status === 'pending'"
 									class="rounded-md flex items-center gap-2 px-3 py-1.5 text-stone-300 transition disabled:opacity-50"
 									:class="skill.marketplace_status === 'pending' ? '' : 'hover:bg-sky-500/10'"
-									@click="skillsStore.requestShare(skill.id)">
+									@click.stop="skillsStore.requestShare(skill.id)">
 									{{ shareButtonLabel(skill) }}
 								</Button>
 								<Button type="button"
 									class="px-3 py-1.5 text-stone-300 transition rounded-md hover:bg-stone-800/40"
-									@click="openEditSkillDialog(skill)">
+									@click.stop="openEditSkillDialog(skill)">
 									Edit
 								</Button>
 								<Button type="button" :disabled="skillsStore.isBusy"
 									class="rounded-md px-3 py-1.5 text-red-300 transition hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50"
-									@click="skillsStore.deleteSkill(skill.id)">
+									@click.stop="skillsStore.deleteSkill(skill.id)">
 									Delete
 								</Button>
 							</div>
@@ -429,4 +444,23 @@
 			</div>
 		</div>
 	</div>
+
+	<Dialog v-model:open="skillViewerOpen">
+		<DialogContent class="flex h-[80vh] max-h-[80vh] flex-col border-stone-800 bg-stone-950 text-stone-200 sm:max-w-4xl">
+			<DialogHeader>
+				<DialogTitle>{{ selectedSkill?.name ?? 'Skill' }}</DialogTitle>
+				<DialogDescription class="space-y-2 text-stone-400">
+					<p class="text-xs uppercase tracking-[0.18em] text-stone-500">
+						/{{ selectedSkill?.slug ?? 'skill' }}
+					</p>
+					<p v-if="selectedSkill?.description">{{ selectedSkill.description }}</p>
+				</DialogDescription>
+			</DialogHeader>
+
+			<div class="min-h-0 flex-1 overflow-y-auto rounded-xl border border-stone-800 bg-black/20 p-5">
+				<MarkdownRenderer
+					:content="selectedSkill?.instructions?.trim() || '_No instructions available for this skill._'" />
+			</div>
+		</DialogContent>
+	</Dialog>
 </template>

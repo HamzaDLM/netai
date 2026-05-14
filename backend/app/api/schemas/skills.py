@@ -12,15 +12,15 @@ class ORMBaseModel(BaseModel):
 
 class SkillCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
-    description: str = Field(default="", max_length=240)
-    instructions: str = Field(min_length=1, max_length=12000)
+    description: str = Field(default="", max_length=5000)
+    instructions: str = Field(min_length=1, max_length=50000)
     enabled: bool = True
 
 
 class SkillUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
-    description: str | None = Field(default=None, max_length=240)
-    instructions: str | None = Field(default=None, min_length=1, max_length=12000)
+    description: str | None = Field(default=None, max_length=5000)
+    instructions: str | None = Field(default=None, min_length=1, max_length=50000)
     enabled: bool | None = None
 
 
