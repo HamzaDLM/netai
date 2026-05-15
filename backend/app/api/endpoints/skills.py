@@ -293,7 +293,6 @@ async def get_skills_bootstrap(db: AsyncSessionDep, user: CheckUserSSODep):
         select(SkillMarketplaceListing).where(
             SkillMarketplaceListing.archived.is_(False),
             SkillMarketplaceListing.status == SkillMarketplaceStatus.approved,
-            SkillMarketplaceListing.owner_user_id != user.id,
         )
     )
     marketplace = sorted(

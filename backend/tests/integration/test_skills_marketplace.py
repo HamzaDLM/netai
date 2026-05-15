@@ -34,6 +34,12 @@ async def test_skill_marketplace_share_approve_and_install(async_client) -> None
     assert approve_resp.status_code == 200
     assert approve_resp.json()["status"] == "approved"
 
+    approved_bootstrap_resp = await async_client.get("/api/v1/skills/bootstrap")
+    assert approved_bootstrap_resp.status_code == 200
+    approved_bootstrap = approved_bootstrap_resp.json()
+    assert approved_bootstrap["marketplace"][0]["id"] == listing_id
+    assert approved_bootstrap["marketplace"][0]["status"] == "approved"
+
     install_resp = await async_client.post(
         f"/api/v1/skills/marketplace/{listing_id}/install"
     )

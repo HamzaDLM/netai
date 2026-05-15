@@ -1217,13 +1217,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <Main title="Chat">
-        <div class="flex h-full w-full min-h-0 overflow-hidden">
+    <Main>
+        <div class="flex w-full h-full min-h-0 overflow-hidden">
             <ChatSidebar :collapsed="isSidebarCollapsed" :active-view="activePage"
                 :history-search-query="historySearchQuery" @toggle="toggleSidebar" @navigate="handleSidebarNavigate"
                 @update:history-search-query="handleHistorySearchQueryUpdate" />
             <!-- Main section -->
-            <div class="relative flex min-w-0 flex-1 flex-col h-full min-h-0">
+            <div class="relative flex flex-col flex-1 h-full min-w-0 min-h-0">
                 <!-- Question Navbar -->
                 <div v-if="activePage === 'chat' && questionNavItems.length > 1"
                     class="absolute top-0 bottom-0 z-20 items-center hidden pointer-events-none right-2 lg:flex">
@@ -1233,7 +1233,7 @@ onBeforeUnmount(() => {
                             <div v-for="n in 5" :key="n" class="w-1 h-1 text-transparent rounded-lg bg-stone-600" />
                         </div>
                         <div
-                            class="pointer-events-none absolute right-4 top-1/2 w-64 -translate-y-1/2 translate-x-2 rounded-lg border border-stone-700/70 bg-stone-950/95 p-2 text-xs opacity-0 shadow-xl backdrop-blur transition-all duration-300 group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100">
+                            class="absolute w-64 p-2 text-xs transition-all duration-300 translate-x-2 -translate-y-1/2 border rounded-lg shadow-xl opacity-0 pointer-events-none right-4 top-1/2 border-stone-700/70 bg-stone-950/95 backdrop-blur group-hover:pointer-events-auto group-hover:translate-x-0 group-hover:opacity-100">
                             <div class="max-h-[30vh] space-y-1 overflow-y-auto pr-1">
                                 <button v-for="item in questionNavItems" :key="`jump-question-${item.messageId}`"
                                     type="button" @click="jumpToQuestion(item.messageId)"
@@ -1246,8 +1246,8 @@ onBeforeUnmount(() => {
                 </div>
                 <Button v-if="isSidebarCollapsed && activePage !== 'chat' && activePage !== 'admin'" @click="handleSidebarNavigate('chat')"
                     variant="link"
-                    class="absolute top-5 z-20 inline-flex items-center gap-2 px-3 py-2 pl-10 text-stone-200 transition hover:text-stone-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24">
+                    class="absolute z-20 inline-flex items-center gap-2 px-3 py-2 pl-10 transition top-5 text-stone-200 hover:text-stone-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                         <path fill="currentColor" d="m10 17l-5-5l5-5l1.4 1.4L8.8 11H20v2H8.8l2.6 2.6z" />
                     </svg>
                     Messages
@@ -1257,23 +1257,23 @@ onBeforeUnmount(() => {
                     class="absolute p-3 px-8 text-xl font-semibold transition shadow-lg rounded-xl left-6 top-3 bg-stone-950/60 backdrop-blur-sm text-stone-300 ">
                     Zabbix and syslog for edge-fw-par-01
                 </button> -->
-                <Transition mode="out-in" enter-active-class="transform-gpu transition-all duration-300 ease-out motion-reduce:transition-none" enter-from-class="translate-y-3 opacity-0 blur-sm" enter-to-class="translate-y-0 opacity-100 blur-0" leave-active-class="transform-gpu transition-all duration-200 ease-in motion-reduce:transition-none" leave-from-class="translate-y-0 opacity-100 blur-0" leave-to-class="-translate-y-2 opacity-0 blur-sm">
-                    <div v-if="activePage === 'chat'" key="chat" class="flex flex-1 min-h-0 flex-col">
+                <Transition mode="out-in" enter-active-class="transition-all duration-300 ease-out transform-gpu motion-reduce:transition-none" enter-from-class="translate-y-3 opacity-0 blur-sm" enter-to-class="translate-y-0 opacity-100 blur-0" leave-active-class="transition-all duration-200 ease-in transform-gpu motion-reduce:transition-none" leave-from-class="translate-y-0 opacity-100 blur-0" leave-to-class="-translate-y-2 opacity-0 blur-sm">
+                    <div v-if="activePage === 'chat'" key="chat" class="flex flex-col flex-1 min-h-0">
                         <!-- Chat dialogue -->
                         <div
-                            class="flex flex-1 min-h-0 flex-col overflow-hidden transition-all duration-300 ease-out motion-reduce:transition-none"
+                            class="flex flex-col flex-1 min-h-0 overflow-hidden transition-all duration-300 ease-out motion-reduce:transition-none"
                             :class="chatStore.isSyncing ? 'translate-y-2 opacity-0' : 'translate-y-0 opacity-100'">
                             <div ref="chatDialogueRef" @scroll="updateScrollState"
-                                class="flex flex-1 min-h-0 flex-col overflow-x-hidden overflow-y-auto p-10 px-20">
+                                class="flex flex-col flex-1 min-h-0 p-10 px-20 overflow-x-hidden overflow-y-auto">
                         <!-- v-if="!selectedConversation || selectedConversation.messages.length < 1" -->
                                 <div v-if="chatStore.messages.length == 0"
-                                    class="flex h-full flex-col items-center justify-center gap-2">
+                                    class="flex flex-col items-center justify-center h-full gap-2">
                                     <h2
-                                        class="scroll-m-20 pb-2 text-3xl font-semibold tracking-wide text-stone-500 transition-colors first:mt-0">
+                                        class="pb-2 text-3xl font-semibold tracking-wide transition-colors scroll-m-20 text-stone-500 first:mt-0">
                                         What would you like to talk about today?
                                     </h2>
                                     <div class="flex items-center gap-1 text-stone-500">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-stone-400"
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-stone-400"
                                             viewBox="0 0 24 24">
                                             <path fill="currentColor"
                                                 d="M5 22v-4q0-.575.3-1.037t.8-.738L11 13.75V12l-3.475 1.725q-.3.15-.625.225t-.65.075q-.775 0-1.463-.4t-1.062-1.15q-.35-.675-.3-1.437T3.9 9.625L7 5L5 2h6q3.325 0 5.663 2.325T19 10v12zm2-2h10V10q0-2.5-1.75-4.25T11 4H8.75l.65 1l-3.825 5.75q-.125.2-.137.413t.087.412q.125.275.338.363t.412.087q.075 0 .375-.075L13 8.75V15l-6 3zm4-8" />
@@ -1281,10 +1281,10 @@ onBeforeUnmount(() => {
                                         <p class="text-2xl font-medium">NetAI</p>
                                     </div>
                                 </div>
-                                <div v-else class="mt-auto flex min-w-0 flex-col gap-6 text-sm">
+                                <div v-else class="flex flex-col min-w-0 gap-6 mt-auto text-sm">
                                     <div v-for="message in chatStore.messages" :key="`message-${message.id}`" class="min-w-0">
                                 <!-- Assistant message -->
-                                        <div v-if="message.role == 'assistant'" class="flex min-w-0 flex-col gap-4">
+                                        <div v-if="message.role == 'assistant'" class="flex flex-col min-w-0 gap-4">
                                     <!-- Rendering streamed events -->
                                             <div v-if="isRunActive(message)" class="relative grid gap-2 text-sm leading-6">
                                         <p class="animate-pulse text-stone-400">Thinking...</p>
@@ -1494,7 +1494,7 @@ onBeforeUnmount(() => {
                         </div>
                         <!-- Scroll button -->
                         <button v-if="showScrollToBottomButton" @click="scrollToBottom('smooth')"
-                            class="absolute bottom-40 right-14 rounded-full border border-stone-700 bg-zinc-900/95 p-1 text-sm text-stone-100 shadow-lg transition hover:bg-stone-800">
+                            class="absolute p-1 text-sm transition border rounded-full shadow-lg bottom-40 right-14 border-stone-700 bg-zinc-900/95 text-stone-100 hover:bg-stone-800">
                             <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"
                                 viewBox="0 0 24 24"><!-- Icon from Material Symbols by Google - https://github.com/google/material-design-icons/blob/master/LICENSE -->
                                 <path fill="currentColor"
@@ -1502,9 +1502,9 @@ onBeforeUnmount(() => {
                             </svg>
                         </button>
                         <!-- Chat box -->
-                        <div class="grid w-full shrink-0 px-10 pb-6">
+                        <div class="grid w-full px-10 pb-6 shrink-0">
                             <div
-                                class="flex justify-between rounded-t-lg bg-stone-900/20 px-2 pb-2 shadow-2xl shadow-stone-600">
+                                class="flex justify-between px-2 pb-2 rounded-t-lg shadow-2xl bg-stone-900/20 shadow-stone-600">
                                 <div>
                                     <p class="pt-2 text-sm text-zinc-500">Ctrl + Enter to quickly send.</p>
                                     <!-- <Button variant="ghost" size="xs">deep investigation</Button> -->
@@ -1526,7 +1526,7 @@ onBeforeUnmount(() => {
                                         v-for="(skill, index) in slashSuggestions"
                                         :key="skill.id"
                                         type="button"
-                                        class="flex w-full items-start justify-between gap-3 px-3 py-3 text-left transition"
+                                        class="flex items-start justify-between w-full gap-3 px-3 py-3 text-left transition"
                                         :class="index === slashActiveIndex ? 'bg-stone-900 text-stone-100' : 'text-stone-300 hover:bg-stone-900/70'"
                                         @mousedown.prevent="selectSlashSuggestion(skill)">
                                         <div>
@@ -1553,8 +1553,8 @@ onBeforeUnmount(() => {
                                             <TooltipProvider v-if="chatStore.contextWindow">
                                                 <Tooltip>
                                                     <TooltipTrigger>
-                                                        <div class="relative h-5 w-5">
-                                                            <svg viewBox="0 0 36 36" class="h-full w-full">
+                                                        <div class="relative w-5 h-5">
+                                                            <svg viewBox="0 0 36 36" class="w-full h-full">
                                                             <!-- Background circle -->
                                                                 <circle class="text-stone-800" cx="18" cy="18" r="16"
                                                                     stroke-width="4" fill="none" stroke="currentColor" />
@@ -1642,7 +1642,7 @@ onBeforeUnmount(() => {
                                         <Button @click="submit" :disabled="!chatInputValue.trim()"
                                             :class="chatInputValue.trim() ? 'bg-red-500 hover:bg-red-500/50 text-white' : 'bg-stone-500 text-zinc-200'"
                                             variant="default" size="xs">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24">
                                                 <g fill="none" fill-rule="evenodd">
                                                     <path
                                                         d="m12.594 23.258l-.012.002l-.071.035l-.02.004l-.014-.004l-.071-.036q-.016-.004-.024.006l-.004.01l-.017.428l.005.02l.01.013l.104.074l.015.004l.012-.004l.104-.074l.012-.016l.004-.017l-.017-.427q-.004-.016-.016-.018m.264-.113l-.014.002l-.184.093l-.01.01l-.003.011l.018.43l.005.012l.008.008l.201.092q.019.005.029-.008l.004-.014l-.034-.614q-.005-.019-.02-.022m-.715.002a.02.02 0 0 0-.027.006l-.006.014l-.034.614q.001.018.017.024l.015-.002l.201-.093l.01-.008l.003-.011l.018-.43l-.003-.012l-.01-.01z" />
