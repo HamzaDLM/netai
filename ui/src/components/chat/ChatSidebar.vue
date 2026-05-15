@@ -254,9 +254,9 @@ onBeforeUnmount(() => {
                             v-if="!props.collapsed">NetAI <span class="text-xs">beta</span></span>
                     </button>
                     <Button v-if="props.collapsed" @click="handleChatClick" variant="ghost"
-                        class="flex w-full gap-2 text-stone-300" size="default" title="New conversation"
+                        class="flex w-full gap-2 text-red-500 border rounded-full" size="default" title="New conversation"
                         aria-label="New conversation">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-5" viewBox="0 0 24 24">
                             <path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z" />
                         </svg>
                     </Button>
