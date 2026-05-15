@@ -253,6 +253,13 @@ onBeforeUnmount(() => {
                         <span class="text-xl font-semibold tracking-wide text-stone-200"
                             v-if="!props.collapsed">NetAI <span class="text-xs">beta</span></span>
                     </button>
+                    <Button v-if="props.collapsed" @click="handleChatClick" variant="ghost"
+                        class="flex w-full gap-2 text-stone-300" size="default" title="New conversation"
+                        aria-label="New conversation">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24">
+                            <path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z" />
+                        </svg>
+                    </Button>
                     <Button v-if="props.collapsed" @click="emit('navigate', 'chat')" variant="ghost"
                         class="flex w-full gap-2 text-stone-300" size="default" title="Messages"
                         aria-label="Messages">
@@ -285,6 +292,8 @@ onBeforeUnmount(() => {
                                 d="m5 19l-2-9l5.5 3L12 6l3.5 7L21 10l-2 9zm2.4-2h9.2l.8-3.55l-2.7 1.45L12 9.5l-2.7 5.4l-2.7-1.45z" />
                         </svg>
                     </Button>
+                    <ChatSettingsDialog v-if="props.collapsed" icon-only title="Settings" aria-label="Settings"
+                        trigger-class="flex justify-center w-full p-2 rounded-md text-stone-300" />
                 </div>
                 <!-- Collapse sidebar -->
                 <Button
@@ -317,7 +326,7 @@ onBeforeUnmount(() => {
                     placeholder="Search conversations..." type="text" />
             </div>
         </div>
-        <div v-if="!props.collapsed" class="mx-4 my-4 flex flex-col gap-2">
+        <div v-if="!props.collapsed" class="flex flex-col gap-2 mx-4 my-4">
             <Button @click="handleChatClick" variant="outline" size="sm" :class="[
                 'flex gap-2 text-stone-300',
                 'w-full']">
