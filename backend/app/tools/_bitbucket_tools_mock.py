@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from app.tools import netai_tool
+from app.tools import apply_mock_latency, netai_tool
 
 _FAKE_DEVICES: list[dict[str, Any]] = [
     {"device": "edge-fw-par-01", "file_path": "configs/edge-fw-par-01.conf"},
@@ -84,6 +84,7 @@ def bitbucket_device_config_exists(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
     """Mock fast existence check for a device config file."""
+    apply_mock_latency()
     match = _match_device(device)
     if not match:
         return {"device_query": device, "exists": False}
@@ -100,6 +101,7 @@ def get_bitbucket_device_file_info(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
     """Return fake latest commit metadata for one device file."""
+    apply_mock_latency()
     match = _match_device(device)
     if not match:
         return {
@@ -133,6 +135,7 @@ def get_recent_device_config_diff(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
     """Return fake latest config diff payload for one device file."""
+    apply_mock_latency()
     match = _match_device(device)
     if not match:
         return {
@@ -182,6 +185,7 @@ def get_bitbucket_device_configuration(
     commit_ref: Annotated[str | None, "Optional commit hash; defaults to HEAD"] = None,
 ) -> dict[str, Any]:
     """Return fake sanitized configuration text for one device."""
+    apply_mock_latency()
     match = _match_device(device)
     if not match:
         return {
@@ -202,6 +206,7 @@ def get_bitbucket_recent_commits_for_host(
     limit: Annotated[int, "Maximum number of recent commits to return"] = 10,
 ) -> dict[str, Any]:
     """Return fake latest commits that affected one host."""
+    apply_mock_latency()
     match = _match_device(hostname)
     if not match:
         return {

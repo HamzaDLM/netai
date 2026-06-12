@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from app.tools import netai_tool
+from app.tools import apply_mock_latency, netai_tool
 
 _PRIORITY_ORDER = {
     "1 - critical": 1,
@@ -273,6 +273,7 @@ KNOWN_FAKE_CIS: list[dict[str, Any]] = [
 @netai_tool(name="servicenow_get_known_cis")  # type: ignore[operator]
 def get_known_cis() -> list[dict[str, Any]]:
     """Return canonical fake ServiceNow CMDB CI list."""
+    apply_mock_latency()
     return KNOWN_FAKE_CIS
 
 
@@ -290,6 +291,7 @@ def list_incidents(
     limit: Annotated[int, "Maximum number of incidents to return"] = 20,
 ) -> dict[str, Any]:
     """List incidents with practical filters for triage."""
+    apply_mock_latency()
     if limit < 1:
         return {"error": "limit_must_be_positive"}
 
@@ -319,6 +321,7 @@ def get_incident(
     incident_number: Annotated[str, "Incident number, e.g. INC0010421"],
 ) -> dict[str, Any]:
     """Get one incident and its linked records."""
+    apply_mock_latency()
     lookup = _normalize(incident_number)
     if not lookup:
         return {"error": "incident_number_required"}
@@ -378,6 +381,7 @@ def list_change_requests(
     limit: Annotated[int, "Maximum number of changes to return"] = 20,
 ) -> dict[str, Any]:
     """List change requests and related CI context."""
+    apply_mock_latency()
     if limit < 1:
         return {"error": "limit_must_be_positive"}
 
@@ -405,6 +409,7 @@ def get_change_request(
     change_number: Annotated[str, "Change number, e.g. CHG0007721"],
 ) -> dict[str, Any]:
     """Get details for one change request."""
+    apply_mock_latency()
     lookup = _normalize(change_number)
     if not lookup:
         return {"error": "change_number_required"}
@@ -430,6 +435,7 @@ def list_problems(
     limit: Annotated[int, "Maximum number of problems to return"] = 20,
 ) -> dict[str, Any]:
     """List problem records with optional filters."""
+    apply_mock_latency()
     if limit < 1:
         return {"error": "limit_must_be_positive"}
 
@@ -457,6 +463,7 @@ def get_problem(
     problem_number: Annotated[str, "Problem number, e.g. PRB000381"],
 ) -> dict[str, Any]:
     """Get details for one problem record."""
+    apply_mock_latency()
     lookup = _normalize(problem_number)
     if not lookup:
         return {"error": "problem_number_required"}
@@ -483,6 +490,7 @@ def list_cis(
     limit: Annotated[int, "Maximum number of CIs to return"] = 50,
 ) -> dict[str, Any]:
     """List CMDB CIs for network operations context."""
+    apply_mock_latency()
     if limit < 1:
         return {"error": "limit_must_be_positive"}
 
@@ -514,6 +522,7 @@ def get_ci(
     ci_name_or_sys_id: Annotated[str, "CI hostname/name or sys_id"],
 ) -> dict[str, Any]:
     """Get one CI by name or sys_id and include open record counters."""
+    apply_mock_latency()
     lookup = _normalize(ci_name_or_sys_id)
     if not lookup:
         return {"error": "ci_lookup_required"}
@@ -576,6 +585,7 @@ def get_service_summary(
     service: Annotated[str, "Business service name, e.g. WAN-Edge"],
 ) -> dict[str, Any]:
     """Aggregate incident/problem/change posture for one service."""
+    apply_mock_latency()
     service_lc = _normalize(service)
     if not service_lc:
         return {"error": "service_required"}

@@ -57,6 +57,7 @@ class ToolCallResponse(ORMBaseModel):
     tool_name: str
     input_params: dict
     output: dict | None
+    latency_ms: int | None
     status: ToolCallStatus
     error_type: str | None
     error_message: str | None

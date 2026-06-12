@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from app.tools import netai_tool
+from app.tools import apply_mock_latency, netai_tool
 
 _FAKE_DEVICES: list[dict[str, Any]] = [
     {
@@ -135,6 +135,7 @@ def _filter(rows: list[dict[str, Any]], **filters: str | None) -> list[dict[str,
 
 @netai_tool(name="suzieq_list_namespaces")  # type: ignore[operator]
 def list_namespaces() -> dict[str, Any]:
+    apply_mock_latency()
     namespaces = sorted({str(device["namespace"]) for device in _FAKE_DEVICES})
     return {"namespaces": namespaces}
 
@@ -144,6 +145,7 @@ def get_devices(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {"devices": _filter(_FAKE_DEVICES, namespace=namespace, hostname=hostname)}
 
 
@@ -154,6 +156,7 @@ def get_interfaces(
     ifname: Annotated[str | None, "Optional interface name filter"] = None,
     state: Annotated[str | None, "Optional state filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {
         "interfaces": _filter(
             _FAKE_INTERFACES,
@@ -170,6 +173,7 @@ def get_lldp_neighbors(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {
         "lldp_neighbors": _filter(_FAKE_LLDP, namespace=namespace, hostname=hostname)
     }
@@ -181,6 +185,7 @@ def get_bgp_sessions(
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
     state: Annotated[str | None, "Optional BGP state filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {
         "bgp_sessions": _filter(
             _FAKE_BGP, namespace=namespace, hostname=hostname, state=state
@@ -194,6 +199,7 @@ def get_ospf_neighbors(
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
     state: Annotated[str | None, "Optional OSPF state filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     rows = _filter(_FAKE_OSPF, namespace=namespace, hostname=hostname)
     if state:
         rows = [
@@ -211,6 +217,7 @@ def get_routes(
     prefix: Annotated[str | None, "Optional route prefix filter"] = None,
     vrf: Annotated[str | None, "Optional VRF filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {
         "routes": _filter(
             _FAKE_ROUTES, namespace=namespace, hostname=hostname, prefix=prefix, vrf=vrf
@@ -224,6 +231,7 @@ def get_arp_nd(
     hostname: Annotated[str | None, "Optional hostname filter"] = None,
     ip_address: Annotated[str | None, "Optional ARP/ND IP filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {
         "arp_nd": _filter(
             _FAKE_ARPND, namespace=namespace, hostname=hostname, ipAddress=ip_address
@@ -238,6 +246,7 @@ def get_mac_table(
     vlan: Annotated[str | None, "Optional VLAN filter"] = None,
     macaddr: Annotated[str | None, "Optional MAC address filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {
         "mac_table": _filter(
             _FAKE_MAC,
@@ -256,6 +265,7 @@ def get_path(
     destination: Annotated[str, "Destination IP address or hostname"],
     vrf: Annotated[str | None, "Optional VRF"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     return {
         "path": [
             {
@@ -274,6 +284,7 @@ def get_path(
 def infrastructure_summary(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     devices = _filter(_FAKE_DEVICES, namespace=namespace)
     interfaces = _filter(_FAKE_INTERFACES, namespace=namespace)
     bgp = _filter(_FAKE_BGP, namespace=namespace)
@@ -303,6 +314,7 @@ def infrastructure_summary(
 def check_control_plane_health(
     namespace: Annotated[str | None, "Optional namespace filter"] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     bgp = _filter(_FAKE_BGP, namespace=namespace)
     bad_bgp = [row for row in bgp if _normalize(str(row.get("state"))) != "established"]
     down_interfaces = [

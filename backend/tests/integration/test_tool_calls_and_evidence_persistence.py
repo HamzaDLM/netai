@@ -108,8 +108,12 @@ async def test_stream_specialist_tool_calls_are_persisted(
         json={"content": "find syslog issues"},
     ) as response:
         assert response.status_code == 200
-        async for _ in response.aiter_text():
-            pass
+        streamed_chunks: list[str] = []
+        async for chunk in response.aiter_text():
+            streamed_chunks.append(chunk)
+
+    stream_text = "".join(streamed_chunks)
+    assert '"duration_ms": 50' in stream_text
 
     convo_resp = await async_client.get(f"/api/v1/llm/conversation/{conversation_id}")
     payload = convo_resp.json()

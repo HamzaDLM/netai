@@ -363,6 +363,9 @@ async def _persist_run_graph(
                     tool_name=str(tool.get("tool_name") or "unknown_tool"),
                     input_params=_coerce_json_dict(tool.get("input_params")),
                     output=output_payload,
+                    latency_ms=tool.get("latency_ms")
+                    if isinstance(tool.get("latency_ms"), int)
+                    else None,
                     status=_as_tool_status(tool.get("status")),
                     error_type=str(tool.get("error_type"))
                     if tool.get("error_type") is not None
@@ -996,7 +999,24 @@ async def ask_llm_stream(
                 "context_metrics": context_metrics,
             }
         )
-        yield f"event: done\ndata: {json.dumps({'message_id': assistant_message_id})}\n\n"
+        orchestrator_duration_ms = None
+        if isinstance(run_map, dict):
+            orchestrator = run_map.get("orchestrator")
+            if isinstance(orchestrator, dict) and isinstance(
+                orchestrator.get("duration_ms"), int
+            ):
+                orchestrator_duration_ms = orchestrator.get("duration_ms")
+
+        yield (
+            "event: done\ndata: "
+            + json.dumps(
+                {
+                    "message_id": assistant_message_id,
+                    "duration_ms": orchestrator_duration_ms,
+                }
+            )
+            + "\n\n"
+        )
 
         asyncio.create_task(
             _generate_title_if_missing(

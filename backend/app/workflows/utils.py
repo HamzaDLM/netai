@@ -3,6 +3,8 @@ import dataclasses
 import json
 from typing import Any
 
+_NETAI_TOOL_METADATA_KEY = "_netai"
+
 
 class AgentTraceExtractor:
     def __init__(self, *, specialist_descriptions: dict[str, str] | None = None):
@@ -96,6 +98,8 @@ class AgentTraceExtractor:
                     )
                     if result_payload is None:
                         result_payload = {}
+                    latency_ms = self._extract_tool_latency_ms(result_payload)
+                    result_payload = self._strip_tool_metadata(result_payload)
                     if bool(_get(tool_result, "error", False)):
                         result_payload = {"error": True, "result": result_payload}
 
@@ -124,6 +128,7 @@ class AgentTraceExtractor:
                             calls_by_id[origin_id] = target_call
 
                     target_call["result"] = result_payload
+                    target_call["latency_ms"] = latency_ms
                     if not target_call.get("evidence"):
                         target_call["evidence"] = self._extract_evidence_payload(
                             result_payload
@@ -159,12 +164,16 @@ class AgentTraceExtractor:
                     or "unknown_tool"
                 )
                 result_payload = self._to_json_object(item.get("result"))
+                latency_ms = item.get("latency_ms")
+                if not isinstance(latency_ms, int):
+                    latency_ms = self._extract_tool_latency_ms(result_payload)
+                result_payload = self._strip_tool_metadata(result_payload)
                 calls.append(
                     {
                         "name": name,
                         "arguments": item.get("arguments") or item.get("args"),
                         "result": result_payload,
-                        "latency_ms": item.get("latency_ms"),
+                        "latency_ms": latency_ms,
                         "evidence": item.get("evidence")
                         or self._extract_evidence_payload(result_payload)
                         or [],
@@ -173,12 +182,16 @@ class AgentTraceExtractor:
                 continue
 
             result_payload = self._to_json_object(getattr(item, "result", None))
+            latency_ms = getattr(item, "latency_ms", None)
+            if not isinstance(latency_ms, int):
+                latency_ms = self._extract_tool_latency_ms(result_payload)
+            result_payload = self._strip_tool_metadata(result_payload)
             calls.append(
                 {
                     "name": getattr(item, "name", "unknown_tool"),
                     "arguments": getattr(item, "arguments", None),
                     "result": result_payload,
-                    "latency_ms": getattr(item, "latency_ms", None),
+                    "latency_ms": latency_ms,
                     "evidence": getattr(item, "evidence", None)
                     or self._extract_evidence_payload(result_payload)
                     or [],
@@ -533,6 +546,32 @@ class AgentTraceExtractor:
         if isinstance(value, (int, float, bool)):
             return {"value": value}
         return {"value": str(value)}
+
+    def _extract_tool_latency_ms(self, payload: Any) -> int | None:
+        if not isinstance(payload, dict):
+            return None
+
+        metadata = payload.get(_NETAI_TOOL_METADATA_KEY)
+        if not isinstance(metadata, dict):
+            return None
+
+        latency_ms = metadata.get("latency_ms")
+        if isinstance(latency_ms, int):
+            return latency_ms
+        if isinstance(latency_ms, float):
+            return int(round(latency_ms))
+        return None
+
+    def _strip_tool_metadata(self, payload: Any) -> Any:
+        if not isinstance(payload, dict):
+            return payload
+        if _NETAI_TOOL_METADATA_KEY not in payload:
+            return payload
+        return {
+            key: value
+            for key, value in payload.items()
+            if key != _NETAI_TOOL_METADATA_KEY
+        }
 
     def _parse_jsonish(self, value: str) -> Any:
         stripped = value.strip()

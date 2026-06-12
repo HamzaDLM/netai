@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatch
 from typing import Annotated, Any
 
-from app.tools import netai_tool
+from app.tools import apply_mock_latency, netai_tool
 
 SEVERITY_ORDER = {
     "not_classified": 0,
@@ -856,6 +856,7 @@ def get_hosts(
     maintenance: Annotated[bool | None, "Optional maintenance filter"] = None,
     limit: Annotated[int, "Maximum number of hosts to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     name_lc = normalize(name)
     group_lc = normalize(group)
     status_lc = normalize(status)
@@ -907,6 +908,7 @@ def get_hosts(
 def get_host_details(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
     if not host:
         return host_not_found(hostname_or_ip, "get_host_details")
@@ -931,6 +933,7 @@ def get_host_interfaces(
         "If true, include only unavailable interfaces or interfaces with errors.",
     ] = False,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
     if not host:
         return host_not_found(hostname_or_ip, "get_host_interfaces")
@@ -953,6 +956,7 @@ def get_host_interfaces(
 
 @netai_tool(name="zabbix_get_host_groups")  # type: ignore[operator]
 def get_host_groups() -> dict[str, Any]:
+    apply_mock_latency()
     counts: dict[str, int] = {}
     for host in FAKE_HOSTS.values():
         for group in host["groups"]:
@@ -972,6 +976,7 @@ def get_hosts_in_group(
     group: Annotated[str, "Group name (full or partial)"],
     limit: Annotated[int, "Maximum hosts to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     group_lc = normalize(group)
     matches = [
         host_brief(host)
@@ -1002,6 +1007,7 @@ def get_problems(
     unsuppressed_only: Annotated[bool, "If true, exclude suppressed"] = True,
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip) if hostname_or_ip else None
     if hostname_or_ip and not host:
         return host_not_found(hostname_or_ip, "get_problems")
@@ -1038,6 +1044,7 @@ def get_recent_problems(
     ] = DEFAULT_MIN_SEVERITY,
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     rows = collect_problems(
         min_severity=min_severity,
         hours=hours,
@@ -1067,7 +1074,9 @@ def get_host_problems(
     unsuppressed_only: Annotated[bool, "If true, exclude suppressed"] = True,
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
+
     if not host:
         return host_not_found(hostname_or_ip, "get_host_problems")
 
@@ -1099,6 +1108,7 @@ def get_trigger_problems(
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     located = lookup_trigger(trigger)
     if not located:
         return {"error": f"trigger_not_found:{trigger}"}
@@ -1129,6 +1139,7 @@ def get_triggers(
     include_disabled: Annotated[bool, "If true, include disabled triggers"] = False,
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
     if not host:
         return host_not_found(hostname_or_ip, "get_triggers")
@@ -1166,6 +1177,7 @@ def get_triggers(
 def get_trigger_details(
     trigger_id: Annotated[str, "Trigger ID"],
 ) -> dict[str, Any]:
+    apply_mock_latency()
     for host in FAKE_HOSTS.values():
         for trigger in host["triggers"]:
             if trigger["triggerid"] == str(trigger_id):
@@ -1200,6 +1212,7 @@ def get_latest_metrics_data(
     ] = None,
     limit: Annotated[int, "Maximum metrics to return"] = 200,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
     if not host:
         return host_not_found(hostname_or_ip, "get_latest_metrics_data")
@@ -1226,6 +1239,7 @@ def get_metrics_history(
     aggregation: Annotated[str, "Aggregation mode: raw/avg/min/max"] = "raw",
     limit: Annotated[int, "Maximum points to return"] = 500,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     if not item_id and not item_key:
         return {"error": "item_id_or_item_key_required"}
 
@@ -1315,6 +1329,7 @@ def get_host_metrics_summary(
         "Optional metric key patterns for summary focus",
     ] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
     if not host:
         return host_not_found(hostname_or_ip, "get_host_metrics_summary")
@@ -1372,6 +1387,7 @@ def get_events(
     ] = True,
     limit: Annotated[int, "Maximum events to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     if hostname_or_ip and not resolve_host(hostname_or_ip):
         return host_not_found(hostname_or_ip, "get_events")
 
@@ -1415,6 +1431,7 @@ def get_audit_log(
     action: Annotated[str | None, "Optional action filter"] = None,
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     actor_lc = normalize(actor)
     action_lc = normalize(action)
     since_dt = hours_ago(hours)
@@ -1443,6 +1460,7 @@ def get_audit_log(
 def get_host_templates(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
     if not host:
         return host_not_found(hostname_or_ip, "get_host_templates")
@@ -1462,6 +1480,7 @@ def get_maintenance(
         "Optional hostname/IP. If omitted, returns active maintenance windows.",
     ] = None,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host: dict[str, Any] | None = None
     if hostname_or_ip:
         host = resolve_host(hostname_or_ip)
@@ -1506,6 +1525,7 @@ def get_maintenance(
 def get_proxies(
     limit: Annotated[int, "Maximum rows to return"] = DEFAULT_LIMIT,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     rows: list[dict[str, Any]] = [
         {
             "proxyid": proxy["proxyid"],
@@ -1527,6 +1547,7 @@ def get_proxies(
 
 @netai_tool(name="zabbix_get_zabbix_server_status")  # type: ignore[operator]
 def get_zabbix_server_status() -> dict[str, Any]:
+    apply_mock_latency()
     hosts = list(FAKE_HOSTS.values())
     active_problems = len(
         [
@@ -1557,6 +1578,7 @@ def diagnose_host(
     hostname_or_ip: Annotated[str, "Target device hostname or IP"],
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     host = resolve_host(hostname_or_ip)
     if not host:
         return host_not_found(hostname_or_ip, "diagnose_host")
@@ -1611,6 +1633,7 @@ def get_dashboard_snapshot(
     hours: Annotated[int | float | None, "Lookback window in hours"] = DEFAULT_HOURS,
     limit: Annotated[int, "Maximum rows to return"] = 20,
 ) -> dict[str, Any]:
+    apply_mock_latency()
     dashboard_lc = normalize(dashboard) or "problems"
 
     if dashboard_lc == "problems":

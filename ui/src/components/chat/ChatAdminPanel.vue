@@ -4,6 +4,8 @@ import ChatAdminFeedbacksTab from '@/components/chat/admin/ChatAdminFeedbacksTab
 import ChatAdminOverviewTab from '@/components/chat/admin/ChatAdminOverviewTab.vue'
 import ChatAdminPlaceholderTab from '@/components/chat/admin/ChatAdminPlaceholderTab.vue'
 import ChatAdminSidebar from '@/components/chat/admin/ChatAdminSidebar.vue'
+import ChatAdminSkillsTab from '@/components/chat/admin/ChatAdminSkillsTab.vue'
+import ChatAdminUsersTab from '@/components/chat/admin/ChatAdminUsersTab.vue'
 import { toast } from '@/components/ui/toast'
 import chatService from '@/services/chat.service'
 import type { AdminFeedbackItem } from '@/types/chat.type'
@@ -42,18 +44,8 @@ onMounted(async () => {
 			description="Connector health, configuration, and integration summaries will live here."
 			coming-soon-label="Connector admin is not wired yet"
 			empty-state-copy="This section is reserved for connector-level admin views once those workflows are designed for the new tab system." />
-		<ChatAdminPlaceholderTab
-			v-else-if="activeSection === 'skills'"
-			title="Skills"
-			description="Skill inventory, review, and publishing summaries will live here."
-			coming-soon-label="Skill admin is not wired yet"
-			empty-state-copy="This section is reserved for skill-level admin views once those workflows are redesigned for this panel." />
-		<ChatAdminPlaceholderTab
-			v-else-if="activeSection === 'users'"
-			title="Users"
-			description="User-facing activity, account state, and adoption summaries will live here."
-			coming-soon-label="User admin is not wired yet"
-			empty-state-copy="This section is reserved for user management and engagement views once the backend surfaces the required data." />
+		<ChatAdminSkillsTab v-else-if="activeSection === 'skills'" />
+		<ChatAdminUsersTab v-else-if="activeSection === 'users'" />
 		<ChatAdminPlaceholderTab
 			v-else-if="activeSection === 'latency'"
 			title="Latency"

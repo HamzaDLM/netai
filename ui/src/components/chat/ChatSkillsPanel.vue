@@ -41,27 +41,7 @@ const skillFormName = ref('')
 const skillFormDescription = ref('')
 const skillFormInstructions = ref('')
 const skillFormEnabled = ref(true)
-const isReviewQueueExpanded = ref(false)
-const reviewQueueSearch = ref('')
-
 const isEditMode = computed(() => skillDialogMode.value === 'edit' && activeSkillId.value !== null)
-const filteredReviewQueue = computed(() => {
-    const query = reviewQueueSearch.value.trim().toLowerCase()
-    if (!query) return skillsStore.reviewQueue
-
-    return skillsStore.reviewQueue.filter(listing => {
-        const haystack = [
-            listing.name,
-            listing.slug,
-            listing.description,
-            listing.review_notes,
-        ]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase()
-        return haystack.includes(query)
-    })
-})
 const filteredMarketplace = computed(() => {
     const query = marketplaceSearch.value.trim().toLowerCase()
     if (!query) return skillsStore.marketplace
@@ -413,85 +393,6 @@ onMounted(async () => {
 								</DialogFooter>
 							</DialogContent>
 						</Dialog>
-					</div>
-				</div>
-
-				<div v-if="skillsStore.isAdmin && skillsStore.reviewQueue.length > 0"
-					class="p-6 border rounded-2xl border-amber-700/40 bg-amber-950/20">
-					<div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-						<div>
-							<p class="text-lg font-semibold text-stone-200">Marketplace Review Queue</p>
-							<p class="mt-1 text-sm text-stone-400">Approve or reject submitted skills before they become
-								installable.</p>
-						</div>
-						<div class="flex items-center self-start gap-3">
-							<p class="text-xs uppercase tracking-[0.22em] text-amber-300">{{
-								skillsStore.reviewQueue.length
-								}} pending</p>
-							<button type="button"
-								class="inline-flex items-center h-10 gap-2 px-3 text-sm transition text-amber-100 hover:text-amber-200"
-								@click="isReviewQueueExpanded = !isReviewQueueExpanded">
-								<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-									stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-									<path v-if="isReviewQueueExpanded" d="m18 15-6-6-6 6" />
-									<path v-else d="m6 9 6 6 6-6" />
-								</svg>
-							</button>
-						</div>
-					</div>
-					<div v-if="isReviewQueueExpanded" class="mt-5 space-y-5">
-						<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-							<label class="relative block w-full max-w-md">
-								<span
-									class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-stone-500">
-									<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-										stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
-										aria-hidden="true">
-										<circle cx="11" cy="11" r="7" />
-										<path d="m20 20-3.5-3.5" />
-									</svg>
-								</span>
-								<input v-model="reviewQueueSearch" type="text" placeholder="Search pending skills"
-									class="w-full pl-10 pr-4 text-sm border rounded-md outline-none h-11 border-stone-800 bg-stone-950/70 text-stone-200 placeholder:text-stone-500 focus:border-amber-700/50" />
-							</label>
-							<p class="text-sm text-stone-400">
-								{{ filteredReviewQueue.length }} of {{ skillsStore.reviewQueue.length }} shown
-							</p>
-						</div>
-
-						<div v-if="filteredReviewQueue.length === 0"
-							class="px-5 py-10 text-sm border border-dashed rounded-xl border-stone-700 bg-stone-950/30 text-stone-500">
-							No pending skills match this search.
-						</div>
-						<div v-else class="grid gap-3 lg:grid-cols-2">
-							<article v-for="listing in filteredReviewQueue" :key="listing.id"
-								class="p-4 border rounded-xl border-stone-800 bg-stone-950/60">
-								<div class="flex items-start justify-between gap-3">
-									<div>
-										<p class="text-base font-medium text-stone-200">{{ listing.name }}</p>
-										<p class="mt-1 text-xs uppercase tracking-[0.18em] text-stone-500">/{{
-											listing.slug
-											}}</p>
-									</div>
-									<span
-										class="rounded-full border border-amber-700/50 px-2 py-0.5 text-[11px] uppercase tracking-wide text-amber-300">Pending</span>
-								</div>
-								<p v-if="listing.description" class="mt-4 text-sm leading-6 text-stone-400">{{
-									listing.description }}</p>
-								<div class="flex justify-end gap-2 mt-4">
-									<button type="button" :disabled="skillsStore.isBusy"
-										class="rounded-md border border-red-700/50 bg-red-950/20 px-3 py-1.5 text-sm text-red-200 transition hover:bg-red-900/40 disabled:opacity-50"
-										@click="skillsStore.rejectMarketplaceSkill(listing.id)">
-										Reject	
-									</button>
-									<button type="button" :disabled="skillsStore.isBusy"
-										class="rounded-md border border-emerald-700/50 bg-emerald-950/20 px-3 py-1.5 text-sm text-emerald-200 transition hover:bg-emerald-900/40 disabled:opacity-50"
-										@click="skillsStore.approveMarketplaceSkill(listing.id)">
-										Approve
-									</button>
-								</div>
-							</article>
-						</div>
 					</div>
 				</div>
 

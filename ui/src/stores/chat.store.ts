@@ -522,7 +522,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 							assistant.content = payload.answer
 						}
 					},
-					onDone: messageId => {
+					onDone: ({ messageId, durationMs }) => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
 						assistant.id = messageId
@@ -530,6 +530,9 @@ export const useChatStore = defineStore('chat', function chatStore() {
 							run.assistant_message_id = messageId
 							if (run.status === 'running') run.status = 'completed'
 							if (!run.ended_at) run.ended_at = new Date().toISOString()
+							if (typeof durationMs === 'number' && Number.isFinite(durationMs)) {
+								run.duration_ms = durationMs
+							}
 						}
 						trackedAssistantId = messageId
 						streamingAssistantMessageId.value = messageId

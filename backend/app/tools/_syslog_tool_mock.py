@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from app.tools import netai_tool
+from app.tools import apply_mock_latency, netai_tool
 
 _FAKE_EVIDENCE: list[dict[str, Any]] = [
     {
@@ -95,6 +95,7 @@ def get_host_syslogs(
     severity: Annotated[int | None, "Optional severity filter (-1 to 7)."] = None,
 ) -> dict[str, Any]:
     """Return latest 40 fake syslog events by hostname, optionally filtered by severity."""
+    apply_mock_latency()
     hostname_value = (hostname or "").strip()
     if not hostname_value:
         return {

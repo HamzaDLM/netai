@@ -432,6 +432,10 @@ function getRunDurationMs(message: Message): number | null {
     const run = getPrimaryRun(message)
     if (!run) return null
 
+    if (typeof run.duration_ms === 'number' && Number.isFinite(run.duration_ms) && run.duration_ms > 0) {
+        return Math.round(run.duration_ms)
+    }
+
     const createdAtMs = Date.parse(run.created_at)
     if (!Number.isFinite(createdAtMs)) return null
 
@@ -445,10 +449,23 @@ function getRunDurationMs(message: Message): number | null {
     return Math.max(0, Math.round(endedAtMs - createdAtMs))
 }
 
+function formatThoughtsDuration(durationMs: number): string {
+    if (durationMs >= 1000) {
+        const durationSeconds = durationMs / 1000
+        const roundedSeconds =
+            durationSeconds >= 10
+                ? Math.round(durationSeconds)
+                : Math.round(durationSeconds * 10) / 10
+        return `${roundedSeconds} s`
+    }
+
+    return `${durationMs} ms`
+}
+
 function getThoughtsSummary(message: Message): string {
     const durationMs = getRunDurationMs(message)
     if (durationMs == null || durationMs == 0) return 'Thoughts.'
-    return `Thoughts (${durationMs} ms)`
+    return `Thoughts (${formatThoughtsDuration(durationMs)})`
 }
 
 function getToolCallDetailsFromEvents(message: Message): ToolCallDetail[] {

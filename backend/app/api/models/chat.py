@@ -281,6 +281,7 @@ class ToolCall(Base):
 
     input_params: Mapped[dict] = mapped_column(JSON, nullable=False)
     output: Mapped[dict | None] = mapped_column(JSON)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
 
     status: Mapped[ToolCallStatus] = mapped_column(Enum(ToolCallStatus), nullable=False)
     error_type: Mapped[str | None] = mapped_column(

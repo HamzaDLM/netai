@@ -18,7 +18,7 @@ export type StreamEvent =
 	| { type: 'specialist_evidence'; specialist: string; tool_name: string; result?: Record<string, unknown>; evidence?: unknown[] }
 	| { type: 'specialist_tool_result'; specialist: string; tool_name: string; result?: Record<string, unknown> }
 	| { type: 'leader_conclusion'; answer?: string }
-	| { type: 'done'; message_id: number }
+	| { type: 'done'; message_id: number; duration_ms?: number | null }
 
 export type StreamHandlers = {
 	onToken?: (token: string) => void
@@ -31,7 +31,7 @@ export type StreamHandlers = {
 	onSpecialistEvidence?: (payload: { specialist: string; tool_name: string; result?: Record<string, unknown>; evidence?: unknown[] }) => void
 	onSpecialistToolResult?: (payload: { specialist: string; tool_name: string; result?: Record<string, unknown> }) => void
 	onLeaderConclusion?: (payload: { answer?: string }) => void
-	onDone?: (messageId: number) => void
+	onDone?: (payload: { messageId: number; durationMs?: number | null }) => void
 }
 
 class ChatService {
@@ -130,7 +130,14 @@ class ChatService {
 			if (eventName === 'specialist_evidence') return { type: eventName, ...payload }
 			if (eventName === 'specialist_tool_result') return { type: eventName, ...payload }
 			if (eventName === 'leader_conclusion') return { type: eventName, ...payload }
-			if (eventName === 'done') return { type: eventName, message_id: Number(payload?.message_id) }
+			if (eventName === 'done') {
+				return {
+					type: eventName,
+					message_id: Number(payload?.message_id),
+					duration_ms:
+						typeof payload?.duration_ms === 'number' ? Number(payload.duration_ms) : null,
+				}
+			}
 			return null
 		}
 
@@ -157,7 +164,12 @@ class ChatService {
 				if (parsed.type === 'specialist_evidence') handlers.onSpecialistEvidence?.(parsed)
 				if (parsed.type === 'specialist_tool_result') handlers.onSpecialistToolResult?.(parsed)
 				if (parsed.type === 'leader_conclusion') handlers.onLeaderConclusion?.(parsed)
-				if (parsed.type === 'done') handlers.onDone?.(parsed.message_id)
+				if (parsed.type === 'done') {
+					handlers.onDone?.({
+						messageId: parsed.message_id,
+						durationMs: parsed.duration_ms ?? null,
+					})
+				}
 			}
 		}
 	}
