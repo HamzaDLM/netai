@@ -52,6 +52,18 @@ onMounted(async () => {
 			description="Model, tool, and orchestration timing views will live here."
 			coming-soon-label="Latency dashboards coming next"
 			empty-state-copy="This section is reserved for response-time breakdowns and performance trends once those metrics are exposed to the UI." />
+		<ChatAdminPlaceholderTab
+			v-else-if="activeSection === 'evals'"
+			title="Evals"
+			description="Model evaluation workflows will live here."
+			coming-soon-label="Evaluation tooling is not wired yet"
+			empty-state-copy="This section is reserved for admin workflows that run question, context, and expected-answer sets against the multi-agent setup." />
+		<ChatAdminPlaceholderTab
+			v-else-if="activeSection === 'documents'"
+			title="Documents"
+			description="RAG document management workflows will live here."
+			coming-soon-label="Document ingestion is not wired yet"
+			empty-state-copy="This section is reserved for admin workflows that add baseline documents, network configs, runbooks, and other reference material for retrieval-augmented answers." />
 		<ChatAdminFeedbacksTab
 			v-else
 			:feedback-items="feedbackItems"

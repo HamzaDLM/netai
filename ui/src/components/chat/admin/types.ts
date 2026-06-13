@@ -1,6 +1,6 @@
 import type { AgentRun } from '@/types/chat.type'
 
-export type AdminSection = 'overview' | 'feedbacks' | 'connectors' | 'skills' | 'users' | 'latency'
+export type AdminSection = 'overview' | 'feedbacks' | 'connectors' | 'skills' | 'users' | 'latency' | 'evals' | 'documents'
 
 export type PersistedToolCall = {
 	id: number

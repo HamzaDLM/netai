@@ -171,7 +171,7 @@ const filteredSkills = computed(() => {
 </script>
 
 <template>
-	<section class="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden bg-[#050505]">
+	<section class="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
 		<div class="px-6 py-4 border-b border-stone-900">
 			<p class="text-xl font-semibold text-stone-100">Skills</p>
 			<p class="mt-1 text-sm text-stone-500">

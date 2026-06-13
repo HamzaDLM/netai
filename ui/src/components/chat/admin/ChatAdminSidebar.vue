@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { BarChart3, Gauge, MessageSquareWarning, Plug, Sparkles, Users } from 'lucide-vue-next'
+import { BarChart3, ClipboardCheck, FileText, Gauge, MessageSquareWarning, Plug, Sparkles, Users } from 'lucide-vue-next'
 import type { AdminSection } from './types'
 
 defineProps<{
@@ -17,6 +17,8 @@ const sections: Array<{ id: AdminSection; label: string; icon: typeof BarChart3 
 	{ id: 'skills', label: 'Skills', icon: Sparkles },
 	{ id: 'users', label: 'Users', icon: Users },
 	{ id: 'latency', label: 'Latency', icon: Gauge },
+	{ id: 'evals', label: 'Evals', icon: ClipboardCheck },
+	{ id: 'documents', label: 'Documents', icon: FileText },
 ]
 </script>
 

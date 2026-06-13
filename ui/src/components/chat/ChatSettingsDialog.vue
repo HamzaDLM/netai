@@ -107,7 +107,7 @@ onMounted(async () => {
             </DialogHeader>
             <Tabs default-value="general" class="flex w-full h-full min-h-0 gap-4 px-6 pb-6">
                 <TabsList
-                    class="flex flex-col items-start justify-start w-40 h-full gap-1 p-2 rounded-md shrink-0 bg-stone-900 text-stone-300">
+                    class="flex flex-col items-start justify-start w-52 h-full gap-1 p-2 rounded-md shrink-0 bg-stone-900 text-stone-300">
                     <TabsTrigger value="general" class="justify-start w-full text-sm">General</TabsTrigger>
                     <TabsTrigger value="appearance" class="justify-start w-full text-sm">Appearance</TabsTrigger>
                     <TabsTrigger value="about" class="justify-start w-full text-sm">About</TabsTrigger>

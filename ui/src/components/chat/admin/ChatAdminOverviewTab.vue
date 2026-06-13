@@ -22,13 +22,6 @@ type UsagePoint = {
 	messages: number
 }
 
-type RegionPoint = {
-	label: string
-	value: number
-	color: string
-	dotClass: string
-}
-
 const overviewCards: OverviewCard[] = [
 	{
 		title: 'Conversations',
@@ -77,64 +70,16 @@ const usageSeries: UsagePoint[] = [
 	{ label: 'Sun', messages: 847 },
 ]
 
-const regionSeries: RegionPoint[] = [
-	{
-		label: 'EMEA',
-		value: 46,
-		color: '#22d3ee',
-		dotClass: 'bg-cyan-400',
-	},
-	{
-		label: 'AMER',
-		value: 34,
-		color: '#34d399',
-		dotClass: 'bg-emerald-400',
-	},
-	{
-		label: 'APAC',
-		value: 20,
-		color: '#f59e0b',
-		dotClass: 'bg-amber-400',
-	},
-]
-
-const usageMax = computed(() => Math.max(...usageSeries.map(point => point.messages), 1))
-const usageBars = computed(() =>
-	usageSeries.map(point => ({
-		...point,
-		height: Math.max(14, Math.round((point.messages / usageMax.value) * 220)),
-	}))
-)
 const weeklyMessageTotal = computed(() =>
 	usageSeries.reduce((total, point) => total + point.messages, 0).toLocaleString()
 )
 const averageDailyMessages = computed(() =>
 	Math.round(usageSeries.reduce((total, point) => total + point.messages, 0) / usageSeries.length).toLocaleString()
 )
-const chartGuides = [25, 50, 75, 100]
-
-const donutSegments = computed(() => {
-	const radius = 54
-	const circumference = 2 * Math.PI * radius
-	let offset = 0
-
-	return regionSeries.map(region => {
-		const segmentLength = (region.value / 100) * circumference
-		const segment = {
-			...region,
-			radius,
-			circumference,
-			dashArray: `${segmentLength} ${circumference - segmentLength}`,
-			dashOffset: -offset,
-		}
-		offset += segmentLength
-		return segment
-	})
-})
 </script>
 
 <template>
-	<section class="relative flex min-w-0 flex-1 flex-col overflow-auto bg-[#050505]">
+	<section class="relative flex min-w-0 flex-1 flex-col overflow-auto">
 		<div class="absolute inset-0 overflow-hidden pointer-events-none">
 			<div class="absolute left-[-8%] top-[-8%] h-72 w-72 rounded-full bg-cyan-500/8 blur-3xl" />
 			<div class="absolute bottom-[-12%] right-[-6%] h-80 w-80 rounded-full bg-emerald-500/8 blur-3xl" />
@@ -160,7 +105,7 @@ const donutSegments = computed(() => {
 			</div>
 
 			<div class="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.95fr)]">
-				<article class="rounded-[28px] border border-white/7 bg-[#0b0b0b]/90 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+				<article class="rounded-[8px] border border-white/7 bg-[#0b0b0b]/90 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
 					<div class="flex flex-col gap-5 pb-5 border-b border-white/6 lg:flex-row lg:items-end lg:justify-between">
 						<div>
 							<p class="text-[11px] font-semibold uppercase tracking-[0.28em] text-stone-500">Usage per Time</p>
@@ -177,99 +122,12 @@ const donutSegments = computed(() => {
 							</div>
 						</div>
 					</div>
-
-					<div class="mt-6 rounded-[24px] border border-white/6 bg-gradient-to-b from-white/[0.03] to-white/[0.015] p-5">
-						<div class="relative h-[340px]">
-							<div
-								v-for="guide in chartGuides"
-								:key="guide"
-								class="absolute inset-x-0 border-t border-dashed border-white/6"
-								:style="{ bottom: `${guide}%` }" />
-							<div class="absolute inset-0 grid grid-cols-7 gap-4">
-								<div
-									v-for="bar in usageBars"
-									:key="bar.label"
-									class="flex flex-col justify-end min-w-0">
-									<div class="mb-3 text-center text-[11px] text-stone-500">{{ bar.messages }}</div>
-									<div
-										class="relative overflow-hidden rounded-[14px] border border-white/6 bg-gradient-to-t from-cyan-500 via-sky-400 to-emerald-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]"
-										:style="{ height: `${bar.height}px` }">
-										<div class="absolute h-12 rounded-full inset-x-2 top-2 bg-white/15 blur-lg" />
-									</div>
-									<div class="mt-3 text-sm font-medium text-center text-stone-300">{{ bar.label }}</div>
-								</div>
-							</div>
-						</div>
-					</div>
 				</article>
 
-				<article class="rounded-[28px] border border-white/7 bg-[#0b0b0b]/90 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
+				<article class="rounded-[8px] border border-white/7 bg-[#0b0b0b]/90 p-6 shadow-[0_20px_70px_rgba(0,0,0,0.35)]">
 					<div class="pb-5 border-b border-white/6">
 						<p class="text-[11px] font-semibold uppercase tracking-[0.28em] text-stone-500">Usage per Region</p>
 						<h2 class="mt-2 text-2xl font-semibold tracking-[-0.04em] text-stone-100">Regional distribution</h2>
-					</div>
-
-					<div class="grid gap-6 mt-6">
-						<div class="relative w-56 h-56 mx-auto">
-							<svg viewBox="0 0 140 140" class="w-full h-full -rotate-90">
-								<circle
-									cx="70"
-									cy="70"
-									r="54"
-									fill="none"
-									stroke="rgba(255,255,255,0.08)"
-									stroke-width="14" />
-								<circle
-									v-for="segment in donutSegments"
-									:key="segment.label"
-									cx="70"
-									cy="70"
-									:r="segment.radius"
-									fill="none"
-									:stroke="segment.color"
-									stroke-linecap="round"
-									stroke-width="14"
-									:stroke-dasharray="segment.dashArray"
-									:stroke-dashoffset="segment.dashOffset" />
-							</svg>
-							<div class="absolute inset-[22%] rounded-full border border-white/6 bg-black/40 backdrop-blur-md" />
-							<div class="absolute inset-0 flex flex-col items-center justify-center">
-								<p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-500">7 day split</p>
-								<p class="mt-2 text-3xl font-semibold tracking-[-0.05em] text-stone-100">EMEA</p>
-								<p class="mt-1 text-sm text-stone-400">largest region this week</p>
-							</div>
-						</div>
-
-						<div class="grid w-full gap-3">
-							<div
-								v-for="region in regionSeries"
-								:key="region.label"
-								class="rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-4">
-								<div class="flex items-center justify-between gap-4">
-									<div class="flex items-center gap-3">
-										<span class="h-2.5 w-2.5 rounded-full" :class="region.dotClass" />
-										<div>
-											<p class="text-sm font-medium text-stone-200">{{ region.label }}</p>
-											<p class="text-xs text-stone-500">share of weekly messages</p>
-										</div>
-									</div>
-									<p class="text-lg font-semibold tracking-[-0.03em] text-stone-100">{{ region.value }}%</p>
-								</div>
-								<div class="h-2 mt-4 overflow-hidden rounded-full bg-white/6">
-									<div
-										class="h-full rounded-full"
-										:class="region.dotClass"
-										:style="{ width: `${region.value}%` }" />
-								</div>
-							</div>
-						</div>
-
-						<div class="grid grid-cols-3 gap-3 pt-2 text-center border-t border-white/6">
-							<div v-for="region in regionSeries" :key="`${region.label}-stat`" class="py-2">
-								<p class="text-[11px] font-semibold uppercase tracking-[0.24em] text-stone-500">{{ region.label }}</p>
-								<p class="mt-2 text-xl font-semibold tracking-[-0.04em] text-stone-100">{{ region.value }}%</p>
-							</div>
-						</div>
 					</div>
 				</article>
 			</div>

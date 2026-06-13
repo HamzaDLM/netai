@@ -11,6 +11,7 @@ import ChatActions from '@/components/chat/ChatActions.vue';
 import ChatAttachmentBar from '@/components/chat/ChatAttachmentBar.vue';
 import Button from '@/components/ui/button/Button.vue';
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
+import { Bug } from 'lucide-vue-next';
 import { useChatStore } from '@/stores/chat.store';
 import { useSkillsStore } from '@/stores/skills.store';
 import type { AgentEvent, AgentRun, ContextBreakdown, Message, ToolCall } from '@/types/chat.type';
@@ -1241,6 +1242,12 @@ onBeforeUnmount(() => {
                 @update:history-search-query="handleHistorySearchQueryUpdate" />
             <!-- Main section -->
             <div class="relative flex flex-col flex-1 h-full min-w-0 min-h-0">
+                <Button v-if="activePage === 'chat'" type="button" variant="outline" size="sm"
+                    class="absolute top-5 right-5 z-30 gap-2 border-stone-700/80 bg-stone-950/80 text-stone-300 shadow-lg backdrop-blur hover:bg-stone-900 hover:text-stone-100"
+                    aria-label="Debug">
+                    <Bug class="w-4 h-4" />
+                    <span>Debug</span>
+                </Button>
                 <!-- Question Navbar -->
                 <div v-if="activePage === 'chat' && questionNavItems.length > 1"
                     class="absolute top-0 bottom-0 z-20 items-center hidden pointer-events-none right-2 lg:flex">
