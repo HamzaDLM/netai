@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -41,6 +42,7 @@ from app.api.schemas.chat import (
     FeedbackResponse,
     MessageCreate,
     MessageResponse,
+    PromptSnapshotResponse,
 )
 from app.core.config import project_settings
 from app.db.session import SessionLocal
@@ -53,7 +55,11 @@ from app.services.chat_attachments import (
     list_active_attachments,
     parse_attachment_payload,
 )
-from app.workflows.agent_runner import run_agent, run_agent_stream
+from app.workflows.agent_runner import (
+    build_agent_prompt_snapshot,
+    run_agent,
+    run_agent_stream,
+)
 
 router = APIRouter(prefix="/llm", tags=["chat"])
 _SKILL_COMMAND_RE = re.compile(r"/([a-z0-9][a-z0-9-]{0,79})(?=$|\s)", re.IGNORECASE)
@@ -863,6 +869,35 @@ async def ask_llm(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="assistant_message_hydration_failed",
     )
+
+
+@router.post(
+    "/conversation/{conversation_id}/prompt-preview",
+    response_model=PromptSnapshotResponse,
+)
+async def preview_llm_prompt(
+    conversation_id: str,
+    payload: MessageCreate,
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+):
+    await _get_active_conversation(db, conversation_id)
+    user_record = await _get_or_create_user_record(db, user)
+    requested_skills, question_for_agent = await _load_requested_skills(
+        db=db,
+        user_id=user.id,
+        content=payload.content,
+    )
+    snapshot = await build_agent_prompt_snapshot(
+        conversation_id=conversation_id,
+        question=question_for_agent,
+        skills=requested_skills or None,
+        custom_instructions=user_record.custom_instructions,
+    )
+    return {
+        "messages": [asdict(message) for message in snapshot.messages],
+        "metrics": snapshot.metrics,
+    }
 
 
 @router.post("/conversation/{conversation_id}/message/stream")

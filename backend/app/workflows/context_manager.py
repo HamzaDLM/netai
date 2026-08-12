@@ -17,6 +17,7 @@ COMPACTION_THRESHOLD_RATIO = 0.8
 @dataclass(slots=True)
 class BuiltContext:
     messages: list[ChatMessage]
+    message_sources: list[dict[str, int | str | None]]
     estimated_tokens: int
     used_summary_id: int | None
     compacted: bool
@@ -201,9 +202,30 @@ async def build_conversation_context(
                 f"{latest_summary.content}"
             )
         )
+    message_sources: list[dict[str, int | str | None]] = []
+    if latest_summary:
+        message_sources.append(
+            {
+                "source": "conversation_summary",
+                "summary_id": latest_summary.id,
+                "up_to_message_id": latest_summary.up_to_message_id,
+            }
+        )
 
     tail = recent_messages[-keep_recent:] if keep_recent > 0 else recent_messages
     prompt_messages.extend(_to_chat_message(message) for message in tail)
+    message_sources.extend(
+        {
+            "source": "conversation_message",
+            "message_id": message.id,
+            "role": (
+                message.role.value
+                if isinstance(message.role, MessageRole)
+                else str(message.role)
+            ),
+        }
+        for message in tail
+    )
 
     estimated_tokens = _estimate_tokens(prompt_messages)
     compacted = False
@@ -221,6 +243,7 @@ async def build_conversation_context(
                 ),
             )
             prompt_messages = []
+            message_sources = []
             if latest_summary:
                 prompt_messages.append(
                     ChatMessage.from_system(
@@ -228,10 +251,29 @@ async def build_conversation_context(
                         f"{latest_summary.content}"
                     )
                 )
+                message_sources.append(
+                    {
+                        "source": "conversation_summary",
+                        "summary_id": latest_summary.id,
+                        "up_to_message_id": latest_summary.up_to_message_id,
+                    }
+                )
             tail = (
                 recent_messages[-keep_recent:] if keep_recent > 0 else recent_messages
             )
             prompt_messages.extend(_to_chat_message(message) for message in tail)
+            message_sources.extend(
+                {
+                    "source": "conversation_message",
+                    "message_id": message.id,
+                    "role": (
+                        message.role.value
+                        if isinstance(message.role, MessageRole)
+                        else str(message.role)
+                    ),
+                }
+                for message in tail
+            )
             estimated_tokens = _estimate_tokens(prompt_messages)
 
     used_percent = (
@@ -243,6 +285,7 @@ async def build_conversation_context(
 
     return BuiltContext(
         messages=prompt_messages,
+        message_sources=message_sources,
         estimated_tokens=estimated_tokens,
         used_summary_id=latest_summary.id if latest_summary else None,
         compacted=compacted,

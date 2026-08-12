@@ -1,44 +1,192 @@
-import logging
+"""Reusable MCP client plus a bridge from remote MCP tools to Haystack tools."""
 
+from __future__ import annotations
+
+import argparse
+import json
+from dataclasses import dataclass
+from typing import Any, cast
+
+from fastmcp import Client, FastMCP
+from fastmcp.client.client import CallToolResult
+from fastmcp.client.transports import StreamableHttpTransport
+from haystack.utils.auth import Secret
 from haystack_integrations.tools.mcp import MCPTool, StreamableHttpServerInfo
-
-logging.basicConfig(level=logging.WARNING)  # Set root logger to WARNING
-mcp_logger = logging.getLogger("haystack_integrations.tools.mcp")
-mcp_logger.setLevel(logging.DEBUG)
-
-if not mcp_logger.handlers:
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(levelname)s:%(name)s:%(message)s"))
-    mcp_logger.addHandler(handler)
-    mcp_logger.propagate = False  # Prevent propagation to root logger
+from mcp.types import Tool as MCPToolDefinition
 
 
-def main():
-    """Example of MCPTool usage with server connection."""
+@dataclass(frozen=True, slots=True)
+class MCPClientConfig:
+    url: str = "http://127.0.0.1:8030/mcp"
+    token: str | None = None
+    headers: dict[str, str] | None = None
+    timeout: float = 30.0
 
-    server_info = StreamableHttpServerInfo(url="http://localhost:8030/mcp")
-    tool = None
-    tool_subtract = None
-    try:
-        tool = MCPTool(name="add", server_info=server_info)
-        tool_subtract = MCPTool(name="subtract", server_info=server_info)
 
-        result = tool.invoke(a=7, b=3)
-        print(f"7 + 3 = {result}")
+class NetAIMCPClient:
+    """Async MCP discovery/invocation client.
 
-        result = tool_subtract.invoke(a=5, b=3)
-        print(f"5 - 3 = {result}")
+    Use it as an async context manager. ``transport`` may be an HTTP URL, an
+    MCP config, or a FastMCP instance (useful for tests and embedded servers).
+    """
 
-        result = tool.invoke(a=10, b=20)
-        print(f"10 + 20 = {result}")
+    def __init__(
+        self,
+        transport: str | dict[str, Any] | FastMCP,
+        *,
+        token: str | None = None,
+        headers: dict[str, str] | None = None,
+        timeout: float = 30.0,
+    ) -> None:
+        resolved_transport: Any = transport
+        client_auth = token
+        if (
+            headers
+            and isinstance(transport, str)
+            and transport.startswith(("http://", "https://"))
+        ):
+            resolved_transport = StreamableHttpTransport(
+                url=transport,
+                headers=headers,
+                auth=token,
+            )
+            client_auth = None
+        self._client = Client(
+            resolved_transport,
+            auth=client_auth,
+            timeout=timeout,
+        )
+        self._connected = False
 
-    except Exception as e:
-        print(f"Error in client example: {e}")
-    finally:
-        if tool:
-            tool.close()
-        if tool_subtract:
-            tool_subtract.close()
+    async def __aenter__(self) -> NetAIMCPClient:
+        await self._client.__aenter__()
+        self._connected = True
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        try:
+            await self._client.__aexit__(exc_type, exc, traceback)
+        finally:
+            self._connected = False
+
+    def _require_connection(self) -> None:
+        if not self._connected:
+            raise RuntimeError("MCP client must be used inside 'async with'")
+
+    async def list_tools(self) -> list[MCPToolDefinition]:
+        self._require_connection()
+        return await self._client.list_tools()
+
+    async def call_tool_result(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> CallToolResult:
+        """Call a tool and retain the complete MCP result envelope."""
+
+        self._require_connection()
+        result = await self._client.call_tool(name, arguments or {})
+        if not isinstance(result, CallToolResult):  # task mode is never requested
+            raise TypeError(f"Unexpected MCP result type: {type(result).__name__}")
+        return result
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> Any:
+        """Call a tool and return its decoded value."""
+
+        result = await self.call_tool_result(name, arguments)
+        if result.data is not None:
+            return result.data
+        if result.structured_content is not None:
+            return result.structured_content
+        return [
+            block.model_dump(mode="json") if hasattr(block, "model_dump") else block
+            for block in result.content
+        ]
+
+
+async def discover_haystack_tools(
+    config: MCPClientConfig,
+    *,
+    include: set[str] | None = None,
+) -> list[MCPTool]:
+    """Discover an HTTP MCP server and return Agent-ready Haystack MCPTool objects.
+
+    The returned tools own lazy connections; callers should call ``close()`` on
+    them when their agent/application shuts down.
+    """
+
+    async with NetAIMCPClient(
+        config.url,
+        token=config.token,
+        headers=config.headers,
+        timeout=config.timeout,
+    ) as client:
+        remote_tools = await client.list_tools()
+
+    server_info = StreamableHttpServerInfo(
+        url=config.url,
+        token=config.token,
+        headers=cast(dict[str, str | Secret] | None, config.headers),
+        timeout=max(1, int(config.timeout)),
+    )
+    return [
+        MCPTool(
+            name=tool.name,
+            description=tool.description,
+            server_info=server_info,
+            connection_timeout=max(1, int(config.timeout)),
+            invocation_timeout=max(1, int(config.timeout)),
+        )
+        for tool in remote_tools
+        if include is None or tool.name in include
+    ]
+
+
+async def _run_cli() -> None:
+    parser = argparse.ArgumentParser(description="Discover or call an MCP tool")
+    parser.add_argument("--url", default="http://127.0.0.1:8030/mcp")
+    parser.add_argument("--token", default=None)
+    parser.add_argument("tool", nargs="?", help="Tool name; omit to list tools")
+    parser.add_argument(
+        "arguments",
+        nargs="?",
+        default="{}",
+        help='Tool arguments as JSON, e.g. \'{"status":"down"}\'',
+    )
+    args = parser.parse_args()
+
+    async with NetAIMCPClient(args.url, token=args.token) as client:
+        if not args.tool:
+            tools = await client.list_tools()
+            print(
+                json.dumps(
+                    [
+                        {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "input_schema": tool.inputSchema,
+                        }
+                        for tool in tools
+                    ],
+                    indent=2,
+                )
+            )
+            return
+
+        arguments = json.loads(args.arguments)
+        if not isinstance(arguments, dict):
+            raise ValueError("arguments must decode to a JSON object")
+        print(json.dumps(await client.call_tool(args.tool, arguments), indent=2))
+
+
+def main() -> None:
+    import asyncio
+
+    asyncio.run(_run_cli())
 
 
 if __name__ == "__main__":

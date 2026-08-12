@@ -93,6 +93,22 @@ export interface ContextMetrics {
 	breakdown?: ContextBreakdown
 }
 
+export interface PromptSnapshotMessage {
+	index: number
+	role: string
+	source: string
+	text: string
+	estimated_tokens: number
+	message_id?: number | null
+	summary_id?: number | null
+	up_to_message_id?: number | null
+}
+
+export interface PromptSnapshot {
+	messages: PromptSnapshotMessage[]
+	metrics: ContextMetrics
+}
+
 export type MessageRole = 'user' | 'assistant' | 'system'
 export type FeedbackRating = 'good' | 'bad'
 export type FeedbackType =

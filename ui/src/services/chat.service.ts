@@ -1,6 +1,6 @@
 import { AxiosResponse } from 'axios'
 import API from './axios'
-import { AdminFeedbackItem, ChatAttachment, ChatUserSettings, ContextMetrics, Conversation, ConversationMessages, Message } from '@/types/chat.type'
+import { AdminFeedbackItem, ChatAttachment, ChatUserSettings, ContextMetrics, Conversation, ConversationMessages, Message, PromptSnapshot } from '@/types/chat.type'
 
 export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
@@ -66,6 +66,9 @@ class ChatService {
 	// Chatting
 	askLLM(conversation_id: string, params: { content: string }): Promise<AxiosResponse<Message>> {
 		return API.post(`/llm/conversation/${conversation_id}/message`, params)
+	}
+	getPromptPreview(conversation_id: string, params: { content: string }): Promise<AxiosResponse<PromptSnapshot>> {
+		return API.post(`/llm/conversation/${conversation_id}/prompt-preview`, params)
 	}
 
 	listAttachments(conversation_id: string): Promise<AxiosResponse<ChatAttachment[]>> {

@@ -10,15 +10,15 @@ const emit = defineEmits<{
 	(event: 'select', section: AdminSection): void
 }>()
 
-const sections: Array<{ id: AdminSection; label: string; icon: typeof BarChart3 }> = [
-	{ id: 'overview', label: 'Overview', icon: BarChart3 },
-	{ id: 'feedbacks', label: 'Feedbacks', icon: MessageSquareWarning },
-	{ id: 'connectors', label: 'Connectors', icon: Plug },
-	{ id: 'skills', label: 'Skills', icon: Sparkles },
-	{ id: 'users', label: 'Users', icon: Users },
-	{ id: 'latency', label: 'Latency', icon: Gauge },
-	{ id: 'evals', label: 'Evals', icon: ClipboardCheck },
-	{ id: 'documents', label: 'Documents', icon: FileText },
+const sections: Array<{ id: AdminSection; label: string; icon: typeof BarChart3; level: 'Admin' | 'SuperAdmin' }> = [
+	{ id: 'overview', label: 'Overview', icon: BarChart3, level: 'Admin' },
+	{ id: 'feedbacks', label: 'Feedbacks', icon: MessageSquareWarning, level: 'Admin' },
+	{ id: 'connectors', label: 'Connectors', icon: Plug, level: 'Admin' },
+	{ id: 'skills', label: 'Skills', icon: Sparkles, level: 'Admin' },
+	{ id: 'users', label: 'Users', icon: Users, level: 'SuperAdmin' },
+	{ id: 'latency', label: 'Latency', icon: Gauge, level: 'Admin' },
+	{ id: 'evals', label: 'Evals', icon: ClipboardCheck, level: 'Admin' },
+	{ id: 'documents', label: 'Documents', icon: FileText, level: 'Admin' },
 ]
 </script>
 
@@ -33,7 +33,7 @@ const sections: Array<{ id: AdminSection; label: string; icon: typeof BarChart3 
 				@click="emit('select', section.id)"
 				class="flex h-10 w-full items-center gap-3 rounded-md px-3 text-sm transition"
 				:class="activeSection === section.id ? 'bg-stone-900 text-stone-100' : 'text-stone-400 hover:bg-stone-900/60 hover:text-stone-200'">
-				<component :is="section.icon" class="h-4 w-4" />
+				<component :is="section.icon" class="h-4 w-4 text-stone-500" />
 				<span>{{ section.label }}</span>
 			</button>
 		</div>

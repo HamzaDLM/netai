@@ -20,6 +20,22 @@ class MessageCreate(BaseModel):
     content: str
 
 
+class PromptSnapshotMessageResponse(BaseModel):
+    index: int
+    role: str
+    source: str
+    text: str
+    estimated_tokens: int
+    message_id: int | None = None
+    summary_id: int | None = None
+    up_to_message_id: int | None = None
+
+
+class PromptSnapshotResponse(BaseModel):
+    messages: list[PromptSnapshotMessageResponse]
+    metrics: dict
+
+
 class ChatUserSettingsUpdate(BaseModel):
     custom_instructions: str | None = None
 

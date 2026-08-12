@@ -11,10 +11,11 @@ import ChatActions from '@/components/chat/ChatActions.vue';
 import ChatAttachmentBar from '@/components/chat/ChatAttachmentBar.vue';
 import Button from '@/components/ui/button/Button.vue';
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
-import { Bug } from 'lucide-vue-next';
+import { Bug, Clipboard, RefreshCw } from 'lucide-vue-next';
 import { useChatStore } from '@/stores/chat.store';
 import { useSkillsStore } from '@/stores/skills.store';
-import type { AgentEvent, AgentRun, ContextBreakdown, Message, ToolCall } from '@/types/chat.type';
+import chatService from '@/services/chat.service';
+import type { AgentEvent, AgentRun, ContextBreakdown, Message, PromptSnapshot, PromptSnapshotMessage, ToolCall } from '@/types/chat.type';
 import type { Skill } from '@/types/skill.type';
 import {
     Tooltip,
@@ -22,6 +23,14 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+    Sheet,
+    SheetContent,
+    SheetDescription,
+    SheetHeader,
+    SheetTitle,
+} from '@/components/ui/sheet'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
     AlertDialog,
     AlertDialogContent,
@@ -62,6 +71,10 @@ const isDisclaimerOpen = ref(false)
 const hasAcknowledgedDisclaimer = ref(false)
 const userMessageAnchors = ref<Record<number, HTMLElement>>({})
 const attachmentAccept = '.conf,.cfg,.csv,.ini,.json,.log,.md,.txt,.yaml,.yml'
+const isPromptDrawerOpen = ref(false)
+const isPromptPreviewLoading = ref(false)
+const promptPreview = ref<PromptSnapshot | null>(null)
+const promptPreviewError = ref<string | null>(null)
 
 type DiffLineType = 'context' | 'added' | 'removed' | 'meta'
 type DiffLine = {
@@ -118,6 +131,74 @@ type ContextBreakdownSegment = {
     swatchClass: string
 }
 type SlashSuggestion = Pick<Skill, 'id' | 'name' | 'slug' | 'description'>
+
+function sourceLabel(source: string): string {
+    const labels: Record<string, string> = {
+        conversation_summary: 'Summary',
+        conversation_message: 'Message',
+        conversation_context: 'Context',
+        orchestrator_system_prompt: 'Orchestrator system',
+        available_tools: 'Available tools',
+        current_question: 'Draft question',
+        attachments: 'Attachments',
+        custom_instructions: 'Custom instructions',
+        selected_skills: 'Skills',
+        formatting_prompt: 'Formatting',
+    }
+    return labels[source] ?? source.replace(/_/g, ' ')
+}
+
+function roleClass(role: string): string {
+    if (role === 'system') return 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+    if (role === 'assistant') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+    if (role === 'user') return 'border-sky-500/30 bg-sky-500/10 text-sky-200'
+    return 'border-stone-600 bg-stone-900 text-stone-200'
+}
+
+function promptMessageMeta(message: PromptSnapshotMessage): string {
+    if (message.message_id) return `message ${message.message_id}`
+    if (message.summary_id) return `summary ${message.summary_id}`
+    return `item ${message.index + 1}`
+}
+
+function promptPreviewQuestion(): string {
+    const draft = chatInputValue.value.trim()
+    if (draft) return draft
+    const lastUserMessage = [...chatStore.messages].reverse().find(message => message.role === 'user' && message.content.trim())
+    return lastUserMessage?.content ?? ''
+}
+
+async function loadPromptPreview(): Promise<void> {
+    if (!chatStore.selectedConversation) return
+    const content = promptPreviewQuestion()
+    if (!content.trim()) {
+        promptPreview.value = null
+        promptPreviewError.value = 'Enter a question to preview the prompt stack.'
+        return
+    }
+
+    isPromptPreviewLoading.value = true
+    promptPreviewError.value = null
+    try {
+        const result = await chatService.getPromptPreview(chatStore.selectedConversation.id, { content })
+        promptPreview.value = result.data
+    } catch (err) {
+        promptPreview.value = null
+        promptPreviewError.value = 'Failed to load prompt preview.'
+    } finally {
+        isPromptPreviewLoading.value = false
+    }
+}
+
+async function openPromptPreview(): Promise<void> {
+    isPromptDrawerOpen.value = true
+    await loadPromptPreview()
+}
+
+async function copyPromptPreview(): Promise<void> {
+    if (!promptPreview.value || typeof navigator === 'undefined' || !navigator.clipboard) return
+    await navigator.clipboard.writeText(JSON.stringify(promptPreview.value, null, 2))
+}
 
 function getQuestionPreview(content: string, maxWords = 6): string {
     const normalized = content.replace(/\s+/g, ' ').trim()
@@ -1242,7 +1323,7 @@ onBeforeUnmount(() => {
                 @update:history-search-query="handleHistorySearchQueryUpdate" />
             <!-- Main section -->
             <div class="relative flex flex-col flex-1 h-full min-w-0 min-h-0">
-                <Button v-if="activePage === 'chat'" type="button" variant="outline" size="sm"
+                <Button v-if="activePage === 'chat'" type="button" variant="outline" size="sm" @click="openPromptPreview"
                     class="absolute top-5 right-5 z-30 gap-2 border-stone-700/80 bg-stone-950/80 text-stone-300 shadow-lg backdrop-blur hover:bg-stone-900 hover:text-stone-100"
                     aria-label="Debug">
                     <Bug class="w-4 h-4" />
@@ -1686,6 +1767,90 @@ onBeforeUnmount(() => {
                 </Transition>
             </div>
         </div>
+        <Sheet v-model:open="isPromptDrawerOpen">
+            <SheetContent side="right"
+                class="flex w-full flex-col border-stone-800 bg-stone-950 p-0 text-stone-200 sm:max-w-3xl">
+                <SheetHeader class="border-b border-stone-800 px-6 py-5">
+                    <div class="flex items-start justify-between gap-4 pr-8">
+                        <div>
+                            <SheetTitle class="text-stone-100">Prompt Stack</SheetTitle>
+                            <SheetDescription class="mt-1 text-stone-400">
+                                Current conversation context, runtime prompts, and draft question.
+                            </SheetDescription>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <Button type="button" variant="outline" size="icon"
+                                class="h-8 w-8 border-stone-700 bg-stone-900 text-stone-300 hover:bg-stone-800"
+                                :disabled="isPromptPreviewLoading" @click="loadPromptPreview">
+                                <RefreshCw class="h-4 w-4" :class="isPromptPreviewLoading ? 'animate-spin' : ''" />
+                            </Button>
+                            <Button type="button" variant="outline" size="icon"
+                                class="h-8 w-8 border-stone-700 bg-stone-900 text-stone-300 hover:bg-stone-800"
+                                :disabled="!promptPreview" @click="copyPromptPreview">
+                                <Clipboard class="h-4 w-4" />
+                            </Button>
+                        </div>
+                    </div>
+                </SheetHeader>
+                <div class="grid gap-3 border-b border-stone-800 px-6 py-4 text-xs text-stone-400 sm:grid-cols-4">
+                    <div>
+                        <p class="text-stone-500">Tokens</p>
+                        <p class="mt-1 text-sm text-stone-100">
+                            {{ promptPreview?.metrics.used_tokens ?? 0 }} / {{ promptPreview?.metrics.context_window ?? 0 }}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-stone-500">Used</p>
+                        <p class="mt-1 text-sm text-stone-100">{{ promptPreview?.metrics.used_percent ?? 0 }}%</p>
+                    </div>
+                    <div>
+                        <p class="text-stone-500">State</p>
+                        <p class="mt-1 text-sm text-stone-100">
+                            {{ promptPreview?.metrics.compacted ? 'Compacted' : 'Not compacted' }}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-stone-500">Summary</p>
+                        <p class="mt-1 text-sm text-stone-100">
+                            {{ promptPreview?.metrics.summary_id ?? 'None' }}
+                        </p>
+                    </div>
+                </div>
+                <ScrollArea class="min-h-0 flex-1">
+                    <div class="space-y-4 px-6 py-5">
+                        <div v-if="isPromptPreviewLoading" class="rounded-md border border-stone-800 bg-stone-900/50 p-4 text-sm text-stone-400">
+                            Loading prompt stack...
+                        </div>
+                        <div v-else-if="promptPreviewError" class="rounded-md border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-200">
+                            {{ promptPreviewError }}
+                        </div>
+                        <div v-else-if="!promptPreview || promptPreview.messages.length === 0"
+                            class="rounded-md border border-stone-800 bg-stone-900/50 p-4 text-sm text-stone-400">
+                            No prompt messages available.
+                        </div>
+                        <article v-for="message in promptPreview?.messages ?? []" :key="`prompt-message-${message.index}`"
+                            class="overflow-hidden rounded-md border border-stone-800 bg-stone-900/40">
+                            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-stone-800 px-3 py-2">
+                                <div class="flex min-w-0 items-center gap-2">
+                                    <span class="inline-flex h-6 min-w-6 items-center justify-center rounded bg-stone-800 px-1.5 text-xs text-stone-300">
+                                        {{ message.index + 1 }}
+                                    </span>
+                                    <span class="rounded border px-2 py-0.5 text-xs capitalize" :class="roleClass(message.role)">
+                                        {{ message.role || 'unknown' }}
+                                    </span>
+                                    <span class="text-xs text-stone-400">{{ sourceLabel(message.source) }}</span>
+                                </div>
+                                <div class="flex items-center gap-2 text-xs text-stone-500">
+                                    <span>{{ promptMessageMeta(message) }}</span>
+                                    <span>{{ message.estimated_tokens }} tokens</span>
+                                </div>
+                            </div>
+                            <pre class="max-h-96 overflow-auto whitespace-pre-wrap break-words p-3 text-xs leading-5 text-stone-300">{{ message.text }}</pre>
+                        </article>
+                    </div>
+                </ScrollArea>
+            </SheetContent>
+        </Sheet>
         <AlertDialog :open="isDisclaimerOpen">
             <AlertDialogContent class="border-stone-800 bg-stone-950 text-stone-200 sm:max-w-2xl">
                 <AlertDialogHeader>

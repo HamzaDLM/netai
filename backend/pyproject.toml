@@ -35,6 +35,8 @@ dev = [
 
 [project.scripts]
 api = "app.main:run_api"
+mcp-client = "app.mcp.mcp_client:main"
+mcp-zabbix-server = "app.mcp.mcp_server:main"
 
 [tool.uv]
 package = true
@@ -43,5 +45,6 @@ package = true
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools]
-packages = ["app"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
