@@ -457,12 +457,12 @@ onMounted(async () => {
 									:disabled="skillsStore.isBusy || skill.marketplace_status === 'pending'"
 									class="rounded-md flex items-center gap-2 px-3 py-1.5 text-stone-300 transition disabled:opacity-50"
 									:class="skill.marketplace_status === 'pending' ? '' : 'hover:bg-sky-500/10'"
-									@click="skillsStore.requestShare(skill.id)">
+									@click.stop="skillsStore.requestShare(skill.id)">
 									{{ shareButtonLabel(skill) }}
 								</Button>
 								<Button type="button"
 									class="px-3 py-1.5 text-stone-300 transition rounded-md hover:bg-stone-800/40"
-									@click="openEditSkillDialog(skill)">
+									@click.stop="openEditSkillDialog(skill)">
 									Edit
 								</Button>
 								<Button type="button" :disabled="skillsStore.isBusy"
