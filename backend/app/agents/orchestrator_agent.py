@@ -10,7 +10,9 @@ from app.agents.servicenow_agent import servicenow_specialist_tool
 from app.agents.suzieq_agent import suzieq_specialist_tool
 from app.agents.syslog_agent import syslog_specialist_tool
 from app.agents.zabbix_agent import zabbix_specialist_tool
+from app.core.config import project_settings
 from app.llm import llm
+from app.tools.probe_tools import latency_chart, ping, traceroute
 
 SPECIALIST_DESCRIPTIONS: dict[str, str] = {
     "zabbix": "Monitoring and telemetry from Zabbix hosts/triggers/events.",
@@ -21,6 +23,30 @@ SPECIALIST_DESCRIPTIONS: dict[str, str] = {
     "syslog": "Network syslog evidence and incident patterns from ClickHouse/Qdrant.",
     "security": "Network security and hardening analysis.",
 }
+
+_SIMULATED_DIAGNOSTIC_PROMPT = (
+    """
+Direct diagnostic tools:
+- network_ping: safe simulated reachability test with live visual progress.
+- network_traceroute: safe simulated hop-by-hop path trace with live visual progress.
+- network_latency_chart: safe simulated latency time series rendered as a chart.
+
+The three network_* tools are explicitly simulations for UI development. Always
+describe their results as simulated and never present them as measurements from a
+real environment.
+Before calling one, briefly tell the user what you are about to check. After it
+finishes, interpret the result and continue the investigation. Do not write visual
+markers or component syntax; the runtime inserts the visual at the tool position.
+"""
+    if project_settings.TOOLS_USE_MOCK_DATA
+    else ""
+)
+
+_SIMULATED_DIAGNOSTIC_TOOLS: list[Tool] = (
+    [cast(Tool, ping), cast(Tool, traceroute), cast(Tool, latency_chart)]
+    if project_settings.TOOLS_USE_MOCK_DATA
+    else []
+)
 
 ORCHESTRATOR_SYSTEM_PROMPT = f"""
 You are the Lead Network Infrastructure Orchestrator in a multi-agent system.
@@ -44,6 +70,8 @@ Specialists available:
 - syslog_specialist: {SPECIALIST_DESCRIPTIONS["syslog"]}
 - security_specialist: {SPECIALIST_DESCRIPTIONS["security"]}
 
+{_SIMULATED_DIAGNOSTIC_PROMPT}
+
 Routing policy:
 - If the question is generic or non-network related, answer directly from your knowledge.
 - Prefer the most specific specialist first.
@@ -61,6 +89,7 @@ orchestrator_agent = Agent(
         cast(Tool, datamodel_specialist_tool),
         cast(Tool, syslog_specialist_tool),
         cast(Tool, security_specialist_tool),
+        *_SIMULATED_DIAGNOSTIC_TOOLS,
     ],
     max_agent_steps=10,
 )

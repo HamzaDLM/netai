@@ -3,35 +3,7 @@ import { VNetworkGraph } from "v-network-graph"
 import "v-network-graph/lib/style.css"
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { Nodes, Edges, Layouts, defineConfigs } from "v-network-graph"
-
-interface TopologyDevice {
-    hostname: string
-    mgmt_ip: string
-    site: string
-    role: string
-    status: string
-}
-
-interface TopologyLink {
-    link_id: string
-    a_device: string
-    a_interface: string
-    b_device: string
-    b_interface: string
-    status: string
-    bandwidth_mbps: number
-    metric: number
-    last_change: string
-}
-
-interface TopologyPayload {
-    scope: string
-    device_count: number
-    link_count: number
-    link_status_counts?: Record<string, number>
-    devices: TopologyDevice[]
-    links: TopologyLink[]
-}
+import type { TopologyDevice, TopologyLink, TopologyPayload } from '@/features/artifacts/topology/topology.schema'
 
 type NodeStatus = "up" | "down" | "degraded" | "maintenance"
 type EdgeStatus = "up" | "down" | "degraded" | "maintenance"
@@ -259,11 +231,11 @@ const configs = defineConfigs({
 
 <template>
     <div class="flex flex-col gap-4 py-4">
-        <div v-if="!topology || topology.device_count === 0"
+        <div v-if="!topology || topology.devices.length === 0"
             class="p-4 text-sm border rounded-md border-stone-900 text-stone-400 bg-stone-950">
             No topology available.
         </div>
-        <div class="overflow-hidden border rounded-md border-stone-900">
+        <div v-else class="overflow-hidden border rounded-md border-stone-900">
             <div
                 class="flex items-center justify-between w-full gap-2 px-4 py-2 text-sm font-semibold text-center border-b bg-stone-900/40 border-stone-900 text-stone-300">
                 <div></div>
@@ -296,7 +268,7 @@ const configs = defineConfigs({
         </div>
 
         <Teleport to="body">
-            <div v-if="isZoomed" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+            <div v-if="isZoomed && topology && topology.devices.length > 0" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
                 <div class="w-[90vw] h-[90vh] overflow-hidden border rounded-lg border-stone-800 bg-stone-950">
                     <div
                         class="flex items-center justify-between w-full gap-2 px-4 py-2 text-sm font-semibold border-b bg-stone-900/50 border-stone-800 text-stone-200">

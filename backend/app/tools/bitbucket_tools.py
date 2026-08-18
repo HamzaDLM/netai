@@ -609,7 +609,15 @@ def get_bitbucket_device_file_info(
         return _error("bitbucket_get_device_file_info", exc)
 
 
-@netai_tool(name="bitbucket_get_recent_device_config_diff")  # type: ignore[operator]
+@netai_tool(
+    name="bitbucket_get_recent_device_config_diff",
+    presentation={
+        "artifact_kind": "config.diff.v1",
+        "title": "Configuration diff",
+        "effect": "read_only",
+        "auto_artifact": True,
+    },
+)  # type: ignore[operator]
 def get_recent_device_config_diff(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:

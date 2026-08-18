@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { AgentRun, ChatAttachment, ContextBreakdown, ContextMetrics, Conversation, ConversationMessages, Message, MessageRole } from '@/types/chat.type'
-import chatService from '@/services/chat.service'
+import chatService, { type AgentUiStreamEvent } from '@/services/chat.service'
 import { toast } from '@/components/ui/toast'
 
 let localIdCounter = 1000
@@ -313,8 +313,8 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				content_type: file.type || null,
 			})
 			attachments.value = [...attachments.value, result.data]
-		} catch (err: any) {
-			const detail = err?.response?.data?.detail
+		} catch (err: unknown) {
+			const detail = (err as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail
 			const title = typeof detail === 'string' && detail.length > 0 ? detail : 'Failed to attach document'
 			toast({ title, variant: 'destructive' })
 		} finally {
@@ -370,6 +370,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			isStreamingResponse.value = true
 			streamingAssistantMessageId.value = trackedAssistantId
 			let pendingTokenText = ''
+			let fallbackAssistantContent: string | null = null
 			let flushTimer: ReturnType<typeof setTimeout> | null = null
 
 			const getAssistantMessage = () => {
@@ -420,19 +421,50 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				return run
 			}
 
-			const pushRunEvent = (assistant: Message, eventType: string, payload: Record<string, unknown>, actorName?: string) => {
+			const pushRunEvent = (
+				assistant: Message,
+				eventType: string,
+				payload: Record<string, unknown>,
+				actorName?: string,
+				actorType?: string,
+				correlationId?: string,
+				createdAt?: string
+			) => {
 				const run = ensureDraftRun(assistant)
 				const event_sequence = (run.events.at(-1)?.event_sequence ?? 0) + 1
 				run.events.push({
 					id: nextId(),
 					event_sequence,
 					event_type: eventType,
-					actor_type: actorName ? 'specialist' : 'orchestrator',
+					actor_type: actorType ?? (actorName ? 'specialist' : 'orchestrator'),
 					actor_name: actorName,
-					correlation_id: undefined,
+					correlation_id: correlationId,
 					payload,
-					created_at: new Date().toISOString(),
+					created_at: createdAt ?? new Date().toISOString(),
 				})
+			}
+
+			const pushAgentUiEvent = (assistant: Message, event: AgentUiStreamEvent) => {
+				const { type, event_id, emitted_at, ...payload } = event
+				delete payload.event_sequence
+				delete payload.run_id
+				delete payload.conversation_id
+				const artifact = payload.artifact
+				const artifactRow = artifact && typeof artifact === 'object' && !Array.isArray(artifact) ? (artifact as Record<string, unknown>) : null
+				const artifactId = typeof payload.artifact_id === 'string' ? payload.artifact_id : typeof artifactRow?.id === 'string' ? artifactRow.id : undefined
+				const artifactKind = typeof payload.kind === 'string' ? payload.kind : typeof artifactRow?.kind === 'string' ? artifactRow.kind : undefined
+				const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : undefined
+				const toolCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
+
+				pushRunEvent(
+					assistant,
+					type,
+					payload,
+					toolName ?? artifactKind ?? type,
+					'tool',
+					artifactId ?? toolCallId ?? event_id,
+					typeof emitted_at === 'string' ? emitted_at : undefined
+				)
 			}
 
 			await chatService.askLLMStream(
@@ -518,9 +550,14 @@ export const useChatStore = defineStore('chat', function chatStore() {
 						pushRunEvent(assistant, 'leader_conclusion', {
 							answer: payload.answer,
 						})
-						if (!assistant.content && payload.answer) {
-							assistant.content = payload.answer
+						if (typeof payload.answer === 'string' && payload.answer.trim()) {
+							fallbackAssistantContent = payload.answer
 						}
+					},
+					onAgentUiEvent: event => {
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						pushAgentUiEvent(assistant, event)
 					},
 					onDone: ({ messageId, durationMs }) => {
 						const assistant = getAssistantMessage()
@@ -546,6 +583,13 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			// Ensure all buffered text is rendered before ending this action.
 			while (pendingTokenText.length > 0 || flushTimer !== null) {
 				await new Promise(resolve => setTimeout(resolve, 20))
+			}
+
+			// A leader conclusion repeats the final answer for run metadata. Only use it
+			// when the stream produced no renderable assistant-token content.
+			const completedAssistant = getAssistantMessage()
+			if (completedAssistant && !completedAssistant.content.trim() && fallbackAssistantContent) {
+				completedAssistant.content = fallbackAssistantContent
 			}
 
 			const currentConversationId = selectedConversation.value.id

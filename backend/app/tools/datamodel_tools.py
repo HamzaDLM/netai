@@ -581,11 +581,19 @@ def get_neighbors(
     }
 
 
-@netai_tool(name="datamodel_get_topology")  # type: ignore[operator]
+@netai_tool(
+    name="datamodel_get_topology",
+    presentation={
+        "artifact_kind": "network.topology.v1",
+        "title": "Topology mapper",
+        "effect": "read_only",
+        "auto_artifact": True,
+    },
+)  # type: ignore[operator]
 def get_topology(
     site: Annotated[
         str | None,
-        "Optional site scope (e.g. Paris-DC1). If omitted, returns full topology.",
+        "Optional site, hostname, or management IP scope. If omitted, returns full topology.",
     ] = None,
     include_only_link_statuses: Annotated[
         list[str] | None,
@@ -598,23 +606,63 @@ def get_topology(
         _normalize(s) for s in (include_only_link_statuses or []) if _normalize(s)
     }
 
-    scoped_devices = list(_FAKE_DEVICES.values())
-    if site_lc:
-        scoped_devices = [
-            device for device in scoped_devices if _normalize(device["site"]) == site_lc
-        ]
-    scoped_hostnames = {device["hostname"] for device in scoped_devices}
+    device_scope = next(
+        (
+            device
+            for device in _FAKE_DEVICES.values()
+            if site_lc
+            in {_normalize(device["hostname"]), _normalize(device["mgmt_ip"])}
+        ),
+        None,
+    )
 
-    scoped_links: list[dict[str, Any]] = []
-    for link in _FAKE_LINKS:
-        if site_lc and (
-            link["a_device"] not in scoped_hostnames
-            or link["b_device"] not in scoped_hostnames
-        ):
-            continue
-        if allowed_statuses and _normalize(link["status"]) not in allowed_statuses:
-            continue
-        scoped_links.append(_link_with_site(link))
+    if device_scope:
+        scoped_links = [
+            _link_with_site(link)
+            for link in _FAKE_LINKS
+            if (
+                link["a_device"] == device_scope["hostname"]
+                or link["b_device"] == device_scope["hostname"]
+            )
+            and (not allowed_statuses or _normalize(link["status"]) in allowed_statuses)
+        ]
+        scoped_hostnames = {device_scope["hostname"]}
+        for link in scoped_links:
+            scoped_hostnames.update({link["a_device"], link["b_device"]})
+        scoped_devices = [
+            device
+            for device in _FAKE_DEVICES.values()
+            if device["hostname"] in scoped_hostnames
+        ]
+    else:
+        scoped_devices = list(_FAKE_DEVICES.values())
+        if site_lc:
+            scoped_devices = [
+                device
+                for device in scoped_devices
+                if _normalize(device["site"]) == site_lc
+            ]
+
+        if site_lc and not scoped_devices:
+            return {
+                "error": f"No topology data found for scope '{site}'.",
+                "scope": site,
+                "known_sites": sorted(
+                    {str(device["site"]) for device in _FAKE_DEVICES.values()}
+                ),
+            }
+
+        scoped_hostnames = {device["hostname"] for device in scoped_devices}
+        scoped_links = []
+        for link in _FAKE_LINKS:
+            if site_lc and (
+                link["a_device"] not in scoped_hostnames
+                or link["b_device"] not in scoped_hostnames
+            ):
+                continue
+            if allowed_statuses and _normalize(link["status"]) not in allowed_statuses:
+                continue
+            scoped_links.append(_link_with_site(link))
 
     status_counts: dict[str, int] = {}
     for link in scoped_links:
@@ -622,7 +670,7 @@ def get_topology(
         status_counts[key] = status_counts.get(key, 0) + 1
 
     return {
-        "scope": site if site else "all_sites",
+        "scope": device_scope["hostname"] if device_scope else site or "all_sites",
         "device_count": len(scoped_devices),
         "link_count": len(scoped_links),
         "link_status_counts": status_counts,

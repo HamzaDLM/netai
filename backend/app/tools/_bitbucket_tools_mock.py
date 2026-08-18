@@ -130,7 +130,15 @@ def get_bitbucket_device_file_info(
     }
 
 
-@netai_tool(name="bitbucket_get_recent_device_config_diff")  # type: ignore[operator]
+@netai_tool(
+    name="bitbucket_get_recent_device_config_diff",
+    presentation={
+        "artifact_kind": "config.diff.v1",
+        "title": "Configuration diff",
+        "effect": "read_only",
+        "auto_artifact": True,
+    },
+)  # type: ignore[operator]
 def get_recent_device_config_diff(
     device: Annotated[str, "Device name (file stem) or exact filename"],
 ) -> dict[str, Any]:
@@ -152,10 +160,10 @@ def get_recent_device_config_diff(
         _FAKE_COMMITS[0],
     )
     patch = (
-        f"--- a/{match['file_path']}\\n"
-        f"+++ b/{match['file_path']}\\n"
-        f"@@ -1,2 +1,3 @@\\n"
-        f" hostname {match['device']}\\n"
+        f"--- a/{match['file_path']}\n"
+        f"+++ b/{match['file_path']}\n"
+        f"@@ -1,2 +1,3 @@\n"
+        f" hostname {match['device']}\n"
         f"+! mock change"
     )
 

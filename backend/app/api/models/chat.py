@@ -227,6 +227,37 @@ class AgentRun(Base):
         order_by="ToolCall.id",
         cascade="all, delete-orphan",
     )
+    events: Mapped[list["AgentEvent"]] = relationship(
+        back_populates="run",
+        order_by="AgentEvent.event_sequence",
+        cascade="all, delete-orphan",
+    )
+
+
+class AgentEvent(Base):
+    """A durable, ordered UI/runtime event emitted during an agent run."""
+
+    __table_args__ = (
+        Index(
+            "ux_agent_event_run_sequence",
+            "run_id",
+            "event_sequence",
+            unique=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[int] = mapped_column(
+        ForeignKey("agent_run.id"), index=True, nullable=False
+    )
+    event_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_type: Mapped[str | None] = mapped_column(String(32))
+    actor_name: Mapped[str | None] = mapped_column(String(100))
+    correlation_id: Mapped[str | None] = mapped_column(String(100), index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+
+    run: Mapped["AgentRun"] = relationship(back_populates="events")
 
 
 class SubAgentCall(Base):

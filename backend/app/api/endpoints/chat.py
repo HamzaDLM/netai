@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+from collections.abc import AsyncIterator
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -13,6 +14,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import AsyncSessionDep, CheckUserSSODep
 from app.api.models.chat import (
+    AgentEvent,
     AgentRun,
     AgentRunStatus,
     AgentType,
@@ -63,6 +65,37 @@ from app.workflows.agent_runner import (
 
 router = APIRouter(prefix="/llm", tags=["chat"])
 _SKILL_COMMAND_RE = re.compile(r"/([a-z0-9][a-z0-9-]{0,79})(?=$|\s)", re.IGNORECASE)
+_ARTIFACT_EVENT_TYPES = {
+    "artifact_snapshot",
+    "artifact_delta",
+}
+_TOOL_LIFECYCLE_EVENT_TYPES = {
+    "tool_started",
+    "tool_completed",
+    "tool_failed",
+}
+_DURABLE_AGENT_EVENT_TYPES = _ARTIFACT_EVENT_TYPES | _TOOL_LIFECYCLE_EVENT_TYPES
+_STREAMED_AGENT_EVENT_TYPES = _DURABLE_AGENT_EVENT_TYPES | {
+    "run_started",
+    "run_finished",
+    "run_error",
+    "orchestrator_decision",
+    "orchestrator_plan",
+    "specialist_plan",
+    "specialist_prompt",
+    "specialist_tool_call",
+    "specialist_evidence",
+    "specialist_tool_result",
+    "leader_conclusion",
+}
+_EVENT_ENVELOPE_KEYS = {
+    "type",
+    "event_id",
+    "event_sequence",
+    "run_id",
+    "conversation_id",
+    "emitted_at",
+}
 
 
 def _event_actor(event: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -86,7 +119,35 @@ def _event_actor(event: dict[str, Any]) -> tuple[str | None, str | None]:
         )
     if event_type in {"tool_call", "tool_result"}:
         return "tool", str(event.get("name") or "unknown_tool")
+    if event_type in _TOOL_LIFECYCLE_EVENT_TYPES:
+        return "tool", str(event.get("tool_name") or "unknown_tool")
+    if event_type in _ARTIFACT_EVENT_TYPES:
+        artifact = event.get("artifact")
+        artifact_kind = artifact.get("kind") if isinstance(artifact, dict) else None
+        return "tool", str(event.get("kind") or artifact_kind or "artifact")
     return "system", event_type
+
+
+def _agent_event_payload(event: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value for key, value in event.items() if key not in _EVENT_ENVELOPE_KEYS
+    }
+
+
+def _agent_event_correlation_id(event: dict[str, Any]) -> str | None:
+    for key in ("artifact_id", "tool_call_id"):
+        value = event.get(key)
+        if isinstance(value, str) and value:
+            return value
+    artifact = event.get("artifact")
+    if isinstance(artifact, dict):
+        value = artifact.get("id")
+        if isinstance(value, str) and value:
+            return value
+    event_id = event.get("event_id")
+    if isinstance(event_id, str) and event_id:
+        return event_id
+    return None
 
 
 def _as_tool_status(value: Any) -> ToolCallStatus:
@@ -157,9 +218,13 @@ def _message_load_options():
     return [
         selectinload(Message.agent_runs).selectinload(AgentRun.sub_agent_calls),
         selectinload(Message.agent_runs).selectinload(AgentRun.tool_calls),
+        selectinload(Message.agent_runs).selectinload(AgentRun.events),
         selectinload(Message.agent_runs)
         .selectinload(AgentRun.child_runs)
         .selectinload(AgentRun.tool_calls),
+        selectinload(Message.agent_runs)
+        .selectinload(AgentRun.child_runs)
+        .selectinload(AgentRun.events),
         selectinload(Message.feedback),
     ]
 
@@ -561,8 +626,15 @@ async def get_conversation(
             .selectinload(AgentRun.tool_calls),
             selectinload(Conversation.messages)
             .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.events),
+            selectinload(Conversation.messages)
+            .selectinload(Message.agent_runs)
             .selectinload(AgentRun.child_runs)
             .selectinload(AgentRun.tool_calls),
+            selectinload(Conversation.messages)
+            .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.child_runs)
+            .selectinload(AgentRun.events),
             selectinload(Conversation.messages).selectinload(Message.feedback),
         )
     )
@@ -610,8 +682,15 @@ async def list_admin_feedbacks(
             .selectinload(AgentRun.tool_calls),
             selectinload(Feedback.message)
             .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.events),
+            selectinload(Feedback.message)
+            .selectinload(Message.agent_runs)
             .selectinload(AgentRun.child_runs)
             .selectinload(AgentRun.tool_calls),
+            selectinload(Feedback.message)
+            .selectinload(Message.agent_runs)
+            .selectinload(AgentRun.child_runs)
+            .selectinload(AgentRun.events),
             selectinload(Feedback.message).selectinload(Message.feedback),
         )
         .order_by(Feedback.updated_at.desc())
@@ -932,12 +1011,14 @@ async def ask_llm_stream(
     user_message_id = user_message.id
     await db.commit()
 
-    async def event_generator():
+    async def event_generator() -> AsyncIterator[str]:
         assistant_tokens: list[str] = []
+        assistant_char_count = 0
         context_metrics: dict[str, Any] | None = None
         run_map: dict[str, Any] | None = None
         final_answer: str | None = None
         streamed_event_count = 0
+        durable_events: list[dict[str, Any]] = []
         stream_span = trace.span("chat.stream_agent_run")
 
         try:
@@ -954,6 +1035,7 @@ async def ask_llm_stream(
                 if event_type == "token":
                     token = str(event.get("token") or "")
                     assistant_tokens.append(token)
+                    assistant_char_count += len(token)
                     yield f"event: assistant_token\ndata: {json.dumps({'token': token})}\n\n"
                     continue
                 if event_type == "context_metrics":
@@ -970,18 +1052,15 @@ async def ask_llm_stream(
                         final_answer = answer_value
                     continue
 
-                if event_type in {
-                    "orchestrator_decision",
-                    "orchestrator_plan",
-                    "specialist_plan",
-                    "specialist_prompt",
-                    "specialist_tool_call",
-                    "specialist_evidence",
-                    "specialist_tool_result",
-                    "leader_conclusion",
-                }:
+                if event_type in _STREAMED_AGENT_EVENT_TYPES:
+                    client_event = {
+                        **event,
+                        "assistant_offset": assistant_char_count,
+                    }
+                    if event_type in _DURABLE_AGENT_EVENT_TYPES:
+                        durable_events.append(client_event)
                     streamed_event_count += 1
-                    yield f"event: {event_type}\ndata: {json.dumps(event)}\n\n"
+                    yield f"event: {event_type}\ndata: {json.dumps(client_event)}\n\n"
                     continue
         except Exception as exc:
             stream_span.end(output={"error": str(exc)})
@@ -1006,7 +1085,7 @@ async def ask_llm_stream(
         await db.flush()
         assistant_message_id = assistant_message.id
 
-        await _persist_run_graph(
+        orchestrator_run = await _persist_run_graph(
             db=db,
             conversation_id=conversation_id,
             user_message_id=user_message_id,
@@ -1017,6 +1096,23 @@ async def ask_llm_stream(
             else None,
             run_map=run_map,
         )
+
+        for event in durable_events:
+            event_sequence = event.get("event_sequence")
+            if not isinstance(event_sequence, int):
+                continue
+            actor_type, actor_name = _event_actor(event)
+            db.add(
+                AgentEvent(
+                    run_id=orchestrator_run.id,
+                    event_sequence=event_sequence,
+                    event_type=str(event.get("type") or "unknown"),
+                    actor_type=actor_type,
+                    actor_name=actor_name,
+                    correlation_id=_agent_event_correlation_id(event),
+                    payload=_agent_event_payload(event),
+                )
+            )
 
         await db.commit()
         stream_span.end(
@@ -1064,6 +1160,10 @@ async def ask_llm_stream(
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
