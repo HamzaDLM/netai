@@ -1,13 +1,14 @@
 import asyncio
 import json
-from contextvars import ContextVar
 from dataclasses import asdict, dataclass, is_dataclass
 from enum import Enum
 from time import perf_counter
 from typing import Any, AsyncIterator
+from uuid import uuid4
 
 from haystack.dataclasses import ChatMessage
 
+from app.agent_ui import bind_run_event_sink, emit_run_event
 from app.agents.orchestrator_agent import SPECIALIST_DESCRIPTIONS, orchestrator_agent
 from app.prompts import FORMATTING_PROMPT
 from app.services.chat_attachments import (
@@ -18,13 +19,6 @@ from app.workflows.context_manager import build_conversation_context
 from app.workflows.utils import AgentTraceExtractor
 
 _TRACE_EXTRACTOR = AgentTraceExtractor(specialist_descriptions=SPECIALIST_DESCRIPTIONS)
-_STREAM_QUEUE: ContextVar[asyncio.Queue[dict[str, Any]] | None] = ContextVar(
-    "_STREAM_QUEUE", default=None
-)
-_STREAM_LOOP: ContextVar[asyncio.AbstractEventLoop | None] = ContextVar(
-    "_STREAM_LOOP", default=None
-)
-
 SkillInstruction = dict[str, str]
 
 
@@ -66,16 +60,7 @@ def _serialized_streaming_callback(chunk: Any) -> None:
     content = getattr(chunk, "content", None)
     if not isinstance(content, str) or not content:
         return
-
-    queue = _STREAM_QUEUE.get()
-    loop = _STREAM_LOOP.get()
-    if queue is None or loop is None:
-        return
-
-    loop.call_soon_threadsafe(
-        queue.put_nowait,
-        {"type": "token", "token": content},
-    )
+    emit_run_event("token", {"token": content})
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -602,6 +587,14 @@ async def run_agent_stream(
     skills: list[SkillInstruction] | None = None,
     custom_instructions: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
+    run_id = f"run_{uuid4().hex}"
+    event_sequence = 0
+
+    def sequenced(event: dict[str, Any]) -> dict[str, Any]:
+        nonlocal event_sequence
+        event_sequence += 1
+        return {**event, "event_sequence": event_sequence, "run_id": run_id}
+
     prepared = await prepare_agent_prompt(
         conversation_id=conversation_id,
         question=question,
@@ -609,42 +602,54 @@ async def run_agent_stream(
         custom_instructions=custom_instructions,
     )
     messages = prepared.messages
-    yield {
-        "type": "context_metrics",
-        **prepared.metrics,
-    }
+    yield sequenced(
+        {
+            "type": "run_started",
+            "conversation_id": conversation_id,
+        }
+    )
+    yield sequenced({"type": "context_metrics", **prepared.metrics})
 
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     loop = asyncio.get_running_loop()
     streamed_any_token = False
-    stream_queue_token = _STREAM_QUEUE.set(queue)
-    stream_loop_token = _STREAM_LOOP.set(loop)
 
-    try:
-        start = perf_counter()
-        run_task = asyncio.create_task(
-            _run_agent(
-                messages,
-                streaming_callback=_serialized_streaming_callback,
-                run_in_thread=True,
+    with bind_run_event_sink(
+        queue,
+        loop,
+        run_id=run_id,
+        conversation_id=conversation_id,
+    ):
+        try:
+            start = perf_counter()
+            run_task = asyncio.create_task(
+                _run_agent(
+                    messages,
+                    streaming_callback=_serialized_streaming_callback,
+                    run_in_thread=True,
+                )
             )
-        )
 
-        while True:
-            if run_task.done() and queue.empty():
-                break
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=0.1)
-            except asyncio.TimeoutError:
-                continue
-            if event.get("type") == "token":
-                streamed_any_token = True
-            yield event
+            while True:
+                if run_task.done() and queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    continue
+                if event.get("type") == "token":
+                    streamed_any_token = True
+                yield sequenced(event)
 
-        result = await run_task
-    finally:
-        _STREAM_QUEUE.reset(stream_queue_token)
-        _STREAM_LOOP.reset(stream_loop_token)
+            result = await run_task
+        except Exception as exc:
+            yield sequenced(
+                {
+                    "type": "run_error",
+                    "error": str(exc),
+                }
+            )
+            raise
 
     latency_ms = int((perf_counter() - start) * 1000)
     answer = _TRACE_EXTRACTOR.extract_answer(result)
@@ -654,10 +659,22 @@ async def run_agent_stream(
 
     if not streamed_any_token:
         for token in _tokenize(answer):
-            yield {"type": "token", "token": token}
+            yield sequenced({"type": "token", "token": token})
 
     for event in _TRACE_EXTRACTOR.build_run_events(answer=answer, run_map=run_map):
-        yield event
+        yield sequenced(event)
+
+    yield sequenced(
+        {
+            "type": "run_finished",
+            "duration_ms": latency_ms,
+        }
+    )
 
     # Persistence metadata consumed by API endpoint; not forwarded to client.
-    yield {"type": "run_map", "run_map": run_map, "answer": answer}
+    yield {
+        "type": "run_map",
+        "run_id": run_id,
+        "run_map": run_map,
+        "answer": answer,
+    }

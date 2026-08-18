@@ -1,29 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-
-type DiffLineType = 'context' | 'added' | 'removed' | 'meta'
-
-interface DiffLine {
-    type: DiffLineType
-    old_lineno: number | null
-    new_lineno: number | null
-    content: string
-}
-
-interface DiffHunk {
-    header: string
-    old_start: number
-    old_lines: number
-    new_start: number
-    new_lines: number
-    lines: DiffLine[]
-}
-
-interface DiffFile {
-    old_path: string
-    new_path: string
-    hunks: DiffHunk[]
-}
+import type { DiffFile, DiffLine, DiffLineType } from '@/features/artifacts/config-diff/config-diff.schema'
 
 interface DiffCell {
     lineNo: number | null
@@ -41,10 +18,25 @@ type DiffStats = Record<DiffLineType, number>
 
 const props = defineProps<{
     diffFiles?: DiffFile[]
+    commitMessage?: string
+    commitAuthor?: string
+    commitDate?: string
 }>()
 
 const isZoomed = ref(false)
 const files = computed(() => props.diffFiles ?? [])
+const commitMessage = computed(() => props.commitMessage?.trim() || 'Latest configuration change')
+const commitAuthor = computed(() => props.commitAuthor?.trim() || 'Unknown author')
+const commitDate = computed(() => {
+    const value = props.commitDate?.trim()
+    if (!value) return 'Date unavailable'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return value
+    return new Intl.DateTimeFormat(undefined, {
+        dateStyle: 'medium',
+        timeStyle: 'medium',
+    }).format(date)
+})
 const counters = computed(() => {
     const stats: DiffStats = {
         context: 0,
@@ -222,13 +214,13 @@ onBeforeUnmount(() => {
                 </button>
             </div>
             <div class="flex justify-between px-4 py-2 text-sm border-b bg-stone-950 border-stone-900 text-stone-300">
-                <p>Commit Message: <span class="font-semibold">Restrict management ACL on VTY</span></p>
+                <p>Commit Message: <span class="font-semibold">{{ commitMessage }}</span></p>
                 <p><span class="text-green-500">+{{ counters.added }}</span> <span class="text-red-500">-{{
                     counters.removed }}</span></p>
             </div>
             <div class="flex justify-between px-4 py-2 text-sm border-b bg-stone-950 border-stone-900 text-stone-300">
-                <p>Author: <span class="font-semibold">DELLAM Hamza</span></p>
-                <p><span class="font-semibold">2026-03-12 at 13:55:39</span></p>
+                <p>Author: <span class="font-semibold">{{ commitAuthor }}</span></p>
+                <p><span class="font-semibold">{{ commitDate }}</span></p>
             </div>
 
             <div class="px-4 py-2 text-sm border-b bg-stone-950 border-stone-900 text-stone-300">
@@ -309,15 +301,15 @@ onBeforeUnmount(() => {
                             class="border-b border-stone-800 last:border-b-0">
                             <div
                                 class="flex justify-between px-4 py-2 text-sm border-b bg-stone-950 border-stone-800 text-stone-300">
-                                <p>Commit Message: <span class="font-semibold">Restrict management ACL on VTY</span></p>
+                                <p>Commit Message: <span class="font-semibold">{{ commitMessage }}</span></p>
                                 <p><span class="text-green-500">+{{ counters.added }}</span> <span
                                         class="text-red-500">-{{
                                             counters.removed }}</span></p>
                             </div>
                             <div
                                 class="flex justify-between px-4 py-2 text-sm border-b bg-stone-950 border-stone-800 text-stone-300">
-                                <p>Author: <span class="font-semibold">DELLAM Hamza</span></p>
-                                <p><span class="font-semibold">2026-03-12 at 13:55:39</span></p>
+                                <p>Author: <span class="font-semibold">{{ commitAuthor }}</span></p>
+                                <p><span class="font-semibold">{{ commitDate }}</span></p>
                             </div>
                             <div class="px-4 py-2 text-sm border-b bg-stone-950 border-stone-800 text-stone-300">
                                 <span class="text-stone-400">{{ file.old_path }}</span> -> <span

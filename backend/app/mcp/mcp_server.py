@@ -1,12 +1,8 @@
-"""MCP server adapters for NetAI's Haystack tools.
+"""MCP server for NetAI's tools.
 
-The adapter in this module is intentionally integration-agnostic.  A Haystack
-``Tool`` already contains the callable, name and JSON input schema that MCP
-needs, so exposing a new NetAI integration only requires passing its tools to
-``create_mcp_server``.
+NetAI's ``netai_tool`` already contains the callable, name and JSON input schema that MCP
+needs, so exposing a NetAI integration only requires passing its tools to ``create_mcp_server``.
 """
-
-from __future__ import annotations
 
 import argparse
 import inspect
@@ -20,7 +16,7 @@ from fastmcp.tools import FunctionTool
 from app.core.config import project_settings
 
 
-class HaystackToolLike(Protocol):
+class NetAIToolSchema(Protocol):
     """The small part of Haystack's Tool API required by the MCP bridge."""
 
     name: str
@@ -56,12 +52,12 @@ ZABBIX_TOOL_DESCRIPTIONS = {
 }
 
 
-def haystack_tool_to_fastmcp(
-    tool: HaystackToolLike,
+def netai_tool_to_fastmcp(
+    tool: NetAIToolSchema,
     *,
     description: str | None = None,
 ) -> FunctionTool:
-    """Adapt one Haystack Tool into a FastMCP tool without losing its schema.
+    """Adapt a NetAI Tool into a FastMCP tool.
 
     Synchronous infrastructure clients are run in a worker thread so a slow API
     call does not block every other request handled by the MCP server.
@@ -102,19 +98,19 @@ def haystack_tool_to_fastmcp(
 
 
 def create_mcp_server(
-    tools: Iterable[HaystackToolLike],
+    tools: Iterable[NetAIToolSchema],
     *,
     name: str = "NetAI",
     instructions: str | None = None,
     descriptions: Mapping[str, str] | None = None,
 ) -> FastMCP:
-    """Create an MCP server exposing the supplied NetAI/Haystack tools."""
+    """Create an MCP server exposing the supplied NetAI tools."""
 
     server = FastMCP(name=name, instructions=instructions)
     description_map = descriptions or {}
     for tool in tools:
         server.add_tool(
-            haystack_tool_to_fastmcp(
+            netai_tool_to_fastmcp(
                 tool,
                 description=description_map.get(tool.name),
             )
@@ -122,9 +118,9 @@ def create_mcp_server(
     return server
 
 
-def _discover_module_tools(module_name: str) -> dict[str, HaystackToolLike]:
+def _discover_module_tools(module_name: str) -> dict[str, NetAIToolSchema]:
     module = import_module(module_name)
-    discovered: dict[str, HaystackToolLike] = {}
+    discovered: dict[str, NetAIToolSchema] = {}
     for value in vars(module).values():
         if not all(hasattr(value, attr) for attr in ("name", "parameters", "invoke")):
             continue
@@ -138,7 +134,7 @@ def get_zabbix_tools(
     *,
     use_mock_data: bool | None = None,
     tool_names: Iterable[str] | None = DEFAULT_ZABBIX_TOOLS,
-) -> list[HaystackToolLike]:
+) -> list[NetAIToolSchema]:
     """Load selected Zabbix tools from either the real or mock integration."""
 
     use_mocks = (
@@ -201,6 +197,7 @@ def main() -> None:
         use_mock_data=not args.real_data,
         tool_names=None if args.all_tools else DEFAULT_ZABBIX_TOOLS,
     )
+
     if args.transport == "stdio":
         server.run(transport="stdio")
     else:

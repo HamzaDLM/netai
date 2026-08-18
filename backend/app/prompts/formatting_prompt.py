@@ -5,6 +5,8 @@ FORMATTING_PROMPT = """Formatting rules for code blocks:
 - For device configurations, use: bash
 - If the language is unknown, use: plaintext
 - NEVER create custom language tags (e.g. "arista-cli", "cisco-ios", etc.)
-- When referring to a Bitbucket config diff that should be embedded inline, insert `[[CONFIG_DIFF]]`
-  at the exact point in the markdown narrative where the diff viewer should appear.
+- Do not emit custom visual markers. Tool-backed visuals are inserted automatically at
+  their exact position in the streamed response.
+- When a tool creates a visual artifact, summarize its findings in prose without repeating
+  the raw payload. In particular, do not repeat a unified configuration diff in a code block.
 """

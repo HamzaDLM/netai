@@ -2,7 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { toast } from '@/components/ui/toast'
 import skillsService from '@/services/skills.service'
-import type { ToolCatalogAgent, ToolCatalogTool } from '@/types/skill.type'
+import type {
+    ToolCatalogAgent,
+    ToolCatalogConnectionStatus,
+    ToolCatalogSource,
+    ToolCatalogTool,
+} from '@/types/skill.type'
 import {
     Dialog,
     DialogContent,
@@ -19,10 +24,18 @@ type ConnectorDefinition = {
     connected: boolean
     toolAgentKeys: string[]
     description: string
+    source?: ToolCatalogSource
+    dynamicTools?: boolean
+    connectionStatus?: ToolCatalogConnectionStatus
+    statusMessage?: string
 }
 
 type ConnectorWithTools = ConnectorDefinition & {
     tools: ToolCatalogTool[]
+    source: ToolCatalogSource
+    dynamicTools: boolean
+    connectionStatus: ToolCatalogConnectionStatus
+    statusMessage: string
 }
 
 const connectorsLoading = ref(false)
@@ -93,16 +106,69 @@ const loadToolCatalog = async () => {
 
 const connectorCards = computed<ConnectorWithTools[]>(() => {
     const catalogByKey = new Map(toolCatalog.value.map(agent => [agent.agent_key, agent]))
+    const representedAgentKeys = new Set(connectors.flatMap(connector => connector.toolAgentKeys))
+    const mcpConnectors: ConnectorDefinition[] = toolCatalog.value
+        .filter(agent => agent.source === 'mcp' && !representedAgentKeys.has(agent.agent_key))
+        .map(agent => ({
+            id: agent.agent_key,
+            name: agent.agent_name,
+            enabled: Boolean(agent.specialist_tool),
+            connected: agent.connection_status === 'available',
+            toolAgentKeys: [agent.agent_key],
+            description: agent.description || `Tools exposed by the ${agent.agent_name} MCP server.`,
+            source: 'mcp',
+            dynamicTools: agent.dynamic_tools,
+            connectionStatus: agent.connection_status,
+            statusMessage: agent.status_message,
+        }))
 
-    return connectors.map(connector => ({
-        ...connector,
-        tools: connector.toolAgentKeys.flatMap(agentKey => catalogByKey.get(agentKey)?.tools ?? []),
-    }))
+    return [...connectors, ...mcpConnectors].map(connector => {
+        const agentEntries = connector.toolAgentKeys
+            .map(agentKey => catalogByKey.get(agentKey))
+            .filter((agent): agent is ToolCatalogAgent => Boolean(agent))
+        const mcpEntry = agentEntries.find(agent => agent.source === 'mcp')
+
+        return {
+            ...connector,
+            tools: agentEntries.flatMap(agent => agent.tools),
+            source: connector.source ?? mcpEntry?.source ?? 'local',
+            dynamicTools: connector.dynamicTools ?? agentEntries.some(agent => agent.dynamic_tools),
+            connectionStatus: connector.connectionStatus ?? mcpEntry?.connection_status ?? 'not_applicable',
+            statusMessage: connector.statusMessage ?? mcpEntry?.status_message ?? '',
+        }
+    })
 })
 
 const availableToolCount = computed(() =>
     connectorCards.value.reduce((count, connector) => count + connector.tools.length, 0)
 )
+
+const connectorStatusLabel = (connector: ConnectorWithTools): string => {
+    if (connector.source !== 'mcp') return connector.connected ? 'Connected' : 'Not Connected'
+    if (connector.connectionStatus === 'available') return 'Available'
+    if (connector.connectionStatus === 'unavailable') return 'Unavailable'
+    if (connector.connectionStatus === 'not_configured') return 'Not Configured'
+    return 'Not Checked'
+}
+
+const connectorStatusClass = (connector: ConnectorWithTools): string => {
+    if (connector.source === 'mcp') {
+        if (connector.connectionStatus === 'available') return 'border-emerald-700/50 text-emerald-300'
+        if (connector.connectionStatus === 'not_checked') return 'border-amber-700/50 text-amber-300'
+        if (connector.connectionStatus === 'not_configured') return 'border-stone-700 text-stone-400'
+        return 'border-red-700/50 text-red-300'
+    }
+    return connector.connected
+        ? 'border-emerald-700/50 text-emerald-300'
+        : 'border-red-700/50 text-red-300'
+}
+
+const connectorToolCountLabel = (connector: ConnectorWithTools): string => {
+    if (connector.tools.length > 0) {
+        return `${connector.tools.length} tool${connector.tools.length === 1 ? '' : 's'}`
+    }
+    return connector.dynamicTools && connector.connectionStatus !== 'available' ? 'Dynamic tools' : '0 tools'
+}
 
 onMounted(async () => {
     await loadToolCatalog()
@@ -166,10 +232,13 @@ onMounted(async () => {
                                             : 'border-stone-700 text-stone-400'">
                                             {{ connector.enabled ? 'Enabled' : 'Disabled' }}
                                         </span>
-                                        <span class="whitespace-nowrap rounded-full border px-2 py-0.5" :class="connector.connected
-                                            ? 'border-emerald-700/50 text-emerald-300'
-                                            : 'border-red-700/50 text-red-300'">
-                                            {{ connector.connected ? 'Connected' : 'Not Connected' }}
+                                        <span class="whitespace-nowrap rounded-full border px-2 py-0.5"
+                                            :class="connectorStatusClass(connector)">
+                                            {{ connectorStatusLabel(connector) }}
+                                        </span>
+                                        <span v-if="connector.source === 'mcp'"
+                                            class="rounded-full border border-sky-700/50 px-2 py-0.5 text-sky-300">
+                                            MCP
                                         </span>
                                     </div>
                                 </div>
@@ -183,7 +252,7 @@ onMounted(async () => {
                                         Click to view tools
                                     </p>
                                     <p class="text-xs uppercase tracking-[0.24em] text-stone-500">
-                                        {{ connector.tools.length }} tool{{ connector.tools.length === 1 ? '' : 's' }}
+                                        {{ connectorToolCountLabel(connector) }}
                                     </p>
                                 </div>
                             </button>
@@ -205,15 +274,20 @@ onMounted(async () => {
                                         : 'border-stone-700 text-stone-400'">
                                         {{ connector.enabled ? 'Enabled' : 'Disabled' }}
                                     </span>
-                                    <span class="rounded-full border px-2 py-0.5" :class="connector.connected
-                                        ? 'border-emerald-700/50 text-emerald-300'
-                                        : 'border-red-700/50 text-red-300'">
-                                        {{ connector.connected ? 'Connected' : 'Not Connected' }}
+                                    <span class="rounded-full border px-2 py-0.5"
+                                        :class="connectorStatusClass(connector)">
+                                        {{ connectorStatusLabel(connector) }}
+                                    </span>
+                                    <span v-if="connector.source === 'mcp'"
+                                        class="rounded-full border border-sky-700/50 px-2 py-0.5 text-sky-300">
+                                        MCP
                                     </span>
                                 </div>
 
                                 <div v-if="connector.tools.length === 0" class="py-6 text-sm text-stone-500">
-                                    No tools are exposed for this connector yet.
+                                    {{ connector.dynamicTools
+                                        ? connector.statusMessage || 'Tools are discovered dynamically from this MCP server.'
+                                        : 'No tools are exposed for this connector yet.' }}
                                 </div>
 
                                 <div v-else class="grid gap-3 py-2 md:grid-cols-2 xl:grid-cols-3">

@@ -1,7 +1,23 @@
+import asyncio
 from types import SimpleNamespace
 
 import app.workflows.agent_runner as agent_runner
+from app.agent_ui import bind_run_event_sink
 from app.workflows.utils import AgentTraceExtractor
+
+
+def test_extract_answer_supports_haystack_3_agent_result() -> None:
+    extractor = AgentTraceExtractor()
+    last_message = SimpleNamespace(text="The device is reachable.")
+
+    answer = extractor.extract_answer(
+        {
+            "messages": [SimpleNamespace(text="Check the device"), last_message],
+            "last_message": last_message,
+        }
+    )
+
+    assert answer == "The device is reachable."
 
 
 def test_with_runtime_formatting_prompt_appends_system_message(monkeypatch) -> None:
@@ -47,28 +63,25 @@ def test_serialized_streaming_callback_is_not_nested() -> None:
 
 
 def test_serialized_streaming_callback_pushes_tokens_to_queue() -> None:
-    class _DummyQueue:
-        def __init__(self) -> None:
-            self.items: list[dict[str, str]] = []
+    async def scenario() -> dict[str, object]:
+        queue: asyncio.Queue[dict[str, object]] = asyncio.Queue()
+        with bind_run_event_sink(
+            queue,
+            asyncio.get_running_loop(),
+            run_id="run-test",
+            conversation_id="conversation-test",
+        ):
+            agent_runner._serialized_streaming_callback(
+                SimpleNamespace(content="hello ")
+            )
+            await asyncio.sleep(0)
+            return queue.get_nowait()
 
-        def put_nowait(self, item: dict[str, str]) -> None:
-            self.items.append(item)
+    event = asyncio.run(scenario())
 
-    class _DummyLoop:
-        def call_soon_threadsafe(self, callback, *args) -> None:
-            callback(*args)
-
-    queue = _DummyQueue()
-    loop = _DummyLoop()
-    queue_token = agent_runner._STREAM_QUEUE.set(queue)  # type: ignore[arg-type]
-    loop_token = agent_runner._STREAM_LOOP.set(loop)  # type: ignore[arg-type]
-    try:
-        agent_runner._serialized_streaming_callback(SimpleNamespace(content="hello "))
-    finally:
-        agent_runner._STREAM_QUEUE.reset(queue_token)
-        agent_runner._STREAM_LOOP.reset(loop_token)
-
-    assert queue.items == [{"type": "token", "token": "hello "}]
+    assert event["type"] == "token"
+    assert event["token"] == "hello "
+    assert event["run_id"] == "run-test"
 
 
 def test_runtime_context_metrics_breaks_out_documents_and_tools(monkeypatch) -> None:

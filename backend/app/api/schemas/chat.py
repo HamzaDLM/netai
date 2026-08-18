@@ -92,6 +92,17 @@ class SubAgentCallResponse(ORMBaseModel):
     created_at: datetime
 
 
+class AgentEventResponse(ORMBaseModel):
+    id: int
+    event_sequence: int
+    event_type: str
+    actor_type: str | None
+    actor_name: str | None
+    correlation_id: str | None
+    payload: dict
+    created_at: datetime
+
+
 class SpecialistRunResponse(ORMBaseModel):
     id: int
     conversation_id: str
@@ -108,6 +119,7 @@ class SpecialistRunResponse(ORMBaseModel):
     final_answer: str | None
     context_metrics: dict | None
     error: str | None
+    events: list[AgentEventResponse] = []
     tool_calls: list[ToolCallResponse] = []
     created_at: datetime
     updated_at: datetime
@@ -129,6 +141,7 @@ class AgentRunResponse(ORMBaseModel):
     final_answer: str | None
     context_metrics: dict | None
     error: str | None
+    events: list[AgentEventResponse] = []
     sub_agent_calls: list[SubAgentCallResponse] = []
     child_runs: list[SpecialistRunResponse] = []
     tool_calls: list[ToolCallResponse] = []

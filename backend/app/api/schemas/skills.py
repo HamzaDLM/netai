@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -70,7 +71,19 @@ class ToolCatalogTool(BaseModel):
 class ToolCatalogAgent(BaseModel):
     agent_key: str
     agent_name: str
+    description: str = ""
     specialist_tool: str | None = None
+    source: Literal["local", "mcp"] = "local"
+    dynamic_tools: bool = False
+    connection_status: Literal[
+        "not_applicable",
+        "not_checked",
+        "available",
+        "unavailable",
+        "not_configured",
+    ] = "not_applicable"
+    status_message: str = ""
+    mcp_config_name: str | None = None
     tools: list[ToolCatalogTool]
 
 

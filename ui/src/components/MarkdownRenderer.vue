@@ -87,25 +87,11 @@ async function handleContentClick(event: MouseEvent): Promise<void> {
 
 .llm-content .markdown-table-scroll {
     @apply my-6 max-w-full overflow-x-auto rounded-lg border border-stone-900;
-    scrollbar-width: thin;
-    scrollbar-color: rgb(87 83 78) transparent;
 }
 
 .llm-content .markdown-table-scroll table {
     @apply min-w-full border-collapse whitespace-nowrap text-xs;
     width: max-content;
-}
-
-.llm-content .markdown-table-scroll::-webkit-scrollbar {
-    height: 0.5rem;
-}
-
-.llm-content .markdown-table-scroll::-webkit-scrollbar-thumb {
-    @apply rounded-full bg-stone-700;
-}
-
-.llm-content .markdown-table-scroll::-webkit-scrollbar-track {
-    @apply bg-transparent;
 }
 
 .llm-content th,

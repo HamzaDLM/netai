@@ -11,8 +11,14 @@ from fastmcp import Client, FastMCP
 from fastmcp.client.client import CallToolResult
 from fastmcp.client.transports import StreamableHttpTransport
 from haystack.utils.auth import Secret
-from haystack_integrations.tools.mcp import MCPTool, StreamableHttpServerInfo
+from haystack_integrations.tools.mcp import (
+    MCPTool,
+    MCPToolset,
+    StreamableHttpServerInfo,
+)
 from mcp.types import Tool as MCPToolDefinition
+
+from app.core.config import project_settings
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +27,47 @@ class MCPClientConfig:
     token: str | None = None
     headers: dict[str, str] | None = None
     timeout: float = 30.0
+
+
+infrahub_mcp = MCPClientConfig(
+    url=project_settings.INFRAHUB_MCP_URL,
+    token=project_settings.INFRAHUB_MCP_TOKEN or None,
+    timeout=project_settings.INFRAHUB_MCP_TIMEOUT_SECONDS,
+)
+
+
+def get_mcp_client_config(name: str) -> MCPClientConfig | None:
+    """Resolve a named MCP configuration declared by this module."""
+
+    value = globals().get(name)
+    return value if isinstance(value, MCPClientConfig) else None
+
+
+def _streamable_http_server_info(
+    config: MCPClientConfig,
+) -> StreamableHttpServerInfo:
+    return StreamableHttpServerInfo(
+        url=config.url,
+        token=config.token,
+        headers=cast(dict[str, str | Secret] | None, config.headers),
+        timeout=max(1, int(config.timeout)),
+    )
+
+
+def create_haystack_toolset(
+    config: MCPClientConfig,
+    *,
+    include: set[str] | None = None,
+) -> MCPToolset:
+    """Build a lazily connected MCP toolset suitable for a Haystack Agent."""
+
+    return MCPToolset(
+        server_info=_streamable_http_server_info(config),
+        tool_names=sorted(include) if include is not None else None,
+        connection_timeout=config.timeout,
+        invocation_timeout=config.timeout,
+        eager_connect=False,
+    )
 
 
 class NetAIMCPClient:
@@ -127,12 +174,7 @@ async def discover_haystack_tools(
     ) as client:
         remote_tools = await client.list_tools()
 
-    server_info = StreamableHttpServerInfo(
-        url=config.url,
-        token=config.token,
-        headers=cast(dict[str, str | Secret] | None, config.headers),
-        timeout=max(1, int(config.timeout)),
-    )
+    server_info = _streamable_http_server_info(config)
     return [
         MCPTool(
             name=tool.name,

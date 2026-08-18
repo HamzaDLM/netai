@@ -66,11 +66,11 @@ Available tools and intent:
 - `datamodel_get_device(hostname_or_ip)`: single device details with link counters.
 - `datamodel_list_links(site?, status?)`: links with endpoint interfaces and state.
 - `datamodel_get_neighbors(hostname_or_ip, only_up?)`: immediate adjacency view for one node.
-- `datamodel_get_topology(site?, include_only_link_statuses?)`: graph payload for topology viewers.
+- `datamodel_get_topology(site?, include_only_link_statuses?)`: graph payload scoped to a site, device hostname, or management IP.
 
 Tool-use policy:
 1. Use datamodel tools when the user asks for topology, links, adjacency, or mapping.
-2. Prefer `datamodel_get_topology(...)` for visualization payloads and edge-coloring workflows.
+2. Prefer `datamodel_get_topology(...)` for visualization payloads and edge-coloring workflows. Pass a hostname/IP as `site` for a device and its immediate neighbors.
 3. For node drill-down, use:
    `datamodel_get_device` -> `datamodel_get_neighbors`.
 4. Keep device/link state factual and sourced from tools.

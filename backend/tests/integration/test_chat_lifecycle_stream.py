@@ -19,6 +19,61 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
         _ = skills
         yield {"type": "context_metrics", "used_tokens": 11, "used_percent": 1}
         yield {"type": "token", "token": "Hel"}
+        yield {
+            "type": "tool_started",
+            "event_sequence": 3,
+            "event_id": "evt-tool-started",
+            "tool_call_id": "tool-ping",
+            "tool_name": "network_ping",
+            "arguments": {"target": "edge.example.net"},
+        }
+        yield {
+            "type": "artifact_snapshot",
+            "event_sequence": 4,
+            "event_id": "evt-artifact-snapshot",
+            "artifact": {
+                "id": "artifact-ping",
+                "kind": "network.ping.v1",
+                "schema_version": 1,
+                "status": "running",
+                "title": "Ping edge.example.net",
+                "data": {
+                    "target": "edge.example.net",
+                    "simulated": True,
+                    "count": 1,
+                    "sent": 0,
+                    "received": 0,
+                    "loss_percent": 0,
+                    "samples": [],
+                },
+                "provenance": {"simulated": True},
+            },
+        }
+        yield {
+            "type": "artifact_delta",
+            "event_sequence": 5,
+            "event_id": "evt-artifact-delta",
+            "artifact_id": "artifact-ping",
+            "status": "completed",
+            "set": {"sent": 1, "received": 1},
+            "append": {
+                "samples": [
+                    {
+                        "sequence": 1,
+                        "status": "reply",
+                        "latency_ms": 12.5,
+                    }
+                ]
+            },
+        }
+        yield {
+            "type": "tool_completed",
+            "event_sequence": 6,
+            "event_id": "evt-tool-completed",
+            "tool_call_id": "tool-ping",
+            "tool_name": "network_ping",
+            "duration_ms": 50,
+        }
         yield {"type": "token", "token": "lo"}
         yield {"type": "leader_conclusion", "answer": "Hello"}
 
@@ -46,6 +101,8 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
             body += chunk
 
     assert "event: assistant_token" in body
+    assert "event: artifact_snapshot" in body
+    assert "event: artifact_delta" in body
     assert "event: leader_conclusion" in body
     assert "event: done" in body
 
@@ -54,6 +111,15 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
     assistant_messages = [m for m in payload["messages"] if m["role"] == "assistant"]
     assert len(assistant_messages) == 1
     assert assistant_messages[0]["content"] == "Hello"
+    run_events = assistant_messages[0]["agent_runs"][0]["events"]
+    assert [event["event_type"] for event in run_events] == [
+        "tool_started",
+        "artifact_snapshot",
+        "artifact_delta",
+        "tool_completed",
+    ]
+    assert run_events[1]["payload"]["assistant_offset"] == 3
+    assert run_events[1]["correlation_id"] == "artifact-ping"
 
 
 @pytest.mark.anyio

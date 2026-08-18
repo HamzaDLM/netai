@@ -17,6 +17,9 @@ class AgentTraceExtractor:
                 if isinstance(replies, list):
                     return self._extract_text(replies[0])
                 return self._extract_text(replies)
+            last_message = result.get("last_message")
+            if last_message is not None:
+                return self._extract_text(last_message)
             messages = result.get("messages")
             if isinstance(messages, list) and messages:
                 return self._extract_text(messages[-1])

@@ -17,7 +17,7 @@ from app.api.schemas.skills import (
     SkillUpdate,
     ToolCatalogAgent,
 )
-from app.skills_catalog import get_agent_tool_catalog
+from app.skills_catalog import get_agent_tool_catalog, get_resolved_agent_tool_catalog
 
 router = APIRouter(prefix="/skills", tags=["skills"])
 
@@ -274,7 +274,8 @@ async def list_skills(db: AsyncSessionDep, user: CheckUserSSODep):
 
 @router.get("/catalog", response_model=list[ToolCatalogAgent])
 async def get_tool_catalog():
-    return [ToolCatalogAgent.model_validate(item) for item in get_agent_tool_catalog()]
+    catalog = await get_resolved_agent_tool_catalog()
+    return [ToolCatalogAgent.model_validate(item) for item in catalog]
 
 
 @router.get("/bootstrap", response_model=SkillBootstrapResponse)

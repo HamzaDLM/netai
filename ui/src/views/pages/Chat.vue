@@ -9,6 +9,10 @@ import ChatAdminPanel from '@/components/chat/ChatAdminPanel.vue';
 import ConfigDiffViewer from '@/components/chat/ConfigDiffViewer.vue';
 import ChatActions from '@/components/chat/ChatActions.vue';
 import ChatAttachmentBar from '@/components/chat/ChatAttachmentBar.vue';
+import MessageArtifactTimeline from '@/features/artifacts/MessageArtifactTimeline.vue'
+import { hasArtifactEvents, hasArtifactKind } from '@/features/artifacts/artifact.timeline'
+import { parseUnifiedPatchToDiffFile } from '@/features/artifacts/config-diff/config-diff.adapter'
+import type { DiffFile } from '@/features/artifacts/config-diff/config-diff.schema'
 import Button from '@/components/ui/button/Button.vue';
 import MarkdownRenderer from "@/components/MarkdownRenderer.vue"
 import { Bug, Clipboard, RefreshCw } from 'lucide-vue-next';
@@ -76,26 +80,6 @@ const isPromptPreviewLoading = ref(false)
 const promptPreview = ref<PromptSnapshot | null>(null)
 const promptPreviewError = ref<string | null>(null)
 
-type DiffLineType = 'context' | 'added' | 'removed' | 'meta'
-type DiffLine = {
-    type: DiffLineType
-    old_lineno: number | null
-    new_lineno: number | null
-    content: string
-}
-type DiffHunk = {
-    header: string
-    old_start: number
-    old_lines: number
-    new_start: number
-    new_lines: number
-    lines: DiffLine[]
-}
-type DiffFile = {
-    old_path: string
-    new_path: string
-    hunks: DiffHunk[]
-}
 type MessageRenderSegment =
     | { id: string; type: 'markdown'; content: string }
     | { id: string; type: 'diff'; diffFiles: DiffFile[] }
@@ -726,85 +710,6 @@ function getMessageToolCalls(message: Message): ToolCall[] {
             evidence_items: [],
         }
     })
-}
-
-function parseUnifiedPatchToDiffFile(
-    patch: string,
-    oldPath: string,
-    newPath: string
-): DiffFile {
-    const hunkHeaderRegex = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
-    const lines = patch.split('\n')
-    const hunks: DiffHunk[] = []
-
-    let currentHunk: DiffHunk | null = null
-    let oldLine = 0
-    let newLine = 0
-
-    for (const rawLine of lines) {
-        if (rawLine.startsWith('@@')) {
-            const match = rawLine.match(hunkHeaderRegex)
-            if (!match) continue
-
-            const oldStart = Number(match[1] ?? 0)
-            const oldLines = Number(match[2] ?? 1)
-            const newStart = Number(match[3] ?? 0)
-            const newLines = Number(match[4] ?? 1)
-
-            currentHunk = {
-                header: rawLine,
-                old_start: oldStart,
-                old_lines: oldLines,
-                new_start: newStart,
-                new_lines: newLines,
-                lines: [],
-            }
-            hunks.push(currentHunk)
-            oldLine = oldStart
-            newLine = newStart
-            continue
-        }
-
-        if (!currentHunk) continue
-        if (rawLine.startsWith('\\ No newline at end of file')) continue
-
-        if (rawLine.startsWith('+')) {
-            currentHunk.lines.push({
-                type: 'added',
-                old_lineno: null,
-                new_lineno: newLine,
-                content: rawLine.slice(1),
-            })
-            newLine += 1
-            continue
-        }
-
-        if (rawLine.startsWith('-')) {
-            currentHunk.lines.push({
-                type: 'removed',
-                old_lineno: oldLine,
-                new_lineno: null,
-                content: rawLine.slice(1),
-            })
-            oldLine += 1
-            continue
-        }
-
-        currentHunk.lines.push({
-            type: 'context',
-            old_lineno: oldLine,
-            new_lineno: newLine,
-            content: rawLine.startsWith(' ') ? rawLine.slice(1) : rawLine,
-        })
-        oldLine += 1
-        newLine += 1
-    }
-
-    return {
-        old_path: oldPath,
-        new_path: newPath,
-        hunks,
-    }
 }
 
 function getMessageDiffFiles(toolCalls: ToolCall[] | undefined): DiffFile[] {
@@ -1477,8 +1382,8 @@ onBeforeUnmount(() => {
                                             </p>
                                         </div>
 
-                                        <div v-if="message.content.trim().length > 0" class="grid min-w-0 gap-2">
-                                            <MarkdownRenderer class="min-w-0" :content="message.content" />
+                                        <div v-if="message.content.trim().length > 0 || hasArtifactEvents(message)" class="grid min-w-0 gap-2">
+                                            <MessageArtifactTimeline :message="message" />
                                         </div>
                                     </div>
 
@@ -1567,7 +1472,8 @@ onBeforeUnmount(() => {
                                             </div>
                                         </details>
 
-                                        <div class="flex flex-col min-w-0 gap-4">
+                                        <MessageArtifactTimeline v-if="hasArtifactEvents(message)" :message="message" />
+                                        <div v-else class="flex flex-col min-w-0 gap-4">
                                             <template v-for="segment in getMessageRenderSegments(message)"
                                                 :key="segment.id">
                                                 <MarkdownRenderer v-if="segment.type === 'markdown'" class="min-w-0"
@@ -1577,7 +1483,7 @@ onBeforeUnmount(() => {
                                         </div>
                                     </div>
                                             <TopologyMapper
-                                                v-if="!isRunActive(message) && getMessageTopology(getMessageToolCalls(message))"
+                                                v-if="!isRunActive(message) && !hasArtifactKind(message, 'network.topology.v1') && getMessageTopology(getMessageToolCalls(message))"
                                                 :topology="getMessageTopology(getMessageToolCalls(message)) || undefined" />
                                     <!-- Feedback -->
                                             <ChatActions v-if="!chatStore.isMessageStreaming(message.id)"

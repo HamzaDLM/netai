@@ -10,6 +10,7 @@ EXPECTED_SPECIALISTS = {
     "bitbucket_specialist",
     "servicenow_specialist",
     "datamodel_specialist",
+    "infrahub_specialist",
     "syslog_specialist",
     "security_specialist",
 }
@@ -26,4 +27,5 @@ def test_orchestrator_exposes_expected_specialists() -> None:
     tool_names = {getattr(tool, "name", "") for tool in orchestrator_agent.tools}
     assert EXPECTED_SPECIALISTS.issubset(tool_names)
     assert "zabbix" in SPECIALIST_DESCRIPTIONS
+    assert "infrahub" in SPECIALIST_DESCRIPTIONS
     assert "syslog" in SPECIALIST_DESCRIPTIONS
