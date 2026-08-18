@@ -6,6 +6,20 @@ from app.agent_ui import bind_run_event_sink
 from app.workflows.utils import AgentTraceExtractor
 
 
+def test_extract_answer_supports_haystack_3_agent_result() -> None:
+    extractor = AgentTraceExtractor()
+    last_message = SimpleNamespace(text="The device is reachable.")
+
+    answer = extractor.extract_answer(
+        {
+            "messages": [SimpleNamespace(text="Check the device"), last_message],
+            "last_message": last_message,
+        }
+    )
+
+    assert answer == "The device is reachable."
+
+
 def test_with_runtime_formatting_prompt_appends_system_message(monkeypatch) -> None:
     monkeypatch.setattr(agent_runner, "FORMATTING_PROMPT", "format-rules")
     base = [SimpleNamespace(text="existing")]

@@ -39,10 +39,20 @@ export interface ToolCatalogTool {
 	summary: string
 }
 
+export type ToolCatalogSource = 'local' | 'mcp'
+
+export type ToolCatalogConnectionStatus = 'not_applicable' | 'not_checked' | 'available' | 'unavailable' | 'not_configured'
+
 export interface ToolCatalogAgent {
 	agent_key: string
 	agent_name: string
+	description: string
 	specialist_tool?: string | null
+	source: ToolCatalogSource
+	dynamic_tools: boolean
+	connection_status: ToolCatalogConnectionStatus
+	status_message: string
+	mcp_config_name?: string | null
 	tools: ToolCatalogTool[]
 }
 

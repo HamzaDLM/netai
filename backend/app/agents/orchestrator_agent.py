@@ -5,6 +5,7 @@ from haystack.tools import Tool
 
 from app.agents.bitbucket_agent import bitbucket_specialist_tool
 from app.agents.datamodel_agent import datamodel_specialist_tool
+from app.agents.infrahub_agent import infrahub_specialist_tool
 from app.agents.security_agent import security_specialist_tool
 from app.agents.servicenow_agent import servicenow_specialist_tool
 from app.agents.suzieq_agent import suzieq_specialist_tool
@@ -20,6 +21,7 @@ SPECIALIST_DESCRIPTIONS: dict[str, str] = {
     "bitbucket": "Repository-backed configuration and change-history analysis.",
     "servicenow": "Operational process and CMDB context from ServiceNow records.",
     "datamodel": "Static infrastructure topology and neighbor relationship analysis.",
+    "infrahub": "Read-only infrastructure source-of-truth context from Infrahub, including inventory, schemas, relationships, topology, and intended state.",
     "syslog": "Network syslog evidence and incident patterns from ClickHouse/Qdrant.",
     "security": "Network security and hardening analysis.",
 }
@@ -67,6 +69,7 @@ Specialists available:
 - bitbucket_specialist: {SPECIALIST_DESCRIPTIONS["bitbucket"]}
 - servicenow_specialist: {SPECIALIST_DESCRIPTIONS["servicenow"]}
 - datamodel_specialist: {SPECIALIST_DESCRIPTIONS["datamodel"]}
+- infrahub_specialist: {SPECIALIST_DESCRIPTIONS["infrahub"]}
 - syslog_specialist: {SPECIALIST_DESCRIPTIONS["syslog"]}
 - security_specialist: {SPECIALIST_DESCRIPTIONS["security"]}
 
@@ -87,6 +90,7 @@ orchestrator_agent = Agent(
         cast(Tool, bitbucket_specialist_tool),
         cast(Tool, servicenow_specialist_tool),
         cast(Tool, datamodel_specialist_tool),
+        cast(Tool, infrahub_specialist_tool),
         cast(Tool, syslog_specialist_tool),
         cast(Tool, security_specialist_tool),
         *_SIMULATED_DIAGNOSTIC_TOOLS,

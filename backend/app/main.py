@@ -9,6 +9,7 @@ from fastapi_insights.backends.in_memory import InMemoryMetricsStore
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.cors import CORSMiddleware
 
+from app.agents.infrahub_agent import close_infrahub_tools
 from app.api.router import api_router
 from app.core.config import project_settings
 from app.core.logging import configure_logging
@@ -29,9 +30,12 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 async def lifespan(_: FastAPI):
     await init_db()
     warmup_caches()
-    yield
-    langfuse_client.shutdown()
-    await close_engine()
+    try:
+        yield
+    finally:
+        close_infrahub_tools()
+        langfuse_client.shutdown()
+        await close_engine()
 
 
 app = FastAPI(

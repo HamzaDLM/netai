@@ -95,3 +95,51 @@ agent = Agent(chat_generator=llm, tools=remote_tools)
 for tool in remote_tools:
     tool.close()
 ```
+
+## Infrahub specialist
+
+The orchestrator includes an `infrahub_specialist` backed by a lazy MCP
+toolset. Configure its streamable-HTTP endpoint in `.env`:
+
+```bash
+INFRAHUB_MCP_URL=http://127.0.0.1:8001/mcp
+INFRAHUB_MCP_TOKEN=
+INFRAHUB_MCP_TIMEOUT_SECONDS=30
+MCP_CATALOG_DISCOVERY_TIMEOUT_SECONDS=5
+```
+
+The specialist toolset does not contact Infrahub while modules are imported,
+while the API starts, or while the parent orchestrator warms up. It connects
+only when the orchestrator delegates to the specialist, and its connection is
+released during API shutdown. The connectors catalogue performs its own bounded,
+short-lived discovery when that view is opened; catalogue failures are isolated.
+
+MCP-backed agents must be exposed to a parent agent with
+`IsolatedMCPComponentTool`, not a regular `ComponentTool`. Haystack recursively
+warms regular component tools; the isolated variant prevents an unavailable MCP
+server from affecting unrelated questions and converts a delegated connection
+failure into a structured `mcp_specialist_unavailable` tool result.
+
+The specialist is instructed to use read-only operations. Treat that prompt as
+defense in depth, not as the authorization boundary: expose only read-only tools
+and use read-only Infrahub credentials on the configured MCP server.
+
+MCP-backed agents are added to the connectors catalogue automatically when their
+named configuration lives in `app/mcp/mcp_client.py` and their agent follows the
+same declaration pattern:
+
+```python
+example_mcp = MCPClientConfig(url="http://127.0.0.1:8040/mcp")
+example_tools = create_haystack_toolset(example_mcp)
+
+example_specialist_tool = IsolatedMCPComponentTool(
+    component=example_agent,
+    name="example_specialist",
+    description="Example MCP specialist",
+)
+```
+
+Opening the connectors view performs bounded tool discovery for every detected
+MCP agent. A reachable server contributes its live tool names and descriptions;
+an unavailable server remains visible with an unavailable status and does not
+prevent other connectors from loading.

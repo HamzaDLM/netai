@@ -60,25 +60,3 @@ export default defineComponent({
     </main>
     <Toaster />
 </template>
-
-<style>
-::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-}
-
-::-webkit-scrollbar-track {
-    background: #29292900;
-}
-
-::-webkit-scrollbar-thumb {
-    background: #212121;
-    border-radius: 10px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-    background: #ad000069;
-    width: 10px;
-    height: 6px;
-}
-</style>

@@ -379,12 +379,13 @@ onBeforeUnmount(() => {
             </Button> -->
         </div>
         <div v-if="!props.collapsed" class="flex-1 min-h-0 pr-1 space-y-2 overflow-y-auto text-sm">
-            <div v-for="conversation in chatStore.conversations" @click="selectConversation(conversation.id)"
+            <div v-for="conversation in chatStore.conversations" :key="conversation.id"
+                @click="selectConversation(conversation.id)"
                 class="flex flex-col gap-2 px-4 py-2 border-l-4 border-dotted cursor-pointer"
                 :class="conversation.id == chatStore.selectedConversation?.id ? 'border-red-500/40 opacity-100 bg-stone-900/30' : 'border-transparent opacity-50 hover:opacity-80'">
                 <div class="flex items-center justify-between">
                     <p class="text-xs text-stone-500">{{ formatDatetime(conversation.created_at) }}</p>
-                    <DropdownMenu>
+                    <DropdownMenu :modal="false">
                         <DropdownMenuTrigger>
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-stone-400 hover:text-stone-200"
                                 viewBox="0 0 24 24">

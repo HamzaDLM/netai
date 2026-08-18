@@ -4,8 +4,10 @@ from haystack.dataclasses import ChatMessage
 from app.agents.orchestrator_agent import orchestrator_agent
 from app.api.schemas.agent import AgentAskRequest, AgentAskResponse
 from app.observability import langfuse_client
+from app.workflows.utils import AgentTraceExtractor
 
 router = APIRouter(prefix="/agent", tags=["agent"])
+_TRACE_EXTRACTOR = AgentTraceExtractor()
 
 
 @router.post("/ask", response_model=AgentAskResponse)
@@ -23,15 +25,7 @@ async def ask_agent(payload: AgentAskRequest) -> AgentAskResponse:
         result = orchestrator_agent.run(
             messages=[ChatMessage.from_user(payload.question)]
         )
-        answer = ""
-        replies = result.get("replies") if isinstance(result, dict) else None
-        if isinstance(replies, list) and replies:
-            first = replies[0]
-            answer = str(
-                getattr(first, "text", "") or getattr(first, "content", "") or ""
-            )
-        if not answer:
-            answer = str(result)
+        answer = _TRACE_EXTRACTOR.extract_answer(result)
 
         run_span.end(
             output={

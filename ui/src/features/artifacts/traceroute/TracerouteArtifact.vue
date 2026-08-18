@@ -46,7 +46,7 @@ function latency(values: number[]): string {
 									<p class="truncate text-sm text-stone-200">{{ hop.hostname || 'No response' }}</p>
 									<p class="text-xs text-stone-500">{{ hop.address || '—' }}</p>
 								</div>
-								<p class="font-mono text-xs" :class="hop.status === 'timeout' ? 'text-amber-300' : 'text-stone-400'">{{ latency(hop.latencies_ms) }}</p>
+								<p class="text-xs" :class="hop.status === 'timeout' ? 'text-amber-300' : 'text-stone-400'">{{ latency(hop.latencies_ms) }}</p>
 							</div>
 						</div>
 						<div v-if="artifact.status === 'running'" class="grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-3 px-1 py-2">

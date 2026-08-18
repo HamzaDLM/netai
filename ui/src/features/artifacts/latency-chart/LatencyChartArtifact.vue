@@ -37,7 +37,7 @@ const options = computed<ApexOptions>(() => ({
 	xaxis: {
 		type: 'datetime',
 		labels: { style: { colors: '#78716c' }, datetimeUTC: false },
-		axisBorder: { color: '#292524' },
+		axisBorder: { color: '' },
 		axisTicks: { color: '#292524' },
 	},
 	yaxis: {
@@ -77,9 +77,9 @@ function metric(value: number | undefined): string {
 
 				<div class="p-4">
 					<div class="mb-2 grid grid-cols-3 gap-2 text-center">
-						<div class="rounded-md border border-stone-900 bg-stone-900/30 p-2"><p class="text-xs text-stone-500">Min</p><p class="text-sm font-medium text-stone-200">{{ metric(data.min_ms) }}</p></div>
-						<div class="rounded-md border border-stone-900 bg-stone-900/30 p-2"><p class="text-xs text-stone-500">Average</p><p class="text-sm font-medium text-stone-200">{{ metric(data.avg_ms ?? data.latest_ms) }}</p></div>
-						<div class="rounded-md border border-stone-900 bg-stone-900/30 p-2"><p class="text-xs text-stone-500">Max</p><p class="text-sm font-medium text-stone-200">{{ metric(data.max_ms) }}</p></div>
+						<div class="rounded-md bg-stone-900/30 p-2"><p class="text-xs text-stone-500">Min</p><p class="text-sm font-medium text-stone-200">{{ metric(data.min_ms) }}</p></div>
+						<div class="rounded-md bg-stone-900/30 p-2"><p class="text-xs text-stone-500">Average</p><p class="text-sm font-medium text-stone-200">{{ metric(data.avg_ms ?? data.latest_ms) }}</p></div>
+						<div class="rounded-md bg-stone-900/30 p-2"><p class="text-xs text-stone-500">Max</p><p class="text-sm font-medium text-stone-200">{{ metric(data.max_ms) }}</p></div>
 					</div>
 					<VueApexCharts v-if="data.points.length" type="area" :height="zoomed ? 'calc(90vh - 12rem)' : 260" :options="options" :series="series" />
 					<div v-else class="flex h-64 animate-pulse items-center justify-center text-sm text-stone-500">Waiting for samples…</div>
