@@ -49,12 +49,9 @@ netai_backend_env:
   CLICKHOUSE_DB: netops
   CLICKHOUSE_USER: admin
   CLICKHOUSE_PASSWORD: "<set-me>"
-  QDRANT_URL: http://127.0.0.1:6333
-  QDRANT_COLLECTION: syslogs
-  LOG_QA_PROVIDER: gemini
-  LOG_QA_MODEL: gemini-2.5-flash
+  GEMINI_MODEL: gemini-2.5-flash
   GEMINI_API_KEY: "<set-me>"
-  OPENAI_API_KEY: ""
+  TOOLS_USE_MOCK_DATA: "false"
 
 netai_log_ingestor_env:
   KAFKA_BROKERS: 127.0.0.1:9092

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 import app.api.endpoints.chat as chat_endpoints
-from app.workflows.agent_runner import AgentPromptSnapshot, PromptSnapshotMessage
+from app.services.chat_agent import AgentPromptSnapshot, PromptSnapshotMessage
 
 
 @pytest.mark.anyio
@@ -15,6 +15,7 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
         conversation_id: str,
         question: str,
         skills: list[dict[str, str]] | None = None,
+        **_kwargs: object,
     ):
         _ = skills
         yield {"type": "context_metrics", "used_tokens": 11, "used_percent": 1}
@@ -75,11 +76,27 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
             "duration_ms": 50,
         }
         yield {"type": "token", "token": "lo"}
-        yield {"type": "leader_conclusion", "answer": "Hello"}
+        yield {
+            "type": "run_map",
+            "answer": "Hello",
+            "run_map": {
+                "agent": {
+                    "agent_name": "netai",
+                    "status": "completed",
+                    "duration_ms": 50,
+                },
+                "tool_calls": [],
+            },
+        }
 
     async def _no_title(
-        *, conversation_id: str, user_question: str, assistant_content: str
+        *,
+        service: object,
+        conversation_id: str,
+        user_question: str,
+        assistant_content: str,
     ) -> None:
+        _ = service
         return None
 
     monkeypatch.setattr(chat_endpoints, "run_agent_stream", _fake_run_agent_stream)
@@ -103,7 +120,6 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
     assert "event: assistant_token" in body
     assert "event: artifact_snapshot" in body
     assert "event: artifact_delta" in body
-    assert "event: leader_conclusion" in body
     assert "event: done" in body
 
     convo_resp = await async_client.get(f"/api/v1/llm/conversation/{conversation_id}")
@@ -132,6 +148,7 @@ async def test_prompt_preview_returns_prompt_snapshot(
         question: str,
         skills: list[dict[str, str]] | None = None,
         custom_instructions: str | None = None,
+        **_kwargs: object,
     ):
         _ = conversation_id, skills, custom_instructions
         return AgentPromptSnapshot(
@@ -139,7 +156,7 @@ async def test_prompt_preview_returns_prompt_snapshot(
                 PromptSnapshotMessage(
                     index=0,
                     role="system",
-                    source="orchestrator_system_prompt",
+                    source="agent_system_prompt",
                     text="system",
                     estimated_tokens=1,
                 ),
@@ -182,7 +199,7 @@ async def test_prompt_preview_returns_prompt_snapshot(
     payload = response.json()
     assert payload["metrics"]["used_tokens"] == 2
     assert [message["source"] for message in payload["messages"]] == [
-        "orchestrator_system_prompt",
+        "agent_system_prompt",
         "current_question",
     ]
     assert payload["messages"][1]["text"] == "show context"

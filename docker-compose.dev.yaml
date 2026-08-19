@@ -71,7 +71,6 @@ services:
       FRONTEND_HOST: http://localhost:5173
       BACKEND_GIT_SHA: ${BACKEND_GIT_SHA:-dev}
       CLICKHOUSE_URL: http://clickhouse:8123
-      QDRANT_URL: http://qdrant:6333
       SQLALCHEMY_URL: sqlite+aiosqlite:///./data/netai_local.db
     command: >
       sh -c "uv run alembic upgrade head &&
@@ -80,8 +79,6 @@ services:
       clickhouse:
         condition: service_healthy
       kafka:
-        condition: service_started
-      qdrant:
         condition: service_started
     ports:
       - "8000:8000"

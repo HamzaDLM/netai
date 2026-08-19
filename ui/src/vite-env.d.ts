@@ -1,5 +1,6 @@
 /// <reference types="vite/client" />
-import { ComponentCustomProperties } from 'vue'
+
+export {}
 
 interface ImportMetaEnv {
 	readonly VITE_BASE_URL: string

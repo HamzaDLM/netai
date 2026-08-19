@@ -3,7 +3,6 @@ from collections.abc import AsyncGenerator
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
-    async_scoped_session,
     async_sessionmaker,
     create_async_engine,
 )
@@ -19,8 +18,6 @@ async_engine: AsyncEngine = create_async_engine(
 )
 
 SessionLocal = async_sessionmaker(bind=async_engine)
-
-AsyncScopedSession = async_scoped_session(SessionLocal, scopefunc=lambda: None)
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession]:

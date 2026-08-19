@@ -9,7 +9,13 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from app.utils import parse_cors
+
+def _parse_cors(value: object) -> list[str] | str:
+    if isinstance(value, str) and not value.startswith("["):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list | str):
+        return value
+    raise ValueError(value)
 
 
 class Settings(BaseSettings):
@@ -27,7 +33,7 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["local", "staging", "production"] = "local"
 
     BACKEND_CORS_ORIGINS: Annotated[
-        list[AnyUrl] | str, BeforeValidator(parse_cors)
+        list[AnyUrl] | str, BeforeValidator(_parse_cors)
     ] = []
 
     @computed_field  # type: ignore[misc]
@@ -44,27 +50,13 @@ class Settings(BaseSettings):
 
     SQLALCHEMY_URL: str = "sqlite+aiosqlite:///./netai_local.db"
 
-    QDRANT_URL: str = "http://localhost:6333"
-    QDRANT_COLLECTION: str = "syslogs"
-
     CLICKHOUSE_URL: str = "http://localhost:8123"
     CLICKHOUSE_DB: str = "netops"
     CLICKHOUSE_USER: str = "default"
     CLICKHOUSE_PASSWORD: str = ""
 
-    LOG_QA_TOP_K: int = 8
-    LOG_QA_EVENT_TOP_K: int = 20
-    LOG_QA_LOOKBACK_SECONDS: int = 86_400
-    LOG_QA_PROVIDER: Literal["gemini", "openai"] = "gemini"
-    LOG_QA_MODEL: str = "gemini-2.5-flash-lite"
-
-    GEMINI_MODEL: str = "GEMINI_MODEL"
+    GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_API_KEY: str | None = None
-    OPENAI_API_KEY: str | None = None
-    OPENAI_INPUT_COST_PER_1M_TOKENS: float = 0.0
-    OPENAI_OUTPUT_COST_PER_1M_TOKENS: float = 0.0
-    GEMINI_INPUT_COST_PER_1M_TOKENS: float = 0.0
-    GEMINI_OUTPUT_COST_PER_1M_TOKENS: float = 0.0
 
     LLM_CONTEXT_WINDOW: int = 100_000
     CHAT_ATTACHMENT_MAX_COUNT: int = 5
@@ -72,26 +64,16 @@ class Settings(BaseSettings):
     CHAT_ATTACHMENT_MAX_CHARS: int = 20_000
     CHAT_ATTACHMENT_MAX_TOTAL_CHARS: int = 40_000
 
-    @computed_field  # type: ignore[misc]
-    @property
-    def get_gemini_api(self) -> str:
-        if not self.GEMINI_API_KEY:
-            raise Exception("No token provided for Gemini model.")
-        return self.GEMINI_API_KEY
-
     TOOLS_USE_MOCK_DATA: bool = True
 
-    if TOOLS_USE_MOCK_DATA:
-        print("======================== USING MOCK DATA !!!")
-
     ZABBIX_ENABLED: bool = False
+    SUZIEQ_ENABLED: bool = False
     BITBUCKET_ENABLED: bool = False
     SERVICENOW_ENABLED: bool = False
 
     INFRAHUB_MCP_URL: str = "http://127.0.0.1:8001/mcp"
     INFRAHUB_MCP_TOKEN: str = ""
     INFRAHUB_MCP_TIMEOUT_SECONDS: float = 5.0
-    MCP_CATALOG_DISCOVERY_TIMEOUT_SECONDS: float = 5.0
 
     BITBUCKET_CLONE_DIR: str = ""
     BITBUCKET_URL: str = ""
@@ -99,6 +81,11 @@ class Settings(BaseSettings):
     ZABBIX_API_URL: str = ""
     ZABBIX_API_TOKEN: str = ""
     ZABBIX_TIMEOUT_SECONDS: float = 12.0
+
+    SUZIEQ_API_URL: str = "https://localhost:8000"
+    SUZIEQ_API_TOKEN: str = ""
+    SUZIEQ_TIMEOUT_SECONDS: float = 12.0
+    SUZIEQ_VERIFY_TLS: bool = False
 
     SERVICENOW_INSTANCE_URL: str = ""
     SERVICENOW_API_VERSION: str = "v2"
@@ -112,6 +99,13 @@ class Settings(BaseSettings):
     LANGFUSE_SECRET_KEY: str = ""
     LANGFUSE_BASE_URL: str = "http://localhost:3002"
     LANGFUSE_SAMPLE_RATE: float = Field(default=1.0, ge=0.0, le=1.0)
+
+    OTEL_TRACING_ENABLED: bool = False
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: str = ""
+    OTEL_EXPORTER_OTLP_TRACES_HEADERS: str = ""
+    OTEL_SERVICE_NAME: str = "netai"
+    OTEL_TRACE_SAMPLE_RATE: float = Field(default=1.0, ge=0.0, le=1.0)
+    HAYSTACK_CONTENT_TRACING_ENABLED: bool = False
 
 
 project_settings = Settings()  # type: ignore

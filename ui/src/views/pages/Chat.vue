@@ -10,6 +10,8 @@ import ConfigDiffViewer from '@/components/chat/ConfigDiffViewer.vue';
 import ChatActions from '@/components/chat/ChatActions.vue';
 import ChatAttachmentBar from '@/components/chat/ChatAttachmentBar.vue';
 import MessageArtifactTimeline from '@/features/artifacts/MessageArtifactTimeline.vue'
+import AgentActivity from '@/features/execution/AgentActivity.vue'
+import { getMessageToolActivities } from '@/features/execution/execution.normalize'
 import { hasArtifactEvents, hasArtifactKind } from '@/features/artifacts/artifact.timeline'
 import { parseUnifiedPatchToDiffFile } from '@/features/artifacts/config-diff/config-diff.adapter'
 import type { DiffFile } from '@/features/artifacts/config-diff/config-diff.schema'
@@ -19,7 +21,7 @@ import { Bug, Clipboard, RefreshCw } from 'lucide-vue-next';
 import { useChatStore } from '@/stores/chat.store';
 import { useSkillsStore } from '@/stores/skills.store';
 import chatService from '@/services/chat.service';
-import type { AgentEvent, AgentRun, ContextBreakdown, Message, PromptSnapshot, PromptSnapshotMessage, ToolCall } from '@/types/chat.type';
+import type { AgentRun, ContextBreakdown, Message, PromptSnapshot, PromptSnapshotMessage } from '@/types/chat.type';
 import type { Skill } from '@/types/skill.type';
 import {
     Tooltip,
@@ -91,18 +93,6 @@ type TopologyPayload = {
     devices: Array<Record<string, unknown>>
     links: Array<Record<string, unknown>>
 }
-type ToolCallDetail = {
-    id: string | number
-    specialist: string
-    toolName: string
-    input: unknown
-    output: unknown
-}
-type SpecialistToolGroup = {
-    specialist: string
-    calls: ToolCallDetail[]
-}
-
 type QuestionNavItem = {
     messageId: number
     preview: string
@@ -121,7 +111,8 @@ function sourceLabel(source: string): string {
         conversation_summary: 'Summary',
         conversation_message: 'Message',
         conversation_context: 'Context',
-        orchestrator_system_prompt: 'Orchestrator system',
+        agent_system_prompt: 'NetAI system',
+        orchestrator_system_prompt: 'Orchestrator system (legacy)',
         available_tools: 'Available tools',
         current_question: 'Draft question',
         attachments: 'Attachments',
@@ -270,62 +261,11 @@ async function jumpToQuestion(messageId: number) {
     })
 }
 
-function toDisplayName(value: string): string {
-    const safe = (value || '').replace(/[_-]+/g, ' ').trim()
-    if (!safe) return 'Unknown'
-    return safe
-        .split(/\s+/)
-        .filter(Boolean)
-        .map(part => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(' ')
-}
-
-function extractDelegatedPrompt(argumentsPayload: unknown): string | undefined {
-    if (!argumentsPayload || typeof argumentsPayload !== 'object') return undefined
-    const args = argumentsPayload as Record<string, unknown>
-    const messages = args.messages
-    if (!Array.isArray(messages) || messages.length === 0) return undefined
-    const first = messages[0]
-    if (!first || typeof first !== 'object') return undefined
-    const content = (first as Record<string, unknown>).content
-    if (typeof content !== 'string' || !content.trim()) return undefined
-    return content.trim()
-}
-
-function inferToolNameFromSpecialist(
-    specialistRaw: string,
-    originalToolName: string,
-    argumentsPayload: unknown
-): string {
-    if (!originalToolName.endsWith('_specialist')) return originalToolName
-
-    const specialist = specialistRaw.toLowerCase().trim()
-    const delegatedPrompt = extractDelegatedPrompt(argumentsPayload)?.toLowerCase() ?? ''
-
-    if (specialist === 'syslog') {
-        if (
-            delegatedPrompt.includes('critical') ||
-            delegatedPrompt.includes('error') ||
-            delegatedPrompt.includes('severity') ||
-            delegatedPrompt.includes('host')
-        ) {
-            return 'syslog.get_logs'
-        }
-        return 'syslog.get_evidence'
-    }
-
-    if (specialist === 'zabbix') return 'zabbix.diagnose_host'
-    if (specialist === 'datamodel') return 'datamodel.get_topology'
-    if (specialist === 'servicenow') return 'servicenow.list_incidents'
-    if (specialist === 'suzieq') return 'suzieq.infrastructure_summary'
-
-    return `${specialist}.tool`
-}
-
 function getPrimaryRun(message: Message): AgentRun | null {
     const runs = message.agent_runs ?? []
     if (!runs.length) return null
-    return runs[runs.length - 1]
+    const roots = runs.filter(run => run.parent_run_id == null || run.depth === 0)
+    return roots.at(-1) ?? runs.at(-1) ?? null
 }
 
 function getLatestFeedbackRating(message: Message): 'good' | 'bad' | null {
@@ -340,116 +280,15 @@ function getLatestFeedbackRating(message: Message): 'good' | 'bad' | null {
 }
 
 function hasSubmittedFeedbackReport(message: Message): boolean {
-    const entries = message.feedback ?? []
-    return entries.some(entry => {
+    return (message.feedback ?? []).some(entry => {
         if (entry.feedback_type) return true
         return Boolean((entry.comment ?? '').trim())
     })
 }
 
-function getSortedEvents(message: Message): AgentEvent[] {
-    const run = getPrimaryRun(message)
-    if (!run) return []
-    return [...(run.events ?? [])].sort(
-        (a, b) => (a.event_sequence ?? 0) - (b.event_sequence ?? 0)
-    )
-}
-
 function isRunActive(message: Message): boolean {
     if (chatStore.isMessageStreaming(message.id)) return true
-    const run = getPrimaryRun(message)
-    return run?.status === 'running'
-}
-
-function stringifyForThoughts(value: unknown): string {
-    if (value == null) return ''
-    if (typeof value === 'string') return value
-    try {
-        return JSON.stringify(value, null, 2)
-    } catch {
-        return String(value)
-    }
-}
-
-function toThinkingCodeBlock(value: unknown): string {
-    const text = stringifyForThoughts(value) || '{}'
-    const lang = typeof value === 'string' ? 'txt' : 'json'
-    // Use four backticks so regular triple-backticks inside payload won't break fences.
-    return `\`\`\`\`${lang}\n${text}\n\`\`\`\``
-}
-
-function normalizeSpecialistName(value: string): string {
-    const clean = (value || '')
-        .replace(/[_-]+/g, ' ')
-        .replace(/\bspecialist\b/gi, '')
-        .trim()
-    return toDisplayName(clean || value)
-}
-
-function withAgentSuffix(value: string): string {
-    const normalized = normalizeSpecialistName(value)
-    return normalized.toLowerCase().endsWith('agent') ? normalized : `${normalized} Agent`
-}
-
-const SPECIALIST_COLORS = {
-    zabbix: {
-        text: 'text-red-500',
-        bg: 'bg-red-500/5',
-        border: 'border-red-500/35',
-    },
-    syslog: {
-        text: 'text-amber-400',
-        bg: 'bg-amber-400/5',
-        border: 'border-amber-400/35',
-    },
-    datamodel: {
-        text: 'text-blue-400',
-        bg: 'bg-blue-400/5',
-        border: 'border-blue-400/35',
-    },
-    servicenow: {
-        text: 'text-emerald-400',
-        bg: 'bg-emerald-400/5',
-        border: 'border-emerald-400/35',
-    },
-    suzieq: {
-        text: 'text-purple-400',
-        bg: 'bg-purple-400/5',
-        border: 'border-purple-400/35',
-    },
-    orchestrator: {
-        text: 'text-stone-300',
-        bg: 'bg-stone-300/5',
-        border: 'border-stone-300/35',
-    },
-    unknown: {
-        text: 'text-stone-300',
-        bg: 'bg-stone-300/5',
-        border: 'border-stone-300/35',
-    },
-} as const
-
-type SpecialistColorKey = keyof typeof SPECIALIST_COLORS
-type SpecialistColorVariant = keyof (typeof SPECIALIST_COLORS)[SpecialistColorKey]
-
-function getSpecialistColorKey(value: string): SpecialistColorKey {
-    const cleaned = normalizeSpecialistName(value)
-        .toLowerCase()
-        .replace(/\bagent\b/g, '')
-        .replace(/\s+/g, '')
-        .trim()
-
-    if (cleaned in SPECIALIST_COLORS) {
-        return cleaned as SpecialistColorKey
-    }
-    return 'unknown'
-}
-
-function getSpecialistColorClass(
-    value: string,
-    variant: SpecialistColorVariant = 'text'
-): string {
-    return SPECIALIST_COLORS[getSpecialistColorKey(value)][variant]
+    return getPrimaryRun(message)?.status === 'running'
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -457,227 +296,10 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return value as Record<string, unknown>
 }
 
-function toToolLabel(toolName: string): string {
-    const normalized = (toolName || 'unknown_tool').trim()
-    if (!normalized) return 'unknown_tool'
-    if (!normalized.includes('.')) return normalized
-    return normalized.split('.').at(-1) || normalized
-}
-
-function formatList(items: string[]): string {
-    if (items.length === 0) return ''
-    if (items.length === 1) return items[0]
-    if (items.length === 2) return `${items[0]} and ${items[1]}`
-    return `${items.slice(0, -1).join(', ')}, and ${items.at(-1)}`
-}
-
-function getChosenSpecialists(message: Message): string[] {
-    const events = getSortedEvents(message)
-    const names: string[] = []
-    for (const event of events) {
-        if (event.event_type !== 'orchestrator_decision') continue
-        const payload = (event.payload ?? {}) as Record<string, unknown>
-        const specialists = payload.specialists
-        if (!Array.isArray(specialists)) continue
-        for (const item of specialists) {
-            const normalized = withAgentSuffix(String(item ?? ''))
-            if (!normalized || names.includes(normalized)) continue
-            names.push(normalized)
-        }
-    }
-    return names
-}
-
-function getGatheringContextStep(message: Message): string | null {
-    const specialistLabels = getChosenSpecialists(message)
-    if (specialistLabels.length === 0) return null
-    return `Gathering context from ${formatList(specialistLabels)}...`
-}
-
-function getRunDurationMs(message: Message): number | null {
-    const run = getPrimaryRun(message)
-    if (!run) return null
-
-    if (typeof run.duration_ms === 'number' && Number.isFinite(run.duration_ms) && run.duration_ms > 0) {
-        return Math.round(run.duration_ms)
-    }
-
-    const createdAtMs = Date.parse(run.created_at)
-    if (!Number.isFinite(createdAtMs)) return null
-
-    const fallbackEndAt = run.events?.at(-1)?.created_at
-    const endedAtCandidate = run.ended_at || fallbackEndAt
-    if (!endedAtCandidate) return null
-
-    const endedAtMs = Date.parse(endedAtCandidate)
-    if (!Number.isFinite(endedAtMs)) return null
-
-    return Math.max(0, Math.round(endedAtMs - createdAtMs))
-}
-
-function formatThoughtsDuration(durationMs: number): string {
-    if (durationMs >= 1000) {
-        const durationSeconds = durationMs / 1000
-        const roundedSeconds =
-            durationSeconds >= 10
-                ? Math.round(durationSeconds)
-                : Math.round(durationSeconds * 10) / 10
-        return `${roundedSeconds} s`
-    }
-
-    return `${durationMs} ms`
-}
-
-function getThoughtsSummary(message: Message): string {
-    const durationMs = getRunDurationMs(message)
-    if (durationMs == null || durationMs == 0) return 'Thoughts.'
-    return `Thoughts (${formatThoughtsDuration(durationMs)})`
-}
-
-function getToolCallDetailsFromEvents(message: Message): ToolCallDetail[] {
-    const events = getSortedEvents(message)
-    const calls: ToolCallDetail[] = []
-    const pendingByKey = new Map<string, ToolCallDetail[]>()
-
-    for (const event of events) {
-        const payload = (event.payload ?? {}) as Record<string, unknown>
-        if (event.event_type === 'specialist_tool_call') {
-            const specialistRaw = String(payload.specialist ?? event.actor_name ?? 'specialist')
-            const originalToolName = String(payload.tool_name ?? 'unknown_tool')
-            const toolName = inferToolNameFromSpecialist(
-                specialistRaw,
-                originalToolName,
-                payload.arguments
-            )
-            const call: ToolCallDetail = {
-                id: event.id,
-                specialist: normalizeSpecialistName(specialistRaw),
-                toolName,
-                input: payload.arguments ?? {},
-                output: null,
-            }
-            calls.push(call)
-            const key = `${specialistRaw}:${toolName}`
-            const queue = pendingByKey.get(key) ?? []
-            queue.push(call)
-            pendingByKey.set(key, queue)
-            continue
-        }
-
-        if (event.event_type !== 'specialist_evidence' && event.event_type !== 'specialist_tool_result') {
-            continue
-        }
-
-        const specialistRaw = String(payload.specialist ?? event.actor_name ?? 'specialist')
-        const originalToolName = String(payload.tool_name ?? 'unknown_tool')
-        const toolName = inferToolNameFromSpecialist(
-            specialistRaw,
-            originalToolName,
-            payload.arguments
-        )
-        const key = `${specialistRaw}:${toolName}`
-        const queue = pendingByKey.get(key)
-        const call = queue?.shift()
-        if (!call) continue
-
-        if (event.event_type === 'specialist_evidence') {
-            call.output = {
-                result: payload.result ?? {},
-                evidence: payload.evidence ?? [],
-            }
-        } else {
-            call.output = payload.result ?? {}
-        }
-    }
-    return calls
-}
-
-function getToolCallDetailsFromPersistedRuns(message: Message): ToolCallDetail[] {
-    const run = getPrimaryRun(message)
-    if (!run) return []
-    const runRecord = run as unknown as Record<string, unknown>
-    const details: ToolCallDetail[] = []
-
-    const addPersistedCalls = (callsRaw: unknown, specialistRaw: string, prefix: string) => {
-        if (!Array.isArray(callsRaw)) return
-        const specialist = normalizeSpecialistName(specialistRaw)
-        callsRaw.forEach((call, index) => {
-            const row = asRecord(call)
-            if (!row) return
-            const toolName = String(row.tool_name ?? 'unknown_tool')
-            details.push({
-                id: String(row.id ?? `${prefix}-${index}`),
-                specialist,
-                toolName,
-                input: row.input_params ?? {},
-                output: row.output ?? {},
-            })
-        })
-    }
-
-    addPersistedCalls(runRecord.tool_calls, String(runRecord.agent_name ?? 'orchestrator'), 'root')
-
-    const childRuns = runRecord.child_runs
-    if (Array.isArray(childRuns)) {
-        childRuns.forEach((childRun, index) => {
-            const child = asRecord(childRun)
-            if (!child) return
-            addPersistedCalls(
-                child.tool_calls,
-                String(child.agent_name ?? child.specialist_name ?? 'specialist'),
-                `child-${index}`
-            )
-        })
-    }
-
-    return details
-}
-
-function getMessageToolCallDetails(message: Message): ToolCallDetail[] {
-    const fromEvents = getToolCallDetailsFromEvents(message)
-    if (fromEvents.length > 0) return fromEvents
-    return getToolCallDetailsFromPersistedRuns(message)
-}
-
-function getSpecialistToolGroups(message: Message): SpecialistToolGroup[] {
-    const calls = getMessageToolCallDetails(message)
-    if (calls.length === 0) return []
-
-    const groupsBySpecialist = new Map<string, SpecialistToolGroup>()
-    for (const call of calls) {
-        const key = call.specialist || 'Unknown'
-        const existing = groupsBySpecialist.get(key)
-        if (existing) {
-            existing.calls.push(call)
-            continue
-        }
-        groupsBySpecialist.set(key, {
-            specialist: key,
-            calls: [call],
-        })
-    }
-
-    return [...groupsBySpecialist.values()]
-}
-
-function hasSpecialistToolCalls(message: Message): boolean {
-    return getMessageToolCallDetails(message).length > 0
-}
-
-function hasLeaderConclusion(message: Message): boolean {
-    return getSortedEvents(message).some(event => event.event_type === 'leader_conclusion')
-}
-
-function shouldShowSynthesizing(message: Message): boolean {
-    if (!isRunActive(message)) return true
-    if (hasLeaderConclusion(message)) return true
-    return hasSpecialistToolCalls(message) && message.content.trim().length > 0
-}
-
-function parseToolResult(toolcall: ToolCall): Record<string, unknown> | null {
-    const resultObj = toolcall.result as Record<string, unknown> | undefined
-    const raw = resultObj?.['value'] ?? resultObj
-    if (!raw) return null
+function parseToolResult(value: unknown): Record<string, unknown> | null {
+    const valueRecord = asRecord(value)
+    const raw = valueRecord?.value ?? value
+    if (raw == null) return null
 
     if (typeof raw === 'string') {
         try {
@@ -691,70 +313,42 @@ function parseToolResult(toolcall: ToolCall): Record<string, unknown> | null {
         }
     }
 
-    if (typeof raw === 'object') {
-        return raw as Record<string, unknown>
-    }
-
-    return null
+    return asRecord(raw)
 }
 
-function getMessageToolCalls(message: Message): ToolCall[] {
-    return getMessageToolCallDetails(message).map((call, index) => {
-        const outputRecord = asRecord(call.output)
-        return {
-            id: typeof call.id === 'number' ? call.id : index + 1,
-            tool_name: call.toolName,
-            tool_source: call.specialist,
-            arguments: asRecord(call.input) ?? {},
-            result: outputRecord ?? ({ value: call.output } as object),
-            evidence_items: [],
-        }
-    })
-}
-
-function getMessageDiffFiles(toolCalls: ToolCall[] | undefined): DiffFile[] {
-    if (!toolCalls?.length) return []
-
+function getMessageDiffFiles(message: Message): DiffFile[] {
     const files: DiffFile[] = []
-    for (const toolcall of toolCalls) {
-        if (toolcall.tool_name !== 'bitbucket.get_recent_device_config_diff') continue
-        const result = parseToolResult(toolcall)
+    for (const call of getMessageToolActivities(message)) {
+        if (!['bitbucket.get_recent_device_config_diff', 'bitbucket_get_recent_device_config_diff'].includes(call.name)) continue
+        const result = parseToolResult(call.output)
         if (!result) continue
 
-        const configDiff = result['config_diff']
-        if (
-            configDiff &&
-            typeof configDiff === 'object' &&
-            typeof (configDiff as Record<string, unknown>).patch === 'string'
-        ) {
-            const diffMeta = configDiff as Record<string, unknown>
+        const configDiff = asRecord(result.config_diff)
+        if (typeof configDiff?.patch === 'string') {
             files.push(
                 parseUnifiedPatchToDiffFile(
-                    String(diffMeta.patch),
-                    String(diffMeta.old_path ?? result.file_path ?? 'a/config'),
-                    String(diffMeta.new_path ?? result.file_path ?? 'b/config')
+                    configDiff.patch,
+                    String(configDiff.old_path ?? result.file_path ?? 'a/config'),
+                    String(configDiff.new_path ?? result.file_path ?? 'b/config')
                 )
             )
             continue
         }
 
-        const legacyDiffFiles = result['diff_files']
-        if (Array.isArray(legacyDiffFiles)) {
-            files.push(...(legacyDiffFiles as DiffFile[]))
+        if (Array.isArray(result.diff_files)) {
+            files.push(...(result.diff_files as DiffFile[]))
         }
     }
     return files
 }
 
-function getMessageTopology(toolCalls: ToolCall[] | undefined): TopologyPayload | null {
-    if (!toolCalls?.length) return null
-
-    for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
-        const toolcall = toolCalls[i]
-        if (toolcall.tool_name !== 'datamodel.get_topology') continue
-        const result = parseToolResult(toolcall)
-        if (!result) continue
-        if (!Array.isArray(result.devices) || !Array.isArray(result.links)) continue
+function getMessageTopology(message: Message): TopologyPayload | null {
+    const calls = getMessageToolActivities(message)
+    for (let index = calls.length - 1; index >= 0; index -= 1) {
+        const call = calls[index]
+        if (!['datamodel.get_topology', 'datamodel_get_topology'].includes(call.name)) continue
+        const result = parseToolResult(call.output)
+        if (!result || !Array.isArray(result.devices) || !Array.isArray(result.links)) continue
         return result as TopologyPayload
     }
     return null
@@ -762,7 +356,7 @@ function getMessageTopology(toolCalls: ToolCall[] | undefined): TopologyPayload 
 
 function getMessageRenderSegments(message: Message): MessageRenderSegment[] {
     const content = message.content || ''
-    const diffFiles = getMessageDiffFiles(getMessageToolCalls(message))
+    const diffFiles = getMessageDiffFiles(message)
     const segments: MessageRenderSegment[] = []
     const markerRegex = /\[\[\s*CONFIG_DIFF(?:\s*:\s*(\d+))?\s*\]\]/gi
 
@@ -1102,7 +696,22 @@ async function submit() {
     slashReplaceRange.value = null
     slashQuery.value = ''
     await resizeChatTextarea()
-    await chatStore.askLLM(message)
+
+    // Start the request immediately, then position the viewport on the newly
+    // inserted user message before waiting for the Agent response. This keeps
+    // the submitted question visible even when the user was reading older
+    // messages above the bottom of the conversation.
+    const responsePromise = chatStore.askLLM(message)
+    await nextTick()
+    const submittedMessage = [...chatStore.messages]
+        .reverse()
+        .find(item => item.role === 'user' && item.content === message)
+    if (submittedMessage) {
+        await jumpToQuestion(submittedMessage.id)
+    } else {
+        await scrollToBottom('smooth')
+    }
+    await responsePromise
 }
 
 function openAttachmentPicker() {
@@ -1295,196 +904,19 @@ onBeforeUnmount(() => {
                                     <div v-for="message in chatStore.messages" :key="`message-${message.id}`" class="min-w-0">
                                 <!-- Assistant message -->
                                         <div v-if="message.role == 'assistant'" class="flex flex-col min-w-0 gap-4">
-                                    <!-- Rendering streamed events -->
-                                            <div v-if="isRunActive(message)" class="relative grid gap-2 text-sm leading-6">
-                                        <p class="animate-pulse text-stone-400">Thinking...</p>
-                                        <div v-if="getGatheringContextStep(message)"
-                                            class="relative flex items-start gap-2">
-                                            <span
-                                                class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center text-stone-400">
-                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                    class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"
-                                                    stroke-linecap="round" stroke-linejoin="round">
-                                                    <circle cx="11" cy="11" r="7" />
-                                                    <path d="m21 21-4.3-4.3" />
-                                                </svg>
-                                            </span>
-                                            <p class="text-stone-400">
-                                                {{ getGatheringContextStep(message) }}
-                                            </p>
-                                        </div>
-
-                                        <div v-if="hasSpecialistToolCalls(message)" class="flex flex-col gap-2">
-                                            <div class="relative flex items-start gap-2">
-                                                <span
-                                                    class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center text-stone-400">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                        class="w-4 h-4" fill="none" stroke="currentColor"
-                                                        stroke-width="1.8" stroke-linecap="round"
-                                                        stroke-linejoin="round">
-                                                        <path
-                                                            d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.2 2.2l-2.8-2.8z" />
-                                                    </svg>
-                                                </span>
-                                                <p class="text-stone-400">Gathering context...</p>
+                                            <p v-if="isRunActive(message) && !getPrimaryRun(message)" class="animate-pulse text-sm text-stone-400">Thinking...</p>
+                                            <AgentActivity :message="message" :active="isRunActive(message)" />
+                                            <MessageArtifactTimeline v-if="hasArtifactEvents(message)" :message="message" />
+                                            <div v-else class="flex min-w-0 flex-col gap-4">
+                                                <template v-for="segment in getMessageRenderSegments(message)" :key="segment.id">
+                                                    <MarkdownRenderer v-if="segment.type === 'markdown'" class="min-w-0" :content="segment.content" />
+                                                    <ConfigDiffViewer v-else :diff-files="segment.diffFiles" />
+                                                </template>
                                             </div>
-                                            <details v-for="toolCall in getMessageToolCallDetails(message)"
-                                                :key="`stream-tool-${message.id}-${toolCall.id}-${toolCall.toolName}`"
-                                                class="pl-5 ml-2 border-l border-stone-600">
-                                                <summary
-                                                    class="flex items-center gap-2 cursor-pointer select-none animate-in text-stone-400">
-                                                    <span class="inline-flex items-center gap-1">Called tool</span>
-                                                    <span class="text-stone-200">
-                                                        {{ toToolLabel(toolCall.toolName) }}
-                                                    </span>
-                                                    <span class="text-stone-500">via</span>
-                                                    <span class="inline-flex items-center">
-                                                        <span :class="[
-                                                            'inline-flex items-center rounded px-1.5 py-0.5',
-                                                            getSpecialistColorClass(toolCall.specialist, 'text'),
-                                                        ]">{{
-                                                            withAgentSuffix(toolCall.specialist) }}</span>
-                                                    </span>
-                                                </summary>
-                                                <div class="grid gap-2 py-2 pl-2">
-                                                    <div>
-                                                        <p class="pl-3 -mb-2 text-xs tracking-wide text-stone-500">
-                                                            Input
-                                                        </p>
-                                                        <MarkdownRenderer class="thinking-code"
-                                                            :content="toThinkingCodeBlock(toolCall.input)" />
-                                                    </div>
-                                                    <div>
-                                                        <p class="pl-3 -mb-2 text-xs tracking-wide text-stone-500">
-                                                            Output
-                                                        </p>
-                                                        <MarkdownRenderer class="thinking-code"
-                                                            :content="toThinkingCodeBlock(toolCall.output)" />
-                                                    </div>
-                                                </div>
-                                            </details>
-                                        </div>
-
-                                        <div v-if="shouldShowSynthesizing(message)"
-                                            class="relative flex items-start gap-2">
-                                            <span
-                                                class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center text-stone-400">
-                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                    class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.8"
-                                                    stroke-linecap="round" stroke-linejoin="round">
-                                                    <path d="M12 3l1.9 4.1L18 9l-4.1 1.9L12 15l-1.9-4.1L6 9l4.1-1.9z" />
-                                                    <path d="M5 16l.9 1.9L8 19l-2.1 1L5 22l-1-2l-2-1l2-1.1z" />
-                                                    <path d="M19 14l.7 1.4L21 16l-1.3.6L19 18l-.6-1.4L17 16l1.4-.6z" />
-                                                </svg>
-                                            </span>
-                                            <p class="text-stone-400 animate-pulse">
-                                                Synthesizing...
-                                            </p>
-                                        </div>
-
-                                        <div v-if="message.content.trim().length > 0 || hasArtifactEvents(message)" class="grid min-w-0 gap-2">
-                                            <MessageArtifactTimeline :message="message" />
-                                        </div>
-                                    </div>
-
-                                    <!-- Rendering conversation from DB -->
-                                    <div v-else class="grid gap-4 text-xs">
-                                        <details v-if="getSpecialistToolGroups(message).length > 0" class="leading-6">
-                                            <summary
-                                                class="inline-flex items-center gap-2 cursor-pointer select-none text-stone-400">
-                                                <span>
-                                                    {{ getThoughtsSummary(message) }}
-                                                </span>
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4"
-                                                    viewBox="0 0 24 24">
-                                                    <path fill="currentColor"
-                                                        d="M12.6 12L8 7.4L9.4 6l6 6l-6 6L8 16.6z" />
-                                                </svg>
-                                            </summary>
-                                            <div class="relative grid gap-3 pt-2 pl-8">
-                                                <div class="absolute left-[10px] top-1 bottom-1 w-px bg-stone-700/70" />
-                                                <div v-for="group in getSpecialistToolGroups(message)"
-                                                    :key="`thoughts-group-${message.id}-${group.specialist}`"
-                                                    class="grid gap-2">
-                                                    <p class="relative flex items-center gap-2 text-stone-400">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                            class="w-4 h-4" fill="none" stroke="currentColor"
-                                                            stroke-width="1.8" stroke-linecap="round"
-                                                            stroke-linejoin="round">
-                                                            <circle cx="11" cy="11" r="7" />
-                                                            <path d="m21 21-4.3-4.3" />
-                                                        </svg>
-                                                        <span>Gathered context from </span>
-                                                        <span :class="[
-                                                            'inline-flex items-center rounded px-1.5 py-0.5 border',
-                                                            getSpecialistColorClass(group.specialist, 'text'),
-                                                            getSpecialistColorClass(group.specialist, 'bg'),
-                                                            getSpecialistColorClass(group.specialist, 'border'),
-                                                        ]">{{
-                                                            withAgentSuffix(group.specialist) }}</span>
-                                                    </p>
-                                                    <div v-for="(toolCall, toolIndex) in group.calls"
-                                                        :key="`thought-tool-${message.id}-${group.specialist}-${toolCall.id}-${toolIndex}`"
-                                                        class="grid gap- pl-7">
-                                                        <p
-                                                            class="flex items-center gap-2 mb-3 tracking-wide text-stone-400">
-                                                            <span class="inline-flex items-center gap-1">
-                                                                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4"
-                                                                    viewBox="0 0 24 24">
-                                                                    <path fill="currentColor"
-                                                                        d="M15.6 5.29c-1.1-.1-2.07.71-2.17 1.82L13.18 10H16v2h-3l-.44 5.07a3.986 3.986 0 0 1-4.33 3.63a4 4 0 0 1-3.06-1.87l1.5-1.5c.24.74.9 1.31 1.73 1.38c1.1.1 2.07-.71 2.17-1.82L11 12H8v-2h3.17l.27-3.07c.19-2.2 2.13-3.83 4.33-3.63c1.31.11 2.41.84 3.06 1.87l-1.5 1.5c-.24-.74-.9-1.31-1.73-1.38" />
-                                                                </svg>
-                                                                <span>Called tool</span>
-                                                            </span>
-                                                            <span class="font-semibold text-stone-200">
-                                                                {{ toToolLabel(toolCall.toolName) }}
-                                                            </span>
-                                                        </p>
-                                                        <div>
-                                                            <p class="pl-3 -mb-2 text-xs tracking-wide text-stone-500">
-                                                                Input
-                                                            </p>
-                                                            <MarkdownRenderer class="thinking-code"
-                                                                :content="toThinkingCodeBlock(toolCall.input)" />
-                                                        </div>
-                                                        <div>
-                                                            <p class="pl-3 -mb-2 text-xs tracking-wide text-stone-500">
-                                                                Output
-                                                            </p>
-                                                            <MarkdownRenderer class="thinking-code"
-                                                                :content="toThinkingCodeBlock(toolCall.output)" />
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <p
-                                                    class="relative flex items-center gap-2 font-semibold text-stone-400">
-                                                    <span
-                                                        class="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center">
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
-                                                            class="w-4 h-4" fill="none" stroke="currentColor"
-                                                            stroke-width="1.8" stroke-linecap="round"
-                                                            stroke-linejoin="round">
-                                                            <path d="M20 6L9 17l-5-5" />
-                                                        </svg>
-                                                    </span>
-                                                    Done.
-                                                </p>
-                                            </div>
-                                        </details>
-
-                                        <MessageArtifactTimeline v-if="hasArtifactEvents(message)" :message="message" />
-                                        <div v-else class="flex flex-col min-w-0 gap-4">
-                                            <template v-for="segment in getMessageRenderSegments(message)"
-                                                :key="segment.id">
-                                                <MarkdownRenderer v-if="segment.type === 'markdown'" class="min-w-0"
-                                                    :content="segment.content" />
-                                                <ConfigDiffViewer v-else :diff-files="segment.diffFiles" />
-                                            </template>
-                                        </div>
-                                    </div>
                                             <TopologyMapper
-                                                v-if="!isRunActive(message) && !hasArtifactKind(message, 'network.topology.v1') && getMessageTopology(getMessageToolCalls(message))"
-                                                :topology="getMessageTopology(getMessageToolCalls(message)) || undefined" />
+                                                v-if="!isRunActive(message) && !hasArtifactKind(message, 'network.topology.v1') && getMessageTopology(message)"
+                                                :topology="getMessageTopology(message) || undefined" />
+
                                     <!-- Feedback -->
                                             <ChatActions v-if="!chatStore.isMessageStreaming(message.id)"
                                                 :message-id="message.id" :content="message.content"

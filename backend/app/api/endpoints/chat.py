@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 from collections.abc import AsyncIterator
 from dataclasses import asdict
@@ -12,7 +13,12 @@ from haystack.dataclasses import ChatMessage
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import AsyncSessionDep, CheckUserSSODep
+from app.api.deps import (
+    AsyncSessionDep,
+    CheckUserSSODep,
+    NetAIServiceDep,
+    RequestIDDep,
+)
 from app.api.models.chat import (
     AgentEvent,
     AgentRun,
@@ -23,7 +29,6 @@ from app.api.models.chat import (
     Feedback,
     Message,
     MessageRole,
-    SubAgentCall,
     ToolCall,
     ToolCallStatus,
 )
@@ -48,22 +53,22 @@ from app.api.schemas.chat import (
 )
 from app.core.config import project_settings
 from app.db.session import SessionLocal
-from app.llm import llm
-from app.observability import langfuse_client
 from app.prompts import TITLE_GENERATION_PROMPT
+from app.services.chat_agent import (
+    build_agent_prompt_snapshot,
+    run_agent,
+    run_agent_stream,
+)
 from app.services.chat_attachments import (
     get_active_attachment_count,
     get_active_attachment_total_chars,
     list_active_attachments,
     parse_attachment_payload,
 )
-from app.workflows.agent_runner import (
-    build_agent_prompt_snapshot,
-    run_agent,
-    run_agent_stream,
-)
+from app.services.netai import NetAIService
 
 router = APIRouter(prefix="/llm", tags=["chat"])
+logger = logging.getLogger(__name__)
 _SKILL_COMMAND_RE = re.compile(r"/([a-z0-9][a-z0-9-]{0,79})(?=$|\s)", re.IGNORECASE)
 _ARTIFACT_EVENT_TYPES = {
     "artifact_snapshot",
@@ -79,14 +84,6 @@ _STREAMED_AGENT_EVENT_TYPES = _DURABLE_AGENT_EVENT_TYPES | {
     "run_started",
     "run_finished",
     "run_error",
-    "orchestrator_decision",
-    "orchestrator_plan",
-    "specialist_plan",
-    "specialist_prompt",
-    "specialist_tool_call",
-    "specialist_evidence",
-    "specialist_tool_result",
-    "leader_conclusion",
 }
 _EVENT_ENVELOPE_KEYS = {
     "type",
@@ -102,23 +99,6 @@ def _event_actor(event: dict[str, Any]) -> tuple[str | None, str | None]:
     event_type = str(event.get("type", "")).strip()
     if not event_type:
         return None, None
-    if event_type.startswith("specialist_"):
-        return "specialist", str(event.get("specialist") or "unknown")
-    if event_type in {
-        "orchestrator_decision",
-        "orchestrator_plan",
-        "leader_conclusion",
-    }:
-        return "orchestrator", "orchestrator"
-    if event_type == "thinking":
-        agent = str(event.get("agent") or "orchestrator")
-        return (
-            ("orchestrator", agent)
-            if agent == "orchestrator"
-            else ("specialist", agent)
-        )
-    if event_type in {"tool_call", "tool_result"}:
-        return "tool", str(event.get("name") or "unknown_tool")
     if event_type in _TOOL_LIFECYCLE_EVENT_TYPES:
         return "tool", str(event.get("tool_name") or "unknown_tool")
     if event_type in _ARTIFACT_EVENT_TYPES:
@@ -331,126 +311,67 @@ async def _persist_run_graph(
     context_metrics: dict[str, Any] | None,
     run_map: dict[str, Any] | None,
 ) -> AgentRun:
-    orchestrator_map = run_map.get("orchestrator") if isinstance(run_map, dict) else {}
-    if not isinstance(orchestrator_map, dict):
-        orchestrator_map = {}
-    sub_agent_calls = (
-        run_map.get("sub_agent_calls") if isinstance(run_map, dict) else []
-    )
-    if not isinstance(sub_agent_calls, list):
-        sub_agent_calls = []
+    agent_map = run_map.get("agent") if isinstance(run_map, dict) else {}
+    if not isinstance(agent_map, dict):
+        agent_map = {}
+    tool_calls = run_map.get("tool_calls") if isinstance(run_map, dict) else []
+    if not isinstance(tool_calls, list):
+        tool_calls = []
 
-    orchestrator_status = _as_run_status(orchestrator_map.get("status"))
-    orchestrator_started, orchestrator_ended = _derive_times(
-        orchestrator_map.get("duration_ms")
-    )
-    orchestrator_run = AgentRun(
+    agent_status = _as_run_status(agent_map.get("status"))
+    started_at, ended_at = _derive_times(agent_map.get("duration_ms"))
+    agent_run = AgentRun(
         conversation_id=conversation_id,
         user_message_id=user_message_id,
         assistant_message_id=assistant_message_id,
         parent_run_id=None,
         agent_type=AgentType.orchestrator,
-        agent_name=str(orchestrator_map.get("agent_name") or "orchestrator"),
+        agent_name=str(agent_map.get("agent_name") or "netai"),
         depth=0,
-        status=orchestrator_status,
-        started_at=orchestrator_started,
-        ended_at=orchestrator_ended,
-        duration_ms=orchestrator_map.get("duration_ms")
-        if isinstance(orchestrator_map.get("duration_ms"), int)
+        status=agent_status,
+        started_at=started_at,
+        ended_at=ended_at,
+        duration_ms=agent_map.get("duration_ms")
+        if isinstance(agent_map.get("duration_ms"), int)
         else None,
         final_answer=assistant_content,
         context_metrics=context_metrics,
-        error=str(orchestrator_map.get("error"))
-        if orchestrator_status == AgentRunStatus.failed
-        and orchestrator_map.get("error") is not None
+        error=str(agent_map.get("error"))
+        if agent_status == AgentRunStatus.failed and agent_map.get("error") is not None
         else None,
     )
-    db.add(orchestrator_run)
+    db.add(agent_run)
     await db.flush()
 
-    for index, sub_call in enumerate(sub_agent_calls, start=1):
-        if not isinstance(sub_call, dict):
+    for tool_call in tool_calls:
+        if not isinstance(tool_call, dict):
             continue
-        specialist_name = str(sub_call.get("specialist_name") or "unknown")
-        specialist_status = _as_run_status(sub_call.get("status"))
-        specialist_started, specialist_ended = _derive_times(
-            sub_call.get("duration_ms")
-        )
-        specialist_run = AgentRun(
-            conversation_id=conversation_id,
-            user_message_id=user_message_id,
-            assistant_message_id=None,
-            parent_run_id=orchestrator_run.id,
-            agent_type=AgentType.specialist,
-            agent_name=specialist_name,
-            depth=1,
-            status=specialist_status,
-            started_at=specialist_started,
-            ended_at=specialist_ended,
-            duration_ms=sub_call.get("duration_ms")
-            if isinstance(sub_call.get("duration_ms"), int)
-            else None,
-            final_answer=str(sub_call.get("result_summary"))
-            if sub_call.get("result_summary") is not None
-            else None,
-            context_metrics=None,
-            error=str(sub_call.get("error_message"))
-            if specialist_status == AgentRunStatus.failed
-            and sub_call.get("error_message") is not None
-            else None,
-        )
-        db.add(specialist_run)
-        await db.flush()
-
+        output = _coerce_json_dict(tool_call.get("output"))
         db.add(
-            SubAgentCall(
-                parent_run_id=orchestrator_run.id,
-                child_run_id=specialist_run.id,
-                specialist_name=specialist_name,
-                call_sequence=(
-                    sub_call.get("call_sequence")
-                    if isinstance(sub_call.get("call_sequence"), int)
-                    else index
-                ),
-                task_prompt=str(sub_call.get("task_prompt") or ""),
-                result_summary=str(sub_call.get("result_summary"))
-                if sub_call.get("result_summary") is not None
+            ToolCall(
+                run_id=agent_run.id,
+                conversation_id=conversation_id,
+                tool_name=str(tool_call.get("tool_name") or "unknown_tool"),
+                input_params=_coerce_json_dict(tool_call.get("input_params")),
+                output=output,
+                latency_ms=tool_call.get("latency_ms")
+                if isinstance(tool_call.get("latency_ms"), int)
                 else None,
-                status=_as_tool_status(sub_call.get("status")),
+                status=_as_tool_status(tool_call.get("status")),
+                error_type=str(tool_call.get("error_type"))
+                if tool_call.get("error_type") is not None
+                else None,
+                error_message=str(tool_call.get("error_message"))
+                if tool_call.get("error_message") is not None
+                else None,
             )
         )
 
-        for tool in sub_call.get("tool_calls") or []:
-            if not isinstance(tool, dict):
-                continue
-            output_payload = _coerce_json_dict(tool.get("output"))
-            evidence_payload = tool.get("evidence")
-            if isinstance(evidence_payload, list):
-                output_payload = {**output_payload, "evidence": evidence_payload}
-            db.add(
-                ToolCall(
-                    run_id=specialist_run.id,
-                    conversation_id=conversation_id,
-                    tool_name=str(tool.get("tool_name") or "unknown_tool"),
-                    input_params=_coerce_json_dict(tool.get("input_params")),
-                    output=output_payload,
-                    latency_ms=tool.get("latency_ms")
-                    if isinstance(tool.get("latency_ms"), int)
-                    else None,
-                    status=_as_tool_status(tool.get("status")),
-                    error_type=str(tool.get("error_type"))
-                    if tool.get("error_type") is not None
-                    else None,
-                    error_message=str(tool.get("error_message"))
-                    if tool.get("error_message") is not None
-                    else None,
-                )
-            )
-
-    return orchestrator_run
+    return agent_run
 
 
 async def _generate_title_if_missing(
+    service: NetAIService,
     conversation_id: str,
     user_question: str,
     assistant_content: str,
@@ -465,47 +386,30 @@ async def _generate_title_if_missing(
         if not conversation or conversation.title:
             return
 
-        trace = langfuse_client.start_trace(
-            "chat.generate_title_background",
-            session_id=str(conversation_id),
-            input={
-                "question": user_question,
-                "answer_preview": assistant_content[:300],
-            },
-            metadata={"mode": "stream_background"},
-        )
-        title_span = trace.generation(
-            "chat.generate_title",
-            model="gemini_title_generation",
-            input={
-                "question": user_question,
-                "answer_preview": assistant_content[:300],
-            },
-        )
         try:
-            llm_result = await asyncio.to_thread(
-                llm.run,
-                messages=[
+            llm_result = await service.generate(
+                [
                     ChatMessage.from_system(TITLE_GENERATION_PROMPT),
                     ChatMessage.from_user(
                         f"user question: {user_question} \n LLM assistant answer: {assistant_content}"
                     ),
-                ],
+                ]
             )
-            title = llm_result["replies"][0].text.strip()
+            replies = llm_result.get("replies")
+            first_reply = replies[0] if isinstance(replies, list) and replies else None
+            title = (
+                (first_reply.text or "").strip()
+                if isinstance(first_reply, ChatMessage)
+                else ""
+            )
             if not title:
-                title_span.end(output={"skipped": "empty_title"})
-                trace.end(output={"skipped": "empty_title"})
                 return
             conversation.title = title
             await title_db.commit()
             await title_db.refresh(conversation)
-            title_span.end(output={"title": conversation.title})
-            trace.end(output={"title": conversation.title})
         except Exception as exc:
             await title_db.rollback()
-            title_span.end(output={"error": str(exc)})
-            trace.end(output={"error": str(exc)})
+            logger.warning("Conversation title generation failed: %s", exc)
 
 
 async def _get_active_attachment(
@@ -767,7 +671,7 @@ async def create_conversation_attachment(
         )
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from exc
 
@@ -776,7 +680,7 @@ async def create_conversation_attachment(
     )
     if attachment_count >= project_settings.CHAT_ATTACHMENT_MAX_COUNT:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="attachment_limit_reached",
         )
 
@@ -788,7 +692,7 @@ async def create_conversation_attachment(
         > project_settings.CHAT_ATTACHMENT_MAX_TOTAL_CHARS
     ):
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="attachment_total_size_exceeded",
         )
 
@@ -837,6 +741,8 @@ async def ask_llm(
     payload: MessageCreate,
     db: AsyncSessionDep,
     user: CheckUserSSODep,
+    service: NetAIServiceDep,
+    request_id: RequestIDDep,
 ):
     await _get_active_conversation(db, conversation_id)
     user_record = await _get_or_create_user_record(db, user)
@@ -847,12 +753,6 @@ async def ask_llm(
         content=payload.content,
     )
 
-    trace = langfuse_client.start_trace(
-        "chat.ask_llm",
-        session_id=str(conversation_id),
-        input={"question": payload.content},
-        metadata={"endpoint": "/llm/conversation/{conversation_id}/message"},
-    )
     user_message = Message(
         conversation_id=conversation_id,
         role="user",
@@ -863,38 +763,32 @@ async def ask_llm(
     user_message_id = user_message.id
     await db.commit()
 
-    agent_span = trace.span("chat.agent_run", input={"question": question_for_agent})
-    try:
-        run_agent_kwargs: dict[str, Any] = {
-            "conversation_id": conversation_id,
-            "question": question_for_agent,
-            "skills": requested_skills or None,
-        }
-        if custom_instructions:
-            run_agent_kwargs["custom_instructions"] = custom_instructions
+    run_agent_kwargs: dict[str, Any] = {
+        "service": service,
+        "conversation_id": conversation_id,
+        "question": question_for_agent,
+        "user_id": user.id,
+        "request_id": request_id,
+        "skills": requested_skills or None,
+    }
+    if custom_instructions:
+        run_agent_kwargs["custom_instructions"] = custom_instructions
+    agent_result = await run_agent(**run_agent_kwargs)
 
-        agent_result = await run_agent(
-            **run_agent_kwargs,
-        )
-        agent_span.end(
-            output={
-                "events": len(agent_result.get("events", [])),
-                "context_metrics": agent_result.get("context_metrics"),
-            }
-        )
-    except Exception as exc:
-        agent_span.end(output={"error": str(exc)})
-        trace.end(output={"error": str(exc)})
-        raise
-
-    assistant_content = agent_result.get("answer") or ""
+    assistant_content = str(agent_result.get("answer") or "")
+    context_metrics_value = agent_result.get("context_metrics")
+    context_metrics = (
+        context_metrics_value if isinstance(context_metrics_value, dict) else None
+    )
+    run_map_value = agent_result.get("run_map")
+    run_map = run_map_value if isinstance(run_map_value, dict) else None
     assistant_message = Message(
         conversation_id=conversation_id,
         role="assistant",
         content=assistant_content,
         token_input=(
-            int(agent_result.get("context_metrics", {}).get("used_tokens", 0))
-            if isinstance(agent_result.get("context_metrics"), dict)
+            int(context_metrics.get("used_tokens", 0))
+            if context_metrics is not None
             else None
         ),
     )
@@ -908,19 +802,14 @@ async def ask_llm(
         user_message_id=user_message_id,
         assistant_message_id=assistant_message_id,
         assistant_content=assistant_content,
-        context_metrics=agent_result.get("context_metrics")
-        if isinstance(agent_result.get("context_metrics"), dict)
-        else None,
-        run_map=agent_result.get("run_map")
-        if isinstance(agent_result.get("run_map"), dict)
-        else None,
+        context_metrics=context_metrics,
+        run_map=run_map,
     )
 
-    db_span = trace.span("chat.persist_assistant_message")
     await db.commit()
-    db_span.end(output={"assistant_message_id": assistant_message_id})
 
     await _generate_title_if_missing(
+        service=service,
         conversation_id=conversation_id,
         user_question=payload.content,
         assistant_content=assistant_content,
@@ -934,16 +823,8 @@ async def ask_llm(
     hydrated_result = await db.execute(hydrated_stmt)
     hydrated_message = hydrated_result.scalar_one_or_none()
     if hydrated_message:
-        trace.end(
-            output={
-                "assistant_message_id": assistant_message_id,
-                "agent_runs": len(hydrated_message.agent_runs or []),
-                "context_metrics": agent_result.get("context_metrics"),
-            }
-        )
         return hydrated_message
 
-    trace.end(output={"error": "assistant_message_hydration_failed"})
     raise HTTPException(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail="assistant_message_hydration_failed",
@@ -959,6 +840,7 @@ async def preview_llm_prompt(
     payload: MessageCreate,
     db: AsyncSessionDep,
     user: CheckUserSSODep,
+    service: NetAIServiceDep,
 ):
     await _get_active_conversation(db, conversation_id)
     user_record = await _get_or_create_user_record(db, user)
@@ -968,6 +850,7 @@ async def preview_llm_prompt(
         content=payload.content,
     )
     snapshot = await build_agent_prompt_snapshot(
+        service=service,
         conversation_id=conversation_id,
         question=question_for_agent,
         skills=requested_skills or None,
@@ -985,6 +868,8 @@ async def ask_llm_stream(
     payload: MessageCreate,
     db: AsyncSessionDep,
     user: CheckUserSSODep,
+    service: NetAIServiceDep,
+    request_id: RequestIDDep,
 ):
     await _get_active_conversation(db, conversation_id)
     user_record = await _get_or_create_user_record(db, user)
@@ -995,12 +880,6 @@ async def ask_llm_stream(
         content=payload.content,
     )
 
-    trace = langfuse_client.start_trace(
-        "chat.ask_llm_stream",
-        session_id=str(conversation_id),
-        input={"question": payload.content},
-        metadata={"endpoint": "/llm/conversation/{conversation_id}/message/stream"},
-    )
     user_message = Message(
         conversation_id=conversation_id,
         role="user",
@@ -1017,55 +896,47 @@ async def ask_llm_stream(
         context_metrics: dict[str, Any] | None = None
         run_map: dict[str, Any] | None = None
         final_answer: str | None = None
-        streamed_event_count = 0
         durable_events: list[dict[str, Any]] = []
-        stream_span = trace.span("chat.stream_agent_run")
+        run_agent_stream_kwargs: dict[str, Any] = {
+            "service": service,
+            "conversation_id": conversation_id,
+            "question": question_for_agent,
+            "user_id": user.id,
+            "request_id": request_id,
+            "skills": requested_skills or None,
+        }
+        if custom_instructions:
+            run_agent_stream_kwargs["custom_instructions"] = custom_instructions
 
-        try:
-            run_agent_stream_kwargs: dict[str, Any] = {
-                "conversation_id": conversation_id,
-                "question": question_for_agent,
-                "skills": requested_skills or None,
-            }
-            if custom_instructions:
-                run_agent_stream_kwargs["custom_instructions"] = custom_instructions
+        async for event in run_agent_stream(**run_agent_stream_kwargs):
+            event_type = str(event.get("type") or "")
+            if event_type == "token":
+                token = str(event.get("token") or "")
+                assistant_tokens.append(token)
+                assistant_char_count += len(token)
+                yield f"event: assistant_token\ndata: {json.dumps({'token': token})}\n\n"
+                continue
+            if event_type == "context_metrics":
+                context_metrics = event
+                yield f"event: context_metrics\ndata: {json.dumps(event)}\n\n"
+                continue
+            if event_type == "run_map":
+                maybe_map = event.get("run_map")
+                if isinstance(maybe_map, dict):
+                    run_map = maybe_map
+                answer_value = event.get("answer")
+                if isinstance(answer_value, str) and answer_value:
+                    final_answer = answer_value
+                continue
 
-            async for event in run_agent_stream(**run_agent_stream_kwargs):
-                event_type = str(event.get("type") or "")
-                if event_type == "token":
-                    token = str(event.get("token") or "")
-                    assistant_tokens.append(token)
-                    assistant_char_count += len(token)
-                    yield f"event: assistant_token\ndata: {json.dumps({'token': token})}\n\n"
-                    continue
-                if event_type == "context_metrics":
-                    if isinstance(event, dict):
-                        context_metrics = event
-                    yield f"event: context_metrics\ndata: {json.dumps(event)}\n\n"
-                    continue
-                if event_type == "run_map":
-                    maybe_map = event.get("run_map")
-                    if isinstance(maybe_map, dict):
-                        run_map = maybe_map
-                    answer_value = event.get("answer")
-                    if isinstance(answer_value, str) and answer_value:
-                        final_answer = answer_value
-                    continue
-
-                if event_type in _STREAMED_AGENT_EVENT_TYPES:
-                    client_event = {
-                        **event,
-                        "assistant_offset": assistant_char_count,
-                    }
-                    if event_type in _DURABLE_AGENT_EVENT_TYPES:
-                        durable_events.append(client_event)
-                    streamed_event_count += 1
-                    yield f"event: {event_type}\ndata: {json.dumps(client_event)}\n\n"
-                    continue
-        except Exception as exc:
-            stream_span.end(output={"error": str(exc)})
-            trace.end(output={"error": str(exc)})
-            raise
+            if event_type in _STREAMED_AGENT_EVENT_TYPES:
+                client_event = {
+                    **event,
+                    "assistant_offset": assistant_char_count,
+                }
+                if event_type in _DURABLE_AGENT_EVENT_TYPES:
+                    durable_events.append(client_event)
+                yield f"event: {event_type}\ndata: {json.dumps(client_event)}\n\n"
 
         assistant_content = "".join(assistant_tokens).strip()
         if not assistant_content and isinstance(final_answer, str):
@@ -1085,7 +956,7 @@ async def ask_llm_stream(
         await db.flush()
         assistant_message_id = assistant_message.id
 
-        orchestrator_run = await _persist_run_graph(
+        agent_run = await _persist_run_graph(
             db=db,
             conversation_id=conversation_id,
             user_message_id=user_message_id,
@@ -1104,7 +975,7 @@ async def ask_llm_stream(
             actor_type, actor_name = _event_actor(event)
             db.add(
                 AgentEvent(
-                    run_id=orchestrator_run.id,
+                    run_id=agent_run.id,
                     event_sequence=event_sequence,
                     event_type=str(event.get("type") or "unknown"),
                     actor_type=actor_type,
@@ -1115,35 +986,18 @@ async def ask_llm_stream(
             )
 
         await db.commit()
-        stream_span.end(
-            output={
-                "assistant_message_id": assistant_message_id,
-                "token_count_chars": len(assistant_content),
-                "events": streamed_event_count,
-                "context_metrics": context_metrics,
-            }
-        )
-        trace.end(
-            output={
-                "assistant_message_id": assistant_message_id,
-                "events": streamed_event_count,
-                "context_metrics": context_metrics,
-            }
-        )
-        orchestrator_duration_ms = None
+        agent_duration_ms = None
         if isinstance(run_map, dict):
-            orchestrator = run_map.get("orchestrator")
-            if isinstance(orchestrator, dict) and isinstance(
-                orchestrator.get("duration_ms"), int
-            ):
-                orchestrator_duration_ms = orchestrator.get("duration_ms")
+            agent = run_map.get("agent")
+            if isinstance(agent, dict) and isinstance(agent.get("duration_ms"), int):
+                agent_duration_ms = agent.get("duration_ms")
 
         yield (
             "event: done\ndata: "
             + json.dumps(
                 {
                     "message_id": assistant_message_id,
-                    "duration_ms": orchestrator_duration_ms,
+                    "duration_ms": agent_duration_ms,
                 }
             )
             + "\n\n"
@@ -1151,6 +1005,7 @@ async def ask_llm_stream(
 
         asyncio.create_task(
             _generate_title_if_missing(
+                service=service,
                 conversation_id=conversation_id,
                 user_question=payload.content,
                 assistant_content=assistant_content,

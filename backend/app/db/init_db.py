@@ -31,7 +31,7 @@ DEFAULT_SKILL_BLUEPRINTS: Sequence[dict[str, str | bool]] = (
         "instructions": """
 When the user mentions packet loss, WAN instability, interface flaps, tunnel resets, or branch brownouts:
 
-- Prioritize `zabbix_specialist`, `syslog_specialist`, and `suzieq_specialist`.
+- Search for and use the Zabbix, syslog, and SuzieQ tools.
 - Use Zabbix to confirm the affected hosts, recent problems, interface health, metrics, and the event timeline.
 - Use syslog to pull matching link-down, interface, BGP, or error patterns for the same device and time window.
 - Use SuzieQ to validate interface state, control-plane health, and whether BGP or OSPF adjacencies are unstable.
@@ -49,9 +49,9 @@ When the user mentions packet loss, WAN instability, interface flaps, tunnel res
         "instructions": """
 When the user asks whether a change caused an outage or wants blast-radius analysis:
 
-- Prioritize `bitbucket_specialist`, `datamodel_specialist`, `servicenow_specialist`, and `zabbix_specialist`.
+- Search for and use the Bitbucket, topology-model, ServiceNow, and Zabbix tools.
 - Use Bitbucket to identify recent device configuration diffs, commit timing, and affected devices.
-- Use the datamodel specialist to map neighbors, links, and the likely blast radius around the changed device.
+- Use topology-model tools to map neighbors, links, and the likely blast radius around the changed device.
 - Use Zabbix to confirm whether alerts or host problems started after the change window and which devices are impacted.
 - Use ServiceNow to find matching incidents, problems, or change records and include their IDs when relevant.
 - Return a concise timeline with change time, first symptom time, impacted infrastructure, and whether the evidence supports causation or only loose correlation.

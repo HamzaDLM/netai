@@ -20,6 +20,14 @@ module.exports = {
 	},
 	rules: {
 		'no-undef': 'off',
+		'@typescript-eslint/no-unused-vars': [
+			'error',
+			{
+				argsIgnorePattern: '^_',
+				caughtErrorsIgnorePattern: '^_',
+				varsIgnorePattern: '^_',
+			},
+		],
 		'vue/multi-word-component-names': 'off',
 	},
 }

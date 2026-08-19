@@ -1,10 +1,10 @@
 import asyncio
-from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
+from fastmcp import Client
+from haystack.tools import Tool
 
-from app.mcp.mcp_client import NetAIMCPClient
 from app.mcp.mcp_server import (
     DEFAULT_ZABBIX_TOOLS,
     create_mcp_server,
@@ -17,46 +17,31 @@ async def _async_echo(device: str) -> dict[str, Any]:
     return {"device": device, "reachable": True}
 
 
-class _AsyncEchoTool:
-    name = "echo_device"
-    description = "Echo a device name."
-    parameters = {
-        "type": "object",
-        "properties": {"device": {"type": "string"}},
-        "required": ["device"],
-    }
-
-    def __init__(self) -> None:
-        self.function: Callable[..., Awaitable[dict[str, Any]]] = _async_echo
-
-    def invoke(self, **kwargs: Any) -> Awaitable[dict[str, Any]]:
-        return self.function(**kwargs)
-
-
-def _echo_tool() -> _AsyncEchoTool:
-    return _AsyncEchoTool()
+def _echo_tool() -> Tool:
+    return Tool(
+        name="echo_device",
+        description="Echo a device name.",
+        parameters={
+            "type": "object",
+            "properties": {"device": {"type": "string"}},
+            "required": ["device"],
+        },
+        async_function=_async_echo,
+    )
 
 
 def test_server_preserves_haystack_schema_and_returns_structured_data() -> None:
     async def exercise() -> None:
         server = create_mcp_server([_echo_tool()], name="test")
-        async with NetAIMCPClient(server) as client:
+        async with Client(server) as client:
             definitions = await client.list_tools()
             assert [tool.name for tool in definitions] == ["echo_device"]
             assert definitions[0].inputSchema["required"] == ["device"]
-            assert await client.call_tool("echo_device", {"device": "edge-01"}) == {
+            result = await client.call_tool("echo_device", {"device": "edge-01"})
+            assert result.data == {
                 "device": "edge-01",
                 "reachable": True,
             }
-
-    asyncio.run(exercise())
-
-
-def test_client_requires_context_manager() -> None:
-    async def exercise() -> None:
-        client = NetAIMCPClient(create_mcp_server([_echo_tool()]))
-        with pytest.raises(RuntimeError, match="async with"):
-            await client.list_tools()
 
     asyncio.run(exercise())
 

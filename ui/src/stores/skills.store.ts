@@ -15,6 +15,10 @@ export const useSkillsStore = defineStore('skills', () => {
 
 	const availableSkills = computed(() => skills.value.filter(skill => !skill.archived && skill.enabled))
 	const isAdmin = computed(() => viewerRole.value === 'admin' || viewerRole.value === 'superuser')
+	const errorDetail = (error: unknown): string => {
+		const apiError = error as { response?: { data?: { detail?: unknown } } }
+		return String(apiError.response?.data?.detail ?? '')
+	}
 
 	function applyBootstrap(payload: SkillsBootstrap) {
 		skills.value = payload.skills
@@ -43,8 +47,8 @@ export const useSkillsStore = defineStore('skills', () => {
 			const response = await skillsService.createSkill(payload)
 			skills.value.unshift(response.data)
 			return response.data
-		} catch (error: any) {
-			const detail = String(error?.response?.data?.detail ?? '')
+		} catch (error: unknown) {
+			const detail = errorDetail(error)
 			if (detail === 'skill_name_already_exists') {
 				toast({ title: 'A skill with this name already exists', variant: 'destructive' })
 				return null
@@ -64,8 +68,8 @@ export const useSkillsStore = defineStore('skills', () => {
 			if (idx !== -1) skills.value[idx] = response.data
 			await loadBootstrap(true)
 			return response.data
-		} catch (error: any) {
-			const detail = String(error?.response?.data?.detail ?? '')
+		} catch (error: unknown) {
+			const detail = errorDetail(error)
 			if (detail === 'skill_name_already_exists') {
 				toast({ title: 'A skill with this name already exists', variant: 'destructive' })
 				return null

@@ -14,9 +14,11 @@ os.environ.setdefault("GEMINI_API_KEY", "test-key")
 # Some modules import with `backend.app...`; add repo root to import path for tests.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from app.core.config import project_settings
 from app.db.base_class import Base
 from app.db.session import get_async_session
 from app.main import app
+from app.services.netai import NetAIService
 
 
 @pytest.fixture()
@@ -53,9 +55,13 @@ async def test_app(
             yield session
 
     app.dependency_overrides[get_async_session] = _override_get_async_session
+    service = NetAIService(settings=project_settings)
+    app.state.netai_service = service
     try:
         yield app
     finally:
+        await service.close()
+        del app.state.netai_service
         app.dependency_overrides.clear()
 
 

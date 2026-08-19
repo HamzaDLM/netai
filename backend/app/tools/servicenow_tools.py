@@ -1,8 +1,10 @@
+import asyncio
 from typing import Annotated, Any
 
-import httpx
+from haystack.components.agents import State
 
 from app.core.config import project_settings
+from app.infrastructure import InfrastructureClients, clients_from_state
 from app.tools import netai_tool
 
 INCIDENT_STATE_MAP = {
@@ -87,7 +89,7 @@ def _join_query(clauses: list[str]) -> str:
 class ServiceNowGateway:
     """Small, readable ServiceNow Table API wrapper used by tools."""
 
-    def __init__(self) -> None:
+    def __init__(self, clients: InfrastructureClients) -> None:
         if not project_settings.SERVICENOW_ENABLED:
             raise ServiceNowToolError("servicenow_disabled")
         if not project_settings.SERVICENOW_INSTANCE_URL:
@@ -100,6 +102,7 @@ class ServiceNowGateway:
         base = project_settings.SERVICENOW_INSTANCE_URL.rstrip("/")
         self.base_url = f"{base}/api/now/{api_version}/table"
         self.timeout = project_settings.SERVICENOW_TIMEOUT_SECONDS
+        self.clients = clients
 
         self._headers = {
             "Accept": "application/json",
@@ -122,7 +125,7 @@ class ServiceNowGateway:
         else:
             raise ServiceNowToolError("missing_servicenow_credentials")
 
-    def _request(
+    async def _request(
         self,
         method: str,
         table: str,
@@ -131,10 +134,15 @@ class ServiceNowGateway:
     ) -> dict[str, Any]:
         url = f"{self.base_url}/{table}"
         try:
-            with httpx.Client(
-                timeout=self.timeout, headers=self._headers, auth=self._auth
-            ) as client:
-                response = client.request(method, url, params=params)
+            response = await self.clients.request(
+                "servicenow",
+                method,
+                url,
+                params=params,
+                headers=self._headers,
+                auth=self._auth,
+                timeout=self.timeout,
+            )
         except Exception as exc:
             raise ServiceNowToolError(f"http_request_failed:{exc}") from exc
 
@@ -159,7 +167,7 @@ class ServiceNowGateway:
             raise ServiceNowToolError("unexpected_response_shape")
         return payload
 
-    def query_table(
+    async def query_table(
         self,
         table: str,
         *,
@@ -178,20 +186,20 @@ class ServiceNowGateway:
         if fields:
             params["sysparm_fields"] = ",".join(fields)
 
-        payload = self._request("GET", table, params=params)
+        payload = await self._request("GET", table, params=params)
         result = payload.get("result", [])
         if not isinstance(result, list):
             return []
         return [row for row in result if isinstance(row, dict)]
 
-    def get_one_by_query(
+    async def get_one_by_query(
         self,
         table: str,
         *,
         query: str,
         fields: list[str] | None = None,
     ) -> dict[str, Any] | None:
-        items = self.query_table(table, query=query, fields=fields, limit=1)
+        items = await self.query_table(table, query=query, fields=fields, limit=1)
         if not items:
             return None
         return items[0]
@@ -201,10 +209,10 @@ def error_payload(tool_name: str, exc: Exception | str) -> dict[str, Any]:
     return {"error": f"{tool_name}_failed:{exc}"}
 
 
-def gateway() -> ServiceNowGateway:
+def gateway(agent_state: State) -> ServiceNowGateway:
     # ServiceNow REST API Explorer currently surfaces Table API version `v2`
     # with support for choosing `latest`; this gateway accepts either.
-    return ServiceNowGateway()
+    return ServiceNowGateway(clients_from_state(agent_state))
 
 
 def _ci_brief(row: dict[str, Any]) -> dict[str, Any]:
@@ -280,10 +288,12 @@ def _problem_brief(row: dict[str, Any]) -> dict[str, Any]:
 
 
 @netai_tool(name="servicenow_get_known_cis")  # type: ignore[operator]
-def get_known_cis() -> list[dict[str, Any]] | dict[str, Any]:
+async def get_known_cis(
+    agent_state: State,
+) -> list[dict[str, Any]] | dict[str, Any]:
     """Return CI name/IP shortlist from ServiceNow CMDB."""
     try:
-        rows = gateway().query_table(
+        rows = await gateway(agent_state).query_table(
             "cmdb_ci",
             query="install_status!=7^ORDERBYname",
             fields=["sys_id", "name", "ip_address", "location", "business_service"],
@@ -304,7 +314,8 @@ def get_known_cis() -> list[dict[str, Any]] | dict[str, Any]:
 
 
 @netai_tool(name="servicenow_list_incidents")  # type: ignore[operator]
-def list_incidents(
+async def list_incidents(
+    agent_state: State,
     state: Annotated[
         str | None, "Optional state filter: new/in_progress/on_hold/resolved"
     ] = None,
@@ -334,7 +345,7 @@ def list_incidents(
         clauses.append("ORDERBYpriority")
         clauses.append("ORDERBYDESCsys_updated_on")
 
-        rows = gateway().query_table(
+        rows = await gateway(agent_state).query_table(
             "incident",
             query=_join_query(clauses),
             fields=[
@@ -365,7 +376,8 @@ def list_incidents(
 
 
 @netai_tool(name="servicenow_get_incident")  # type: ignore[operator]
-def get_incident(
+async def get_incident(
+    agent_state: State,
     incident_number: Annotated[str, "Incident number, e.g. INC0010421"],
 ) -> dict[str, Any]:
     """Get a single incident by number with linked record hints."""
@@ -373,7 +385,7 @@ def get_incident(
         return {"error": "incident_number_required"}
 
     try:
-        row = gateway().get_one_by_query(
+        row = await gateway(agent_state).get_one_by_query(
             "incident",
             query=f"number={incident_number.strip()}",
             fields=[
@@ -404,7 +416,8 @@ def get_incident(
 
 
 @netai_tool(name="servicenow_list_change_requests")  # type: ignore[operator]
-def list_change_requests(
+async def list_change_requests(
+    agent_state: State,
     state: Annotated[
         str | None, "Optional state filter: new/scheduled/implement/closed"
     ] = None,
@@ -431,7 +444,7 @@ def list_change_requests(
         clauses.append("ORDERBYrisk")
         clauses.append("ORDERBYstart_date")
 
-        rows = gateway().query_table(
+        rows = await gateway(agent_state).query_table(
             "change_request",
             query=_join_query(clauses),
             fields=[
@@ -459,7 +472,8 @@ def list_change_requests(
 
 
 @netai_tool(name="servicenow_get_change_request")  # type: ignore[operator]  # noqa
-def get_change_request(
+async def get_change_request(
+    agent_state: State,
     change_number: Annotated[str, "Change number, e.g. CHG0007721"],
 ) -> dict[str, Any]:
     """Get one change request by number."""
@@ -467,7 +481,7 @@ def get_change_request(
         return {"error": "change_number_required"}
 
     try:
-        row = gateway().get_one_by_query(
+        row = await gateway(agent_state).get_one_by_query(
             "change_request",
             query=f"number={change_number.strip()}",
             fields=[
@@ -495,7 +509,8 @@ def get_change_request(
 
 
 @netai_tool(name="servicenow_list_problems")  # type: ignore[operator]
-def list_problems(
+async def list_problems(
+    agent_state: State,
     state: Annotated[
         str | None, "Optional state filter: investigating/known_error/resolved"
     ] = None,
@@ -519,7 +534,7 @@ def list_problems(
         clauses.append("ORDERBYpriority")
         clauses.append("ORDERBYDESCsys_updated_on")
 
-        rows = gateway().query_table(
+        rows = await gateway(agent_state).query_table(
             "problem",
             query=_join_query(clauses),
             fields=[
@@ -545,7 +560,8 @@ def list_problems(
 
 
 @netai_tool(name="servicenow_get_problem")  # type: ignore[operator]
-def get_problem(
+async def get_problem(
+    agent_state: State,
     problem_number: Annotated[str, "Problem number, e.g. PRB000381"],
 ) -> dict[str, Any]:
     """Get one problem record by number."""
@@ -553,7 +569,7 @@ def get_problem(
         return {"error": "problem_number_required"}
 
     try:
-        row = gateway().get_one_by_query(
+        row = await gateway(agent_state).get_one_by_query(
             "problem",
             query=f"number={problem_number.strip()}",
             fields=[
@@ -579,7 +595,8 @@ def get_problem(
 
 
 @netai_tool(name="servicenow_list_cis")  # type: ignore[operator]
-def list_cis(
+async def list_cis(
+    agent_state: State,
     ci_class: Annotated[
         str | None, "Optional class filter: network_firewall/network_switch/..."
     ] = None,
@@ -606,7 +623,7 @@ def list_cis(
             clauses.append(f"nameLIKE{q}^ORip_addressLIKE{q}^ORfqdnLIKE{q}")
         clauses.append("ORDERBYname")
 
-        rows = gateway().query_table(
+        rows = await gateway(agent_state).query_table(
             "cmdb_ci",
             query=_join_query(clauses),
             fields=[
@@ -629,7 +646,8 @@ def list_cis(
 
 
 @netai_tool(name="servicenow_get_ci")  # type: ignore[operator]
-def get_ci(
+async def get_ci(
+    agent_state: State,
     ci_name_or_sys_id: Annotated[str, "CI hostname/name or sys_id"],
 ) -> dict[str, Any]:
     """Get one CI and summarize open incident/change/problem counts."""
@@ -638,7 +656,8 @@ def get_ci(
         return {"error": "ci_lookup_required"}
 
     try:
-        ci_row = gateway().get_one_by_query(
+        service_now = gateway(agent_state)
+        ci_row = await service_now.get_one_by_query(
             "cmdb_ci",
             query=f"sys_id={target}^ORname={target}^ORip_address={target}",
             fields=[
@@ -660,23 +679,25 @@ def get_ci(
         if not ci_sys_id:
             return {"error": "ci_sys_id_missing"}
 
-        incidents = gateway().query_table(
-            "incident",
-            query=f"cmdb_ci={ci_sys_id}^stateNOT IN6,7,8",
-            fields=["number"],
-            limit=100,
-        )
-        changes = gateway().query_table(
-            "change_request",
-            query=f"cmdb_ci={ci_sys_id}^state!=3^state!=4",
-            fields=["number"],
-            limit=100,
-        )
-        problems = gateway().query_table(
-            "problem",
-            query=f"cmdb_ci={ci_sys_id}^state!=7",
-            fields=["number"],
-            limit=100,
+        incidents, changes, problems = await asyncio.gather(
+            service_now.query_table(
+                "incident",
+                query=f"cmdb_ci={ci_sys_id}^stateNOT IN6,7,8",
+                fields=["number"],
+                limit=100,
+            ),
+            service_now.query_table(
+                "change_request",
+                query=f"cmdb_ci={ci_sys_id}^state!=3^state!=4",
+                fields=["number"],
+                limit=100,
+            ),
+            service_now.query_table(
+                "problem",
+                query=f"cmdb_ci={ci_sys_id}^state!=7",
+                fields=["number"],
+                limit=100,
+            ),
         )
 
         return {
@@ -697,7 +718,8 @@ def get_ci(
 
 
 @netai_tool(name="servicenow_get_service_summary")  # type: ignore[operator]
-def get_service_summary(
+async def get_service_summary(
+    agent_state: State,
     service: Annotated[str, "Business service name, e.g. WAN-Edge"],
 ) -> dict[str, Any]:
     """Aggregate service-level ticket posture across incident/change/problem."""
@@ -706,36 +728,49 @@ def get_service_summary(
         return {"error": "service_required"}
 
     try:
-        active_incidents = gateway().query_table(
-            "incident",
-            query=f"business_service.nameLIKE{target}^stateNOT IN6,7,8",
-            fields=["number"],
-            limit=100,
+        service_now = gateway(agent_state)
+        queries = (
+            service_now.query_table(
+                "incident",
+                query=f"business_service.nameLIKE{target}^stateNOT IN6,7,8",
+                fields=["number"],
+                limit=100,
+            ),
+            service_now.query_table(
+                "incident",
+                query=(
+                    f"business_service.nameLIKE{target}^"
+                    "major_incident_state!=not_major^stateNOT IN6,7,8"
+                ),
+                fields=["number"],
+                limit=100,
+            ),
+            service_now.query_table(
+                "change_request",
+                query=f"business_service.nameLIKE{target}^state!=3^state!=4",
+                fields=["number"],
+                limit=100,
+            ),
+            service_now.query_table(
+                "problem",
+                query=f"business_service.nameLIKE{target}^state!=7",
+                fields=["number"],
+                limit=100,
+            ),
+            service_now.query_table(
+                "cmdb_ci",
+                query=f"business_service.nameLIKE{target}",
+                fields=["sys_id"],
+                limit=100,
+            ),
         )
-        major_incidents = gateway().query_table(
-            "incident",
-            query=f"business_service.nameLIKE{target}^major_incident_state!=not_major^stateNOT IN6,7,8",
-            fields=["number"],
-            limit=100,
-        )
-        open_changes = gateway().query_table(
-            "change_request",
-            query=f"business_service.nameLIKE{target}^state!=3^state!=4",
-            fields=["number"],
-            limit=100,
-        )
-        open_problems = gateway().query_table(
-            "problem",
-            query=f"business_service.nameLIKE{target}^state!=7",
-            fields=["number"],
-            limit=100,
-        )
-        cis = gateway().query_table(
-            "cmdb_ci",
-            query=f"business_service.nameLIKE{target}",
-            fields=["sys_id"],
-            limit=100,
-        )
+        (
+            active_incidents,
+            major_incidents,
+            open_changes,
+            open_problems,
+            cis,
+        ) = await asyncio.gather(*queries)
 
         return {
             "service": target,

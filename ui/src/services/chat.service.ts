@@ -2,7 +2,10 @@ import { AxiosResponse } from 'axios'
 import API from './axios'
 import { AdminFeedbackItem, ChatAttachment, ChatUserSettings, ContextMetrics, Conversation, ConversationMessages, Message, PromptSnapshot } from '@/types/chat.type'
 
-export const agentUiEventTypes = [
+export const agentRuntimeEventTypes = [
+	'run_started',
+	'run_finished',
+	'run_error',
 	'tool_started',
 	'tool_completed',
 	'tool_failed',
@@ -10,10 +13,10 @@ export const agentUiEventTypes = [
 	'artifact_delta',
 ] as const
 
-export type AgentUiEventType = (typeof agentUiEventTypes)[number]
+export type AgentRuntimeEventType = (typeof agentRuntimeEventTypes)[number]
 
-export type AgentUiStreamEvent = {
-	type: AgentUiEventType
+export type AgentRuntimeStreamEvent = {
+	type: AgentRuntimeEventType
 	event_id?: string
 	event_sequence?: number
 	run_id?: string
@@ -23,43 +26,22 @@ export type AgentUiStreamEvent = {
 	[key: string]: unknown
 }
 
-const agentUiEventTypeSet = new Set<string>(agentUiEventTypes)
+const agentRuntimeEventTypeSet = new Set<string>(agentRuntimeEventTypes)
 
-function isAgentUiEventType(value: string): value is AgentUiEventType {
-	return agentUiEventTypeSet.has(value)
+function isAgentRuntimeEventType(value: string): value is AgentRuntimeEventType {
+	return agentRuntimeEventTypeSet.has(value)
 }
 
 export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
 	| ({ type: 'context_metrics' } & ContextMetrics)
-	| { type: 'orchestrator_decision'; specialists?: string[]; reasoning?: string }
-	| { type: 'orchestrator_plan'; plan?: string; specialists?: string[] }
-	| { type: 'specialist_plan'; specialist: string; plan?: string }
-	| { type: 'specialist_prompt'; specialist: string; prompt?: Record<string, unknown> }
-	| {
-			type: 'specialist_tool_call'
-			specialist: string
-			tool_name: string
-			arguments?: Record<string, unknown>
-	  }
-	| { type: 'specialist_evidence'; specialist: string; tool_name: string; result?: Record<string, unknown>; evidence?: unknown[] }
-	| { type: 'specialist_tool_result'; specialist: string; tool_name: string; result?: Record<string, unknown> }
-	| { type: 'leader_conclusion'; answer?: string }
-	| AgentUiStreamEvent
+	| AgentRuntimeStreamEvent
 	| { type: 'done'; message_id: number; duration_ms?: number | null }
 
 export type StreamHandlers = {
 	onToken?: (token: string) => void
 	onContextMetrics?: (payload: ContextMetrics) => void
-	onOrchestratorDecision?: (payload: { specialists?: string[]; reasoning?: string }) => void
-	onOrchestratorPlan?: (payload: { plan?: string; specialists?: string[] }) => void
-	onSpecialistPlan?: (payload: { specialist: string; plan?: string }) => void
-	onSpecialistPrompt?: (payload: { specialist: string; prompt?: Record<string, unknown> }) => void
-	onSpecialistToolCall?: (payload: { specialist: string; tool_name: string; arguments?: Record<string, unknown> }) => void
-	onSpecialistEvidence?: (payload: { specialist: string; tool_name: string; result?: Record<string, unknown>; evidence?: unknown[] }) => void
-	onSpecialistToolResult?: (payload: { specialist: string; tool_name: string; result?: Record<string, unknown> }) => void
-	onLeaderConclusion?: (payload: { answer?: string }) => void
-	onAgentUiEvent?: (event: AgentUiStreamEvent) => void
+	onAgentEvent?: (event: AgentRuntimeStreamEvent) => void
 	onDone?: (payload: { messageId: number; durationMs?: number | null }) => void
 }
 
@@ -156,16 +138,8 @@ class ChatService {
 
 			if (eventName === 'assistant_token') return { type: eventName, token: String(payload.token ?? '') }
 			if (eventName === 'context_metrics') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'orchestrator_decision') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'orchestrator_plan') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'specialist_plan') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'specialist_prompt') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'specialist_tool_call') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'specialist_evidence') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'specialist_tool_result') return { ...payload, type: eventName } as StreamEvent
-			if (eventName === 'leader_conclusion') return { ...payload, type: eventName } as StreamEvent
-			if (isAgentUiEventType(eventName)) {
-				return { ...payload, type: eventName } as AgentUiStreamEvent
+			if (isAgentRuntimeEventType(eventName)) {
+				return { ...payload, type: eventName } as AgentRuntimeStreamEvent
 			}
 			if (eventName === 'done') {
 				return {
@@ -181,15 +155,7 @@ class ChatService {
 		const dispatchEvent = (parsed: StreamEvent) => {
 			if (parsed.type === 'assistant_token') handlers.onToken?.(parsed.token)
 			if (parsed.type === 'context_metrics') handlers.onContextMetrics?.(parsed)
-			if (parsed.type === 'orchestrator_decision') handlers.onOrchestratorDecision?.(parsed)
-			if (parsed.type === 'orchestrator_plan') handlers.onOrchestratorPlan?.(parsed)
-			if (parsed.type === 'specialist_plan') handlers.onSpecialistPlan?.(parsed)
-			if (parsed.type === 'specialist_prompt') handlers.onSpecialistPrompt?.(parsed)
-			if (parsed.type === 'specialist_tool_call') handlers.onSpecialistToolCall?.(parsed)
-			if (parsed.type === 'specialist_evidence') handlers.onSpecialistEvidence?.(parsed)
-			if (parsed.type === 'specialist_tool_result') handlers.onSpecialistToolResult?.(parsed)
-			if (parsed.type === 'leader_conclusion') handlers.onLeaderConclusion?.(parsed)
-			if (isAgentUiEventType(parsed.type)) handlers.onAgentUiEvent?.(parsed as AgentUiStreamEvent)
+			if (isAgentRuntimeEventType(parsed.type)) handlers.onAgentEvent?.(parsed as AgentRuntimeStreamEvent)
 			if (parsed.type === 'done') {
 				handlers.onDone?.({
 					messageId: parsed.message_id,

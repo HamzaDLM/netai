@@ -1,71 +1,68 @@
-import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import cast
 
-from app import skills_catalog
+import pytest
 
-
-def _infrahub_entry(catalog: list[dict[str, Any]]) -> dict[str, Any]:
-    return next(item for item in catalog if item["agent_key"] == "infrahub")
-
-
-def test_static_catalog_detects_mcp_backed_agent() -> None:
-    skills_catalog.get_agent_tool_catalog.cache_clear()
-
-    entry = _infrahub_entry(skills_catalog.get_agent_tool_catalog())
-
-    assert entry["source"] == "mcp"
-    assert entry["dynamic_tools"] is True
-    assert entry["mcp_config_name"] == "infrahub_mcp"
-    assert entry["connection_status"] == "not_checked"
-    assert entry["specialist_tool"] == "infrahub_specialist"
-    assert "Read-only Infrahub" in entry["description"]
-    assert entry["tools"] == []
+from app.core.config import project_settings
+from app.skills_catalog import (
+    get_agent_tool_catalog,
+    get_resolved_agent_tool_catalog,
+)
+from app.tools.registry import ToolRegistry
 
 
-def test_resolved_catalog_includes_discovered_mcp_tools(monkeypatch) -> None:
-    async def fake_discovery(_config):
-        return [
-            SimpleNamespace(
-                name="infrahub_query_nodes",
-                description="Query Infrahub nodes without changing them.",
-            )
-        ]
+def _entry(catalog: list[dict[str, object]], key: str) -> dict[str, object]:
+    return next(item for item in catalog if item["agent_key"] == key)
 
-    monkeypatch.setattr(
-        skills_catalog,
-        "_discover_mcp_catalog_tools",
-        fake_discovery,
+
+def test_catalog_is_derived_from_runtime_registry() -> None:
+    registry = ToolRegistry(project_settings)
+
+    catalog = get_agent_tool_catalog(registry)
+
+    zabbix = _entry(catalog, "zabbix")
+    tools = cast(list[dict[str, object]], zabbix["tools"])
+    runtime_names = {tool["runtime_name"] for tool in tools}
+    assert runtime_names == {
+        name for name in registry.tool_names if name.startswith("zabbix_")
+    }
+    infrahub = _entry(catalog, "infrahub")
+    assert infrahub["source"] == "mcp"
+    assert infrahub["connection_status"] == "not_checked"
+    assert infrahub["specialist_tool"] is None
+
+
+class FakeInfrahubProvider:
+    status = "available"
+    status_message = "connected"
+
+    async def get_toolset(self, *, force: bool = False):
+        assert force is True
+        return SimpleNamespace(
+            tools=[
+                SimpleNamespace(
+                    name="infrahub_query_nodes",
+                    description="Query Infrahub nodes without changing them.",
+                )
+            ]
+        )
+
+
+@pytest.mark.anyio
+async def test_resolved_catalog_uses_lifecycle_mcp_provider() -> None:
+    registry = ToolRegistry(project_settings)
+
+    catalog = await get_resolved_agent_tool_catalog(
+        registry=registry,
+        infrahub=FakeInfrahubProvider(),  # type: ignore[arg-type]
     )
 
-    entry = _infrahub_entry(
-        asyncio.run(skills_catalog.get_resolved_agent_tool_catalog())
-    )
-
-    assert entry["connection_status"] == "available"
-    assert entry["tools"] == [
+    infrahub = _entry(catalog, "infrahub")
+    assert infrahub["connection_status"] == "available"
+    assert infrahub["tools"] == [
         {
             "python_name": "infrahub_query_nodes",
             "runtime_name": "infrahub_query_nodes",
             "summary": "Query Infrahub nodes without changing them.",
         }
     ]
-
-
-def test_resolved_catalog_keeps_unavailable_mcp_agent(monkeypatch) -> None:
-    async def failed_discovery(_config):
-        raise OSError("server unavailable")
-
-    monkeypatch.setattr(
-        skills_catalog,
-        "_discover_mcp_catalog_tools",
-        failed_discovery,
-    )
-
-    entry = _infrahub_entry(
-        asyncio.run(skills_catalog.get_resolved_agent_tool_catalog())
-    )
-
-    assert entry["connection_status"] == "unavailable"
-    assert entry["dynamic_tools"] is True
-    assert entry["tools"] == []

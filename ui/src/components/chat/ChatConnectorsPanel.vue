@@ -17,20 +17,11 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog'
 
-type ConnectorDefinition = {
+type ConnectorWithTools = {
     id: string
     name: string
     enabled: boolean
-    connected: boolean
-    toolAgentKeys: string[]
     description: string
-    source?: ToolCatalogSource
-    dynamicTools?: boolean
-    connectionStatus?: ToolCatalogConnectionStatus
-    statusMessage?: string
-}
-
-type ConnectorWithTools = ConnectorDefinition & {
     tools: ToolCatalogTool[]
     source: ToolCatalogSource
     dynamicTools: boolean
@@ -40,57 +31,6 @@ type ConnectorWithTools = ConnectorDefinition & {
 
 const connectorsLoading = ref(false)
 const toolCatalog = ref<ToolCatalogAgent[]>([])
-
-const connectors: ConnectorDefinition[] = [
-    {
-        id: 'easynet',
-        name: 'Easynet',
-        enabled: true,
-        connected: false,
-        toolAgentKeys: ['datamodel'],
-        description: 'Internal topology and infrastructure context available through the data model.',
-    },
-    {
-        id: 'zabbix',
-        name: 'Zabbix',
-        enabled: true,
-        connected: true,
-        toolAgentKeys: ['zabbix'],
-        description: 'Monitoring, telemetry, events, and diagnostics from Zabbix.',
-    },
-    {
-        id: 'bitbucket',
-        name: 'Bitbucket',
-        enabled: false,
-        connected: false,
-        toolAgentKeys: ['bitbucket'],
-        description: 'Repository, config history, and change provenance for network assets.',
-    },
-    {
-        id: 'ansible',
-        name: 'Ansible',
-        enabled: false,
-        connected: false,
-        toolAgentKeys: [],
-        description: 'Automation connector reserved for future operational tooling.',
-    },
-    {
-        id: 'syslogs',
-        name: 'Syslogs',
-        enabled: false,
-        connected: false,
-        toolAgentKeys: ['syslog'],
-        description: 'Log evidence and raw event retrieval for troubleshooting workflows.',
-    },
-    {
-        id: 'servicenow',
-        name: 'ServiceNow',
-        enabled: false,
-        connected: false,
-        toolAgentKeys: ['servicenow'],
-        description: 'Incidents, CMDB records, changes, and operational process context.',
-    },
-]
 
 const loadToolCatalog = async () => {
     connectorsLoading.value = true
@@ -105,38 +45,17 @@ const loadToolCatalog = async () => {
 }
 
 const connectorCards = computed<ConnectorWithTools[]>(() => {
-    const catalogByKey = new Map(toolCatalog.value.map(agent => [agent.agent_key, agent]))
-    const representedAgentKeys = new Set(connectors.flatMap(connector => connector.toolAgentKeys))
-    const mcpConnectors: ConnectorDefinition[] = toolCatalog.value
-        .filter(agent => agent.source === 'mcp' && !representedAgentKeys.has(agent.agent_key))
-        .map(agent => ({
-            id: agent.agent_key,
-            name: agent.agent_name,
-            enabled: Boolean(agent.specialist_tool),
-            connected: agent.connection_status === 'available',
-            toolAgentKeys: [agent.agent_key],
-            description: agent.description || `Tools exposed by the ${agent.agent_name} MCP server.`,
-            source: 'mcp',
-            dynamicTools: agent.dynamic_tools,
-            connectionStatus: agent.connection_status,
-            statusMessage: agent.status_message,
-        }))
-
-    return [...connectors, ...mcpConnectors].map(connector => {
-        const agentEntries = connector.toolAgentKeys
-            .map(agentKey => catalogByKey.get(agentKey))
-            .filter((agent): agent is ToolCatalogAgent => Boolean(agent))
-        const mcpEntry = agentEntries.find(agent => agent.source === 'mcp')
-
-        return {
-            ...connector,
-            tools: agentEntries.flatMap(agent => agent.tools),
-            source: connector.source ?? mcpEntry?.source ?? 'local',
-            dynamicTools: connector.dynamicTools ?? agentEntries.some(agent => agent.dynamic_tools),
-            connectionStatus: connector.connectionStatus ?? mcpEntry?.connection_status ?? 'not_applicable',
-            statusMessage: connector.statusMessage ?? mcpEntry?.status_message ?? '',
-        }
-    })
+    return toolCatalog.value.map(connector => ({
+        id: connector.agent_key,
+        name: connector.agent_name,
+        enabled: connector.source === 'local' ? connector.tools.length > 0 : connector.connection_status !== 'not_configured',
+        description: connector.description,
+        tools: connector.tools,
+        source: connector.source,
+        dynamicTools: connector.dynamic_tools,
+        connectionStatus: connector.connection_status,
+        statusMessage: connector.status_message,
+    }))
 })
 
 const availableToolCount = computed(() =>
@@ -144,7 +63,7 @@ const availableToolCount = computed(() =>
 )
 
 const connectorStatusLabel = (connector: ConnectorWithTools): string => {
-    if (connector.source !== 'mcp') return connector.connected ? 'Connected' : 'Not Connected'
+	if (connector.source !== 'mcp') return connector.enabled ? 'Available' : 'No Tools'
     if (connector.connectionStatus === 'available') return 'Available'
     if (connector.connectionStatus === 'unavailable') return 'Unavailable'
     if (connector.connectionStatus === 'not_configured') return 'Not Configured'
@@ -158,7 +77,7 @@ const connectorStatusClass = (connector: ConnectorWithTools): string => {
         if (connector.connectionStatus === 'not_configured') return 'border-stone-700 text-stone-400'
         return 'border-red-700/50 text-red-300'
     }
-    return connector.connected
+	return connector.enabled
         ? 'border-emerald-700/50 text-emerald-300'
         : 'border-red-700/50 text-red-300'
 }

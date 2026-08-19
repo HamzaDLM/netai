@@ -20,5 +20,5 @@ export type RunWithPersistedTools = AgentRun & {
 }
 
 export type DisplayToolCall = PersistedToolCall & {
-	agentName: string
+	connectorLabel: string
 }

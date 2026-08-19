@@ -3,9 +3,9 @@
 Test suite is organized by scope:
 
 - `tools/`: tool-focused tests.
-- `unit/`: fast unit tests for agents, workflows, models, and endpoint helpers.
+- `unit/`: fast tests for the Agent, services, hooks, models, and endpoint helpers.
 - `integration/`: API + persistence behavior using an isolated sqlite test DB.
-- `evals/`: deterministic quality/routing/grounding eval harness and datasets.
+- `evals/`: deterministic answer-quality and grounding checks.
 - `factories/`: lightweight DB object factories used by tests.
 
 ## Running

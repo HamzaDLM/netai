@@ -1,26 +1,20 @@
 import app.api.endpoints.chat as chat_endpoints
 
 
-def test_event_actor_for_specialist_events() -> None:
+def test_event_actor_for_tool_lifecycle() -> None:
     actor_type, actor_name = chat_endpoints._event_actor(
-        {"type": "specialist_tool_call", "specialist": "syslog"}
+        {"type": "tool_started", "tool_name": "syslog_get_host_syslogs"}
     )
-    assert actor_type == "specialist"
-    assert actor_name == "syslog"
+    assert actor_type == "tool"
+    assert actor_name == "syslog_get_host_syslogs"
 
 
-def test_event_actor_for_orchestrator_plan() -> None:
-    actor_type, actor_name = chat_endpoints._event_actor({"type": "orchestrator_plan"})
-    assert actor_type == "orchestrator"
-    assert actor_name == "orchestrator"
-
-
-def test_event_actor_for_thinking_event_uses_agent_field() -> None:
+def test_event_actor_for_artifact() -> None:
     actor_type, actor_name = chat_endpoints._event_actor(
-        {"type": "thinking", "agent": "zabbix"}
+        {"type": "artifact_delta", "kind": "network.topology.v1"}
     )
-    assert actor_type == "specialist"
-    assert actor_name == "zabbix"
+    assert actor_type == "tool"
+    assert actor_name == "network.topology.v1"
 
 
 def test_event_actor_defaults_to_system_for_unknown_event() -> None:

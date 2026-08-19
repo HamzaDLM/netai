@@ -1,24 +1,19 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
+from haystack.dataclasses import ChatMessage
+from sqlalchemy import select
 
 from app.api.models.chat import Conversation, ConversationSummary, Message
-from app.workflows import context_manager
+from app.services import conversation_context
 
 
 @pytest.mark.anyio
 async def test_compact_conversation_context_creates_summary_and_archives_messages(
     test_db_session_factory,
-    monkeypatch,
 ) -> None:
-    monkeypatch.setattr(context_manager, "SessionLocal", test_db_session_factory)
-    monkeypatch.setattr(
-        context_manager.llm,
-        "run",
-        lambda **kwargs: {"replies": [SimpleNamespace(text="compact summary")]},
-    )
+    async def generate(_messages: list[ChatMessage]) -> dict[str, object]:
+        return {"replies": [ChatMessage.from_assistant("compact summary")]}
 
     async with test_db_session_factory() as db:
         conversation = Conversation(title="Compaction", user_id=1)
@@ -35,16 +30,18 @@ async def test_compact_conversation_context_creates_summary_and_archives_message
             )
         await db.commit()
 
-        compacted = await context_manager.compact_conversation_context(
+        compacted = await conversation_context.compact_conversation_context(
             conversation_id=conversation.id,
+            generate=generate,
             keep_recent=4,
+            session_factory=test_db_session_factory,
         )
         assert compacted is True
 
         summaries = (
             (
                 await db.execute(
-                    context_manager.select(ConversationSummary).where(
+                    select(ConversationSummary).where(
                         ConversationSummary.conversation_id == conversation.id
                     )
                 )
@@ -58,7 +55,7 @@ async def test_compact_conversation_context_creates_summary_and_archives_message
         archived_count = (
             (
                 await db.execute(
-                    context_manager.select(Message).where(
+                    select(Message).where(
                         Message.conversation_id == conversation.id,
                         Message.archived.is_(True),
                     )

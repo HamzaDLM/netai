@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
-from app.api.deps import AsyncSessionDep, CheckUserSSODep
+from app.api.deps import AsyncSessionDep, CheckUserSSODep, NetAIServiceDep
 from app.api.models.skills import Skill, SkillMarketplaceListing, SkillMarketplaceStatus
 from app.api.models.users import UserRole
 from app.api.schemas.skills import (
@@ -273,13 +273,20 @@ async def list_skills(db: AsyncSessionDep, user: CheckUserSSODep):
 
 
 @router.get("/catalog", response_model=list[ToolCatalogAgent])
-async def get_tool_catalog():
-    catalog = await get_resolved_agent_tool_catalog()
+async def get_tool_catalog(service: NetAIServiceDep):
+    catalog = await get_resolved_agent_tool_catalog(
+        registry=service.registry,
+        infrahub=service.infrahub,
+    )
     return [ToolCatalogAgent.model_validate(item) for item in catalog]
 
 
 @router.get("/bootstrap", response_model=SkillBootstrapResponse)
-async def get_skills_bootstrap(db: AsyncSessionDep, user: CheckUserSSODep):
+async def get_skills_bootstrap(
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+    service: NetAIServiceDep,
+):
     skills_result = await db.execute(
         select(Skill)
         .where(
@@ -319,7 +326,8 @@ async def get_skills_bootstrap(db: AsyncSessionDep, user: CheckUserSSODep):
         )
 
     catalog = [
-        ToolCatalogAgent.model_validate(item) for item in get_agent_tool_catalog()
+        ToolCatalogAgent.model_validate(item)
+        for item in get_agent_tool_catalog(service.registry)
     ]
     return SkillBootstrapResponse(
         viewer_role=user.role,

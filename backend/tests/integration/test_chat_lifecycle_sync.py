@@ -14,48 +14,27 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
         conversation_id: str,
         question: str,
         skills: list[dict[str, str]] | None = None,
+        **_kwargs: object,
     ) -> dict:
         _ = skills
         return {
             "answer": f"answer for {conversation_id}: {question}",
             "events": [],
             "run_map": {
-                "orchestrator": {
-                    "agent_name": "orchestrator",
+                "agent": {
+                    "agent_name": "netai",
                     "status": "completed",
                     "duration_ms": 110,
-                    "specialists": ["zabbix"],
-                    "reasoning": "zabbix selected for monitoring data",
                 },
-                "sub_agent_calls": [
+                "tool_calls": [
                     {
-                        "specialist_name": "zabbix",
-                        "call_sequence": 1,
-                        "task_prompt": "is edge-01 up?",
-                        "plan": "check host health",
-                        "result_summary": "host is up",
+                        "tool_name": "zabbix_diagnose_host",
+                        "input_params": {"host": "edge-01"},
+                        "output": {"status": "up"},
                         "status": "success",
-                        "duration_ms": 64,
+                        "error_type": None,
                         "error_message": None,
-                        "tool_calls": [
-                            {
-                                "tool_name": "zabbix_diagnose_host",
-                                "input_params": {"host": "edge-01"},
-                                "output": {"status": "up"},
-                                "status": "success",
-                                "error_type": None,
-                                "error_message": None,
-                                "latency_ms": 64,
-                                "evidence": [
-                                    {
-                                        "type": "zabbix",
-                                        "ref": "edge-01",
-                                        "content": "host edge-01 is up",
-                                        "score": 0.95,
-                                    }
-                                ],
-                            }
-                        ],
+                        "latency_ms": 64,
                     }
                 ],
             },
@@ -63,8 +42,13 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
         }
 
     async def _no_title(
-        *, conversation_id: str, user_question: str, assistant_content: str
+        *,
+        service: object,
+        conversation_id: str,
+        user_question: str,
+        assistant_content: str,
     ) -> None:
+        _ = service
         return None
 
     monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
@@ -89,17 +73,12 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     run = ask_payload["agent_runs"][0]
     assert run["status"] == "completed"
     assert run["agent_type"] == "orchestrator"
-    assert len(run["sub_agent_calls"]) == 1
-    assert run["sub_agent_calls"][0]["specialist_name"] == "zabbix"
-    assert len(run["child_runs"]) == 1
-    child = run["child_runs"][0]
-    assert child["agent_type"] == "specialist"
-    assert child["agent_name"] == "zabbix"
-    assert len(child["tool_calls"]) == 1
-    assert child["tool_calls"][0]["tool_name"] == "zabbix_diagnose_host"
-    assert child["tool_calls"][0]["output"]["evidence"][0]["content"] == (
-        "host edge-01 is up"
-    )
+    assert run["agent_name"] == "netai"
+    assert run["sub_agent_calls"] == []
+    assert run["child_runs"] == []
+    assert len(run["tool_calls"]) == 1
+    assert run["tool_calls"][0]["tool_name"] == "zabbix_diagnose_host"
+    assert run["tool_calls"][0]["output"] == {"status": "up"}
 
     convo_resp = await async_client.get(f"/api/v1/llm/conversation/{conversation_id}")
     assert convo_resp.status_code == 200
@@ -119,6 +98,7 @@ async def test_chat_skill_commands_only_apply_explicitly_selected_skills(
         conversation_id: str,
         question: str,
         skills: list[dict[str, str]] | None = None,
+        **_kwargs: object,
     ) -> dict:
         captured["conversation_id"] = conversation_id
         captured["question"] = question
@@ -127,18 +107,24 @@ async def test_chat_skill_commands_only_apply_explicitly_selected_skills(
             "answer": "ok",
             "events": [],
             "run_map": {
-                "orchestrator": {
-                    "agent_name": "orchestrator",
+                "agent": {
+                    "agent_name": "netai",
                     "status": "completed",
                     "duration_ms": 1,
-                }
+                },
+                "tool_calls": [],
             },
             "context_metrics": {"used_tokens": 3},
         }
 
     async def _no_title(
-        *, conversation_id: str, user_question: str, assistant_content: str
+        *,
+        service: object,
+        conversation_id: str,
+        user_question: str,
+        assistant_content: str,
     ) -> None:
+        _ = service
         return None
 
     monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)

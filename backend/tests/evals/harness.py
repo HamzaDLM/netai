@@ -6,12 +6,6 @@ from pathlib import Path
 
 
 @dataclass(slots=True)
-class RoutingCase:
-    question: str
-    expected_specialist: str
-
-
-@dataclass(slots=True)
 class QACase:
     question: str
     answer: str
@@ -27,23 +21,6 @@ def load_jsonl(path: Path) -> list[dict]:
             continue
         rows.append(json.loads(line))
     return rows
-
-
-def predict_specialist(question: str) -> str:
-    lowered = question.lower()
-    if any(k in lowered for k in ["syslog", "log", "clickhouse", "qdrant"]):
-        return "syslog"
-    if any(k in lowered for k in ["zabbix", "trigger", "host status", "problem event"]):
-        return "zabbix"
-    if any(k in lowered for k in ["bgp", "ospf", "lldp", "suzieq", "route"]):
-        return "suzieq"
-    if any(k in lowered for k in ["incident", "change request", "cmdb", "servicenow"]):
-        return "servicenow"
-    if any(k in lowered for k in ["topology", "neighbor", "link", "inventory model"]):
-        return "datamodel"
-    if any(k in lowered for k in ["vulnerability", "hardening", "cve", "security"]):
-        return "security"
-    return "orchestrator"
 
 
 def score_answer_quality(case: QACase) -> float:

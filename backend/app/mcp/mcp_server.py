@@ -6,26 +6,15 @@ needs, so exposing a NetAI integration only requires passing its tools to ``crea
 
 import argparse
 import inspect
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from importlib import import_module
-from typing import Any, Protocol
+from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.tools import FunctionTool
+from haystack.tools import Tool
 
 from app.core.config import project_settings
-
-
-class NetAIToolSchema(Protocol):
-    """The small part of Haystack's Tool API required by the MCP bridge."""
-
-    name: str
-    description: str
-    parameters: dict[str, Any]
-    function: Any
-
-    def invoke(self, **kwargs: Any) -> Any: ...
-
 
 DEFAULT_ZABBIX_TOOLS = (
     "zabbix_get_hosts",
@@ -53,37 +42,19 @@ ZABBIX_TOOL_DESCRIPTIONS = {
 
 
 def netai_tool_to_fastmcp(
-    tool: NetAIToolSchema,
+    tool: Tool,
     *,
     description: str | None = None,
 ) -> FunctionTool:
-    """Adapt a NetAI Tool into a FastMCP tool.
+    """Expose the same Haystack Tool through the external MCP protocol."""
 
-    Synchronous infrastructure clients are run in a worker thread so a slow API
-    call does not block every other request handled by the MCP server.
-    """
-
-    if inspect.iscoroutinefunction(tool.function):
-
-        async def invoke_async(**kwargs: Any) -> Any:
-            result = tool.invoke(**kwargs)
-            if inspect.isawaitable(result):
-                return await result
-            return result
-
-        invoke: Callable[..., Any] = invoke_async
-
-    else:
-
-        def invoke_sync(**kwargs: Any) -> Any:
-            return tool.invoke(**kwargs)
-
-        invoke = invoke_sync
+    async def invoke(**kwargs: Any) -> Any:
+        return await tool.invoke_async(**kwargs)
 
     effective_description = (
         description
         or getattr(tool, "description", "")
-        or inspect.getdoc(getattr(tool, "function", None))
+        or inspect.getdoc(tool.async_function or tool.function)
         or f"Invoke the NetAI tool {tool.name}."
     )
     return FunctionTool(
@@ -98,7 +69,7 @@ def netai_tool_to_fastmcp(
 
 
 def create_mcp_server(
-    tools: Iterable[NetAIToolSchema],
+    tools: Iterable[Tool],
     *,
     name: str = "NetAI",
     instructions: str | None = None,
@@ -118,15 +89,12 @@ def create_mcp_server(
     return server
 
 
-def _discover_module_tools(module_name: str) -> dict[str, NetAIToolSchema]:
+def _discover_module_tools(module_name: str) -> dict[str, Tool]:
     module = import_module(module_name)
-    discovered: dict[str, NetAIToolSchema] = {}
+    discovered: dict[str, Tool] = {}
     for value in vars(module).values():
-        if not all(hasattr(value, attr) for attr in ("name", "parameters", "invoke")):
-            continue
-        name = getattr(value, "name", None)
-        if isinstance(name, str):
-            discovered[name] = value
+        if isinstance(value, Tool):
+            discovered[value.name] = value
     return discovered
 
 
@@ -134,7 +102,7 @@ def get_zabbix_tools(
     *,
     use_mock_data: bool | None = None,
     tool_names: Iterable[str] | None = DEFAULT_ZABBIX_TOOLS,
-) -> list[NetAIToolSchema]:
+) -> list[Tool]:
     """Load selected Zabbix tools from either the real or mock integration."""
 
     use_mocks = (

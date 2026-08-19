@@ -7,7 +7,9 @@ import app.api.endpoints.chat as chat_endpoints
 from app.api.models.chat import Feedback
 
 
-async def _fake_run_agent(*, conversation_id: str, question: str, skills=None) -> dict:
+async def _fake_run_agent(
+    *, conversation_id: str, question: str, skills=None, **_kwargs: object
+) -> dict:
     return {
         "answer": f"answer for {conversation_id}: {question}",
         "events": [],
@@ -17,8 +19,13 @@ async def _fake_run_agent(*, conversation_id: str, question: str, skills=None) -
 
 
 async def _no_title(
-    *, conversation_id: str, user_question: str, assistant_content: str
+    *,
+    service: object,
+    conversation_id: str,
+    user_question: str,
+    assistant_content: str,
 ) -> None:
+    _ = service
     return None
 
 

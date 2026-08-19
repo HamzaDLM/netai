@@ -12,18 +12,19 @@ export interface ToolCall {
 	run_id?: number
 	conversation_id?: string
 	tool_name: string
-	tool_source?: string
-	arguments: object
-	input_params?: object
-	result?: object
-	output?: object | null
+	input_params?: Record<string, unknown>
+	output?: Record<string, unknown> | null
 	status?: string
 	error_type?: string | null
 	error_message?: string | null
-	latency_ms?: number
+	latency_ms?: number | null
+	created_at?: string
+	// Compatibility aliases used by conversations created before the Haystack 3 migration.
+	tool_source?: string
+	arguments?: Record<string, unknown>
+	result?: Record<string, unknown>
 	evidence?: Evidence[]
 	evidence_items?: Evidence[]
-	created_at?: string
 }
 
 export interface SubAgentCall {
@@ -51,6 +52,7 @@ export interface AgentEvent {
 
 export interface AgentRun {
 	id: number
+	conversation_id?: string
 	user_message_id: number
 	assistant_message_id?: number
 	parent_run_id?: number | null
@@ -58,12 +60,14 @@ export interface AgentRun {
 	agent_name?: string
 	depth?: number
 	status: 'running' | 'completed' | 'failed'
+	started_at?: string
 	final_answer?: string
 	context_metrics?: Record<string, unknown>
 	error?: string
 	ended_at?: string
 	duration_ms?: number | null
 	created_at: string
+	updated_at?: string
 	events: AgentEvent[]
 	sub_agent_calls?: SubAgentCall[]
 	child_runs?: AgentRun[]

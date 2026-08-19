@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import type { AgentRun, ChatAttachment, ContextBreakdown, ContextMetrics, Conversation, ConversationMessages, Message, MessageRole } from '@/types/chat.type'
-import chatService, { type AgentUiStreamEvent } from '@/services/chat.service'
+import chatService, { type AgentRuntimeStreamEvent } from '@/services/chat.service'
 import { toast } from '@/components/ui/toast'
 
 let localIdCounter = 1000
@@ -362,15 +362,17 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	async function askLLM(userQuestion: string): Promise<void> {
 		if (!selectedConversation.value) return
 		if (!userQuestion.trim()) return
+		const conversationId = selectedConversation.value.id
+		const hadPlaceholderTitle = !selectedConversation.value.title?.trim()
+		let assistantDraft: Message | null = null
 		try {
 			addUserMessage(userQuestion)
-			const assistantDraft = createMessage('assistant', '')
+			assistantDraft = createMessage('assistant', '')
 			addMessage(assistantDraft)
 			let trackedAssistantId = assistantDraft.id
 			isStreamingResponse.value = true
 			streamingAssistantMessageId.value = trackedAssistantId
 			let pendingTokenText = ''
-			let fallbackAssistantContent: string | null = null
 			let flushTimer: ReturnType<typeof setTimeout> | null = null
 
 			const getAssistantMessage = () => {
@@ -409,6 +411,9 @@ export const useChatStore = defineStore('chat', function chatStore() {
 					id: nextId(),
 					user_message_id: 0,
 					assistant_message_id: assistant.id,
+					agent_type: 'agent',
+					agent_name: 'netai',
+					depth: 0,
 					status: 'running',
 					final_answer: undefined,
 					context_metrics: undefined,
@@ -436,7 +441,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 					id: nextId(),
 					event_sequence,
 					event_type: eventType,
-					actor_type: actorType ?? (actorName ? 'specialist' : 'orchestrator'),
+					actor_type: actorType ?? (actorName ? 'tool' : 'agent'),
 					actor_name: actorName,
 					correlation_id: correlationId,
 					payload,
@@ -444,7 +449,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				})
 			}
 
-			const pushAgentUiEvent = (assistant: Message, event: AgentUiStreamEvent) => {
+			const pushAgentRuntimeEvent = (assistant: Message, event: AgentRuntimeStreamEvent) => {
 				const { type, event_id, emitted_at, ...payload } = event
 				delete payload.event_sequence
 				delete payload.run_id
@@ -456,108 +461,42 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				const toolName = typeof payload.tool_name === 'string' ? payload.tool_name : undefined
 				const toolCallId = typeof payload.tool_call_id === 'string' ? payload.tool_call_id : undefined
 
+				const isToolEvent = type.startsWith('tool_') || type.startsWith('artifact_')
 				pushRunEvent(
 					assistant,
 					type,
 					payload,
-					toolName ?? artifactKind ?? type,
-					'tool',
+					isToolEvent ? toolName ?? artifactKind ?? type : 'netai',
+					isToolEvent ? 'tool' : 'agent',
 					artifactId ?? toolCallId ?? event_id,
 					typeof emitted_at === 'string' ? emitted_at : undefined
 				)
+
+				const run = ensureDraftRun(assistant)
+				if (type === 'run_finished') {
+					run.status = 'completed'
+					run.ended_at = typeof emitted_at === 'string' ? emitted_at : new Date().toISOString()
+					if (typeof payload.duration_ms === 'number') run.duration_ms = payload.duration_ms
+				}
+				if (type === 'run_error') {
+					run.status = 'failed'
+					run.ended_at = typeof emitted_at === 'string' ? emitted_at : new Date().toISOString()
+					run.error = typeof payload.error === 'string' ? payload.error : 'Agent run failed'
+				}
 			}
 
 			await chatService.askLLMStream(
-				selectedConversation.value.id,
+				conversationId,
 				{ content: userQuestion },
 				{
 					onToken: token => {
 						pendingTokenText += token
 						ensureFlushLoop()
 					},
-					onOrchestratorDecision: payload => {
+					onAgentEvent: event => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
-						pushRunEvent(assistant, 'orchestrator_decision', {
-							specialists: payload.specialists ?? [],
-							reasoning: payload.reasoning ?? '',
-						})
-					},
-					onOrchestratorPlan: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(assistant, 'orchestrator_plan', {
-							plan: payload.plan,
-							specialists: payload.specialists,
-						})
-					},
-					onSpecialistPlan: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(assistant, 'specialist_plan', { specialist: payload.specialist, plan: payload.plan ?? '' }, payload.specialist)
-					},
-					onSpecialistPrompt: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(assistant, 'specialist_prompt', { prompt: payload.prompt }, payload.specialist)
-					},
-					onSpecialistToolCall: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(
-							assistant,
-							'specialist_tool_call',
-							{
-								specialist: payload.specialist,
-								tool_name: payload.tool_name,
-								arguments: payload.arguments ?? {},
-							},
-							payload.specialist
-						)
-					},
-					onSpecialistEvidence: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(
-							assistant,
-							'specialist_evidence',
-							{
-								specialist: payload.specialist,
-								tool_name: payload.tool_name,
-								result: payload.result ?? {},
-								evidence: payload.evidence ?? [],
-							},
-							payload.specialist
-						)
-					},
-					onSpecialistToolResult: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(
-							assistant,
-							'specialist_tool_result',
-							{
-								specialist: payload.specialist,
-								tool_name: payload.tool_name,
-								result: payload.result,
-							},
-							payload.specialist
-						)
-					},
-					onLeaderConclusion: payload => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushRunEvent(assistant, 'leader_conclusion', {
-							answer: payload.answer,
-						})
-						if (typeof payload.answer === 'string' && payload.answer.trim()) {
-							fallbackAssistantContent = payload.answer
-						}
-					},
-					onAgentUiEvent: event => {
-						const assistant = getAssistantMessage()
-						if (!assistant) return
-						pushAgentUiEvent(assistant, event)
+						pushAgentRuntimeEvent(assistant, event)
 					},
 					onDone: ({ messageId, durationMs }) => {
 						const assistant = getAssistantMessage()
@@ -585,19 +524,47 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				await new Promise(resolve => setTimeout(resolve, 20))
 			}
 
-			// A leader conclusion repeats the final answer for run metadata. Only use it
-			// when the stream produced no renderable assistant-token content.
-			const completedAssistant = getAssistantMessage()
-			if (completedAssistant && !completedAssistant.content.trim() && fallbackAssistantContent) {
-				completedAssistant.content = fallbackAssistantContent
+			// The durable response is authoritative and includes tool outputs that are
+			// deliberately omitted from lightweight SSE completion events.
+			try {
+				const refreshed = await chatService.getConversation(conversationId)
+				if (selectedConversation.value?.id === conversationId) {
+					selectedConversation.value = normalizeConversationMessages(refreshed.data)
+					contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
+				}
+			} catch {
+				toast({ title: 'Response saved, but its execution history could not be refreshed', variant: 'destructive' })
 			}
 
-			const currentConversationId = selectedConversation.value.id
-			const hasPlaceholderTitle = !selectedConversation.value.title?.trim()
-			if (hasPlaceholderTitle) {
-				scheduleConversationTitleRefresh(currentConversationId)
+			if (hadPlaceholderTitle) {
+				scheduleConversationTitleRefresh(conversationId)
 			}
 		} catch (err) {
+			const failedAt = new Date().toISOString()
+			const failureReason = err instanceof Error && err.message ? err.message : 'Agent request failed'
+			if (assistantDraft) {
+				if (assistantDraft.agent_runs.length === 0) {
+					assistantDraft.agent_runs.push({
+						id: nextId(),
+						user_message_id: 0,
+						assistant_message_id: assistantDraft.id,
+						agent_type: 'agent',
+						agent_name: 'netai',
+						depth: 0,
+						status: 'failed',
+						error: failureReason,
+						ended_at: failedAt,
+						created_at: failedAt,
+						events: [],
+					})
+				}
+				for (const run of assistantDraft.agent_runs) {
+					if (run.status !== 'running') continue
+					run.status = 'failed'
+					run.error = run.error || failureReason
+					run.ended_at = run.ended_at || failedAt
+				}
+			}
 			errorMessage.value = 'Something went wrong'
 			toast({ title: errorMessage.value, variant: 'destructive' })
 		} finally {

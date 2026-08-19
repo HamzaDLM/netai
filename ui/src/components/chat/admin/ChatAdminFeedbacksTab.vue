@@ -4,6 +4,7 @@ import { RefreshCw } from 'lucide-vue-next'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { formatDatetime } from '@/lib/utils'
 import type { AdminFeedbackItem } from '@/types/chat.type'
+import { connectorForTool } from '@/features/execution/execution.normalize'
 import type { DisplayToolCall, RunWithPersistedTools } from './types'
 
 const props = defineProps<{
@@ -27,9 +28,11 @@ const toolCalls = computed<DisplayToolCall[]>(() => {
 	const calls: DisplayToolCall[] = []
 
 	const collectRun = (run: RunWithPersistedTools) => {
-		const agentName = run.agent_name || 'orchestrator'
 		for (const call of run.tool_calls ?? []) {
-			calls.push({ ...call, agentName })
+			calls.push({
+				...call,
+				connectorLabel: connectorForTool(call.tool_name, run.agent_name).label,
+			})
 		}
 		for (const childRun of run.child_runs ?? []) {
 			collectRun(childRun)
@@ -151,11 +154,11 @@ function toThinkingCodeBlock(value: unknown): string {
 							No tool calls were recorded for this response.
 						</div>
 						<div v-else class="space-y-3">
-							<div v-for="call in toolCalls" :key="`${call.agentName}-${call.id}`" class="rounded-md border border-stone-800 bg-black/20">
+							<div v-for="call in toolCalls" :key="`${call.connectorLabel}-${call.id}`" class="rounded-md border border-stone-800 bg-black/20">
 								<div class="flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 px-4 py-3">
 									<div>
 										<p class="text-sm font-medium text-stone-200">{{ call.tool_name }}</p>
-										<p class="mt-1 text-xs text-stone-500">{{ call.agentName }} · {{ call.status || 'unknown' }}</p>
+										<p class="mt-1 text-xs text-stone-500">{{ call.connectorLabel }} · {{ call.status || 'unknown' }}</p>
 									</div>
 									<p v-if="call.error_message" class="text-xs text-red-300">{{ call.error_message }}</p>
 								</div>

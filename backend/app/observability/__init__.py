@@ -1,3 +1,3 @@
-from app.observability.langfuse import langfuse_client
+from app.observability.tracing import configure_tracing
 
-__all__ = ["langfuse_client"]
+__all__ = ["configure_tracing"]

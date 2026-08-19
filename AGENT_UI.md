@@ -8,8 +8,9 @@ NetAI renders live network diagnostics as typed artifacts embedded at the point 
 LLM token/tool call
         │
         ├── assistant_token ───────────────────────► Markdown timeline block
+        ├── tool_started/completed/failed ─────────► Agent activity / thoughts
         │
-        └── tool emits artifact_snapshot/delta ───► typed artifact timeline block
+        └── artifact_snapshot/delta ───────────────► typed artifact timeline block
                          │
                          └── persisted AgentEvent ─► identical rendering after reload
 ```
@@ -43,24 +44,31 @@ The host did not reply, so I will inspect its environment.
 
 ## Relevant Files
 
-- `backend/app/agent_ui/events.py`: request-scoped event bus and artifact helpers.
-- `backend/app/tools/__init__.py`: common tool lifecycle events.
+- `backend/app/services/agent_events.py`: request-scoped lifecycle and artifact observer.
+- `backend/app/agents/netai.py`: Haystack hooks that publish tool lifecycle events.
 - `backend/app/tools/probe_tools.py`: simulated ping, traceroute, and latency-series examples.
-- `backend/app/workflows/agent_runner.py`: sequences live events from model and tool worker threads.
+- `backend/app/services/netai.py`: maps native Haystack streaming chunks into ordered events.
+- `backend/app/services/chat_agent.py`: sequences events for the conversation endpoint.
 - `backend/app/api/endpoints/chat.py`: SSE transport, inline offsets, and durable event persistence.
 - `backend/app/api/models/chat.py`: ordered `AgentEvent` records.
 - `ui/src/features/artifacts/artifact.timeline.ts`: snapshot/delta reducer and inline timeline construction.
 - `ui/src/features/artifacts/artifact.registry.ts`: artifact-kind-to-renderer registry.
 - `ui/src/features/artifacts/ArtifactHost.vue`: lazy component host with a generic fallback.
 - `ui/src/features/artifacts/ArtifactViewerShell.vue`: shared viewer header, icon slot, stone theme, and fullscreen zoom behavior.
+- `ui/src/features/execution/execution.normalize.ts`: one normalized view of live events, flat persisted runs, and historical nested runs.
+- `ui/src/features/execution/AgentActivity.vue`: connector-grouped thought/activity history.
+
+After the SSE `done` event, the chat store reloads the committed conversation. This replaces the lightweight live lifecycle data with authoritative persisted tool inputs, outputs, errors, and timings without requiring a page refresh.
 
 Every visual component lives in its own feature directory. ApexCharts is loaded only when a latency chart artifact is present.
 
 ## Adding an Artifact
 
 1. Choose a versioned kind such as `network.packet-capture.v1`. Changing a payload incompatibly requires a new version.
-2. Emit an initial snapshot with `start_artifact()` from the tool or workflow.
-3. Stream bounded updates with `update_artifact()` and finish with `complete_artifact()` or `fail_artifact()`.
+2. For an incremental tool, accept Haystack's hidden `streaming_callback` and emit
+   `StreamingChunk` metadata containing a `netai_event` snapshot/delta.
+3. For a result-backed tool, set `auto_artifact: True` in its `netai_tool`
+   presentation metadata; the Agent hooks create and complete the artifact.
 4. Add a Zod payload schema and a Vue renderer under `ui/src/features/artifacts/<name>/`.
 5. Register the lazy renderer in `artifact.registry.ts`.
 6. Test event ordering, snapshot/delta reduction, reload persistence, and invalid payload fallback.
@@ -74,13 +82,13 @@ The existing viewers now participate in the same timeline through thin, typed ad
 - `network.topology.v1` wraps `TopologyMapper.vue`.
 - `config.diff.v1` wraps `ConfigDiffViewer.vue` and parses the sanitized unified patch.
 
-These tools return one complete read-only result rather than many incremental samples. Their `@netai_tool` presentation metadata therefore sets `auto_artifact: True`: the common wrapper emits a running placeholder before invocation and merges the tool result into that artifact when it returns. Incremental tools such as ping and traceroute continue to call the artifact helpers directly.
+These tools return one complete read-only result rather than many incremental samples. Their `@netai_tool` presentation metadata therefore sets `auto_artifact: True`: the Agent hooks emit a running placeholder before invocation and merge the tool result into that artifact afterward. Incremental tools such as ping and traceroute emit native streaming chunks directly.
 
 The old `[[CONFIG_DIFF]]` parser and tool-result discovery remain only as a compatibility path for conversations persisted before typed artifacts were introduced. New prompts do not emit visual markers.
 
 ## Safety Boundary for Real Network Tools
 
-The example probes are deliberately simulated and never execute a shell or send network traffic. They are exposed to the orchestrator only while `TOOLS_USE_MOCK_DATA` is enabled. Ping and traceroute would be active probes in a real runner even though they do not modify device configuration; they should not be described as purely passive commands.
+The example probes are deliberately simulated and never execute a shell or send network traffic. Ping and traceroute would be active probes in a real runner even though they do not modify device configuration; they should not be described as purely passive commands.
 
 A production runner should be a separate, least-privileged service rather than arbitrary command execution in the API process. It should:
 

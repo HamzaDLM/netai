@@ -1,22 +1,24 @@
 from contextlib import asynccontextmanager
+from uuid import uuid4
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import Response
 from fastapi.routing import APIRoute
 from fastapi_insights import Config, FastAPIInsights
 from fastapi_insights.backends.in_memory import InMemoryMetricsStore
+from opentelemetry import trace
+from opentelemetry.trace import SpanKind, Status, StatusCode
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.cors import CORSMiddleware
 
-from app.agents.infrahub_agent import close_infrahub_tools
 from app.api.router import api_router
 from app.core.config import project_settings
 from app.core.logging import configure_logging
 from app.db.init_db import init_db
 from app.db.session import close_engine
-from app.observability import langfuse_client
-from app.utils import warmup_caches
+from app.observability import configure_tracing
+from app.services.netai import NetAIService
 
 configure_logging()
 
@@ -27,15 +29,26 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
-    await init_db()
-    warmup_caches()
+async def lifespan(application: FastAPI):
+    tracer_provider = configure_tracing(project_settings)
+    netai_service: NetAIService | None = None
     try:
+        await init_db()
+        netai_service = NetAIService(settings=project_settings)
+        application.state.netai_service = netai_service
+        await netai_service.warm_up()
         yield
     finally:
-        close_infrahub_tools()
-        langfuse_client.shutdown()
-        await close_engine()
+        try:
+            if netai_service is not None:
+                try:
+                    await netai_service.close()
+                finally:
+                    delattr(application.state, "netai_service")
+        finally:
+            await close_engine()
+            if tracer_provider is not None:
+                tracer_provider.shutdown()
 
 
 app = FastAPI(
@@ -44,6 +57,34 @@ app = FastAPI(
     generate_unique_id_function=custom_generate_unique_id,
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def correlation_id(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID") or uuid4().hex
+    request.state.request_id = request_id
+    tracer = trace.get_tracer("netai.fastapi")
+    with tracer.start_as_current_span(
+        f"{request.method} {request.url.path}",
+        kind=SpanKind.SERVER,
+        attributes={
+            "http.request.method": request.method,
+            "url.path": request.url.path,
+            "netai.request_id": request_id,
+        },
+    ) as span:
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
+            raise
+        span.set_attribute("http.response.status_code", response.status_code)
+        if response.status_code >= 500:
+            span.set_status(Status(StatusCode.ERROR))
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 
 FastAPIInsights.init(
     app,

@@ -6,9 +6,13 @@ export default class BaseService {
 		try {
 			const response = await fn
 			return { success: true, data: response.data }
-		} catch (error: any) {
-			console.error('API Error:', error.response?.data || error.message)
-			return { success: false, message: error.response?.data?.message || 'Request failed' }
+		} catch (error: unknown) {
+			const apiError = error as {
+				message?: string
+				response?: { data?: { message?: string } }
+			}
+			console.error('API Error:', apiError.response?.data || apiError.message)
+			return { success: false, message: apiError.response?.data?.message || 'Request failed' }
 		}
 	}
 }

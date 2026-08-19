@@ -208,7 +208,7 @@ async function submitFeedbackReport(): Promise<void> {
                                 </ToggleGroupItem>
                                 <ToggleGroupItem value="irrelevant_specialist" aria-label="Toggle bold">
                                     <p class="text-xs">
-                                        Irrelevant Specialist
+                                        Irrelevant Tool or Connector
                                     </p>
                                 </ToggleGroupItem>
                                 <ToggleGroupItem value="wrong_toolcall_use" aria-label="Toggle bold">
