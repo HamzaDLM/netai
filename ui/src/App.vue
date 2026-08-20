@@ -1,38 +1,27 @@
-<script lang="ts">
-import { defineComponent } from 'vue'
+<script setup lang="ts">
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import Toaster from '@/components/ui/toast/Toaster.vue'
 
 const mode = import.meta.env.MODE
+const intro = ref(false)
+const dots = ref('')
+let interval: number | null = null
 
-export default defineComponent({
-    components: {
-        Toaster,
-    },
-    data() {
-        return {
-            intro: false,
-            dots: '',
-            interval: null as number | null,
-            mode: mode,
-        }
-    },
-    mounted() {
-        this.interval = window.setInterval(this.createDots, 500)
+function createDots() {
+    dots.value = dots.value.length < 3 ? `${dots.value}.` : ''
+}
 
-        setTimeout(() => {
-            this.intro = false
-        }, 2000);
-    },
-    beforeUnmount() {
-        if (this.interval) {
-            clearInterval(this.interval)
-        }
-    },
-    methods: {
-        createDots() {
-            this.dots = this.dots.length < 3 ? this.dots + '.' : ''
-        }
-    },
+onMounted(() => {
+    interval = window.setInterval(createDots, 500)
+    window.setTimeout(() => {
+        intro.value = false
+    }, 2000)
+})
+
+onBeforeUnmount(() => {
+    if (interval !== null) {
+        window.clearInterval(interval)
+    }
 })
 </script>
 

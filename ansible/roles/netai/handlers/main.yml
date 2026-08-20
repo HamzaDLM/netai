@@ -8,6 +8,11 @@
     name: netai-backend
     state: restarted
 
+- name: Restart netai MCP servers
+  ansible.builtin.systemd_service:
+    name: netai-mcp-servers
+    state: restarted
+
 - name: Restart netai log ingestor
   ansible.builtin.systemd_service:
     name: netai-log-ingestor

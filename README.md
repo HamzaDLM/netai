@@ -134,7 +134,7 @@ Run the example external Zabbix MCP adapter with:
 
 ```bash
 cd backend
-uv run mcp-zabbix-server --transport http --host 127.0.0.1 --port 8030
+uv run mcp-zabbix-server --host 127.0.0.1 --port 8030
 ```
 
 Infrahub discovery is lazy and failure-isolated. An unavailable Infrahub server

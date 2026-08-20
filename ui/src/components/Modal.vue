@@ -1,9 +1,11 @@
-<script setup>
-defineProps({
-    modelValue: Boolean
-})
+<script setup lang="ts">
+const props = defineProps<{
+    modelValue: boolean
+}>()
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits<{
+    (event: 'update:modelValue', value: boolean): void
+}>()
 
 const closeModal = () => {
     emit('update:modelValue', false)
@@ -15,7 +17,7 @@ const closeModal = () => {
         <Transition enter-active-class="transition duration-200 ease-out" enter-from-class="opacity-0"
             enter-to-class="opacity-100" leave-active-class="transition duration-150 ease-in"
             leave-from-class="opacity-100" leave-to-class="opacity-0">
-            <div v-if="modelValue" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title"
+            <div v-if="props.modelValue" class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title"
                 role="dialog" aria-modal="true">
                 <div class="flex items-end justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
                     <div class="fixed inset-0 transition-opacity bg-opacity-50 bg-gray-900/30 backdrop-blur-sm"

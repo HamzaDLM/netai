@@ -1,0 +1,22 @@
+[Unit]
+Description=NetAI MCP servers
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ netai_user }}
+Group={{ netai_group }}
+WorkingDirectory={{ netai_release_dir }}/backend
+Environment=PATH={{ netai_home }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile={{ netai_release_dir }}/backend/.env
+ExecStart={{ netai_home }}/.local/bin/uv run python -m app.mcp.mcp_server --config {{ netai_mcp_config_path }}
+Restart=always
+RestartSec=5
+KillSignal=SIGINT
+TimeoutStopSec=30
+StandardOutput=append:{{ netai_log_dir }}/mcp-servers.log
+StandardError=append:{{ netai_log_dir }}/mcp-servers.err.log
+
+[Install]
+WantedBy=multi-user.target

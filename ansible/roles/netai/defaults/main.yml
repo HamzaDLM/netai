@@ -19,6 +19,20 @@ netai_backend_port: 8000
 netai_server_name: _
 
 netai_enable_log_ingestor: true
+netai_enable_mcp_servers: false
+netai_mcp_config_path: /etc/netai/mcp-servers.json
+netai_mcp_servers:
+  - name: zabbix
+    connector: zabbix
+    host: 127.0.0.1
+    port: 8030
+    transport: http
+    use_mock_data: false
+    tool_names:
+      - zabbix_get_hosts
+      - zabbix_get_problems
+      - zabbix_diagnose_host
+      - zabbix_get_zabbix_server_status
 
 # Keep secrets in Tower credentials/extra vars, not in git.
 netai_backend_env:

@@ -30,6 +30,7 @@
     - { path: "{{ netai_install_root }}" }
     - { path: "{{ netai_release_dir }}" }
     - { path: "{{ netai_ui_dist_dir }}" }
+    - { path: "{{ netai_mcp_config_path | dirname }}", owner: root, group: "{{ netai_group }}", mode: "0750" }
     - { path: "{{ netai_log_dir }}", owner: root, group: root, mode: "0755" }
 
 - name: Install uv for deploy user
@@ -146,6 +147,31 @@
     - Reload systemd
     - Restart netai backend
 
+- name: Render MCP server configuration
+  ansible.builtin.template:
+    src: mcp-servers.json.j2
+    dest: "{{ netai_mcp_config_path }}"
+    owner: root
+    group: "{{ netai_group }}"
+    mode: "0640"
+  no_log: true
+  when: netai_enable_mcp_servers | bool
+  notify:
+    - Reload systemd
+    - Restart netai MCP servers
+
+- name: Install netai MCP servers systemd service
+  ansible.builtin.template:
+    src: netai-mcp-servers.service.j2
+    dest: /etc/systemd/system/netai-mcp-servers.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: netai_enable_mcp_servers | bool
+  notify:
+    - Reload systemd
+    - Restart netai MCP servers
+
 - name: Install netai log ingestor systemd service
   ansible.builtin.template:
     src: netai-log-ingestor.service.j2
@@ -163,6 +189,13 @@
     name: netai-backend
     enabled: true
     state: started
+
+- name: Ensure netai MCP servers service is enabled and started
+  ansible.builtin.systemd_service:
+    name: netai-mcp-servers
+    enabled: true
+    state: started
+  when: netai_enable_mcp_servers | bool
 
 - name: Ensure netai log ingestor service is enabled and started
   ansible.builtin.systemd_service:

@@ -26,6 +26,7 @@ This folder deploys NetAI to Ubuntu hosts without Docker.
 - Builds `log_ingestor` release binary (optional)
 - Configures and starts:
   - `netai-backend` (systemd)
+  - `netai-mcp-servers` (systemd, optional; runs all configured MCP HTTP servers in one process)
   - `netai-log-ingestor` (systemd, optional)
   - `nginx` (serves UI + proxies `/api/` to backend)
 
@@ -74,6 +75,19 @@ Optional overrides:
 netai_server_name: netai.example.com
 netai_backend_port: 8000
 netai_enable_log_ingestor: true
+netai_enable_mcp_servers: true
+netai_mcp_servers:
+  - name: zabbix
+    connector: zabbix
+    host: 127.0.0.1
+    port: 8030
+    transport: http
+    use_mock_data: false
+    tool_names:
+      - zabbix_get_hosts
+      - zabbix_get_problems
+      - zabbix_diagnose_host
+      - zabbix_get_zabbix_server_status
 netai_ui_env:
   VITE_BASE_URL: /api/v1
 ```
