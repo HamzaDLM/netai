@@ -5,29 +5,27 @@ The internal Agent calls the registered Haystack tools directly.
 
 ## Expose NetAI tools
 
-`mcp_server.py` converts a Haystack `Tool` into a FastMCP `FunctionTool` and
-delegates execution to `Tool.invoke_async()`. The example publishes a curated,
-read-only Zabbix set:
+`mcp_server.py` converts each registered Haystack `Tool` into a FastMCP
+`FunctionTool`, delegates execution to `Tool.invoke_async()`, and exposes only
+the connectors and tool names declared in the runtime configuration:
 
 ```bash
-uv run mcp-zabbix-server --host 127.0.0.1 --port 8030
-uv run mcp-zabbix-server --real-data --all-tools
+uv run mcp-server
 ```
 
-For a host that exposes more than one MCP server, pass a JSON list to the
-supervisor entrypoint. One systemd process owns all HTTP listeners and stops
-all of them together if the process is restarted:
+For a host that exposes more than one MCP server, edit `MCP_SERVERS` in
+`mcp_server.py`. It is a Python tuple, so tool names can be kept close to the
+server implementation without a second configuration format:
 
-```json
-[
+```python
+MCP_SERVERS = (
   {
     "name": "zabbix",
     "connector": "zabbix",
     "host": "127.0.0.1",
     "port": 8030,
     "transport": "http",
-    "use_mock_data": false,
-    "tool_names": ["zabbix_get_hosts", "zabbix_get_problems"]
+    "tool_names": ("zabbix_get_hosts", "zabbix_get_problems")
   },
   {
     "name": "suzieq",
@@ -35,32 +33,23 @@ all of them together if the process is restarted:
     "host": "127.0.0.1",
     "port": 8031,
     "transport": "http",
-    "tool_names": ["suzieq_get_devices", "suzieq_get_interfaces"]
-  }
-]
+    "tool_names": ("suzieq_get_devices", "suzieq_get_interfaces")
+  },
+)
 ```
 
-Run it with:
+One systemd process owns all HTTP listeners and stops all of them together if
+the process is restarted. Run it with:
 
 ```bash
-uv run python -m app.mcp.mcp_server --config /etc/netai/mcp-servers.json
+uv run python -m app.mcp.mcp_server
 ```
 
-The Ansible `netai-mcp-servers` systemd service renders this configuration
-and runs the same supervisor. Each instance must have a unique name and
-host/port pair.
+The Ansible `netai-mcp-servers` systemd service runs the same module. Each
+instance must have a unique name and host/port pair.
 
 The HTTP endpoint is `http://127.0.0.1:8030/mcp`. The example has no transport
 authentication; keep it private or place it behind an authenticated gateway.
-
-The generic adapter reuses existing tools:
-
-```python
-from app.mcp.mcp_server import create_mcp_server
-from app.tools.zabbix_tools import diagnose_host, get_hosts
-
-server = create_mcp_server([get_hosts, diagnose_host], name="Monitoring")
-```
 
 ## Consume Infrahub
 

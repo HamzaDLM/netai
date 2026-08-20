@@ -147,19 +147,6 @@
     - Reload systemd
     - Restart netai backend
 
-- name: Render MCP server configuration
-  ansible.builtin.template:
-    src: mcp-servers.json.j2
-    dest: "{{ netai_mcp_config_path }}"
-    owner: root
-    group: "{{ netai_group }}"
-    mode: "0640"
-  no_log: true
-  when: netai_enable_mcp_servers | bool
-  notify:
-    - Reload systemd
-    - Restart netai MCP servers
-
 - name: Install netai MCP servers systemd service
   ansible.builtin.template:
     src: netai-mcp-servers.service.j2

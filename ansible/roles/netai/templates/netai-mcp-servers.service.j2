@@ -10,7 +10,7 @@ Group={{ netai_group }}
 WorkingDirectory={{ netai_release_dir }}/backend
 Environment=PATH={{ netai_home }}/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile={{ netai_release_dir }}/backend/.env
-ExecStart={{ netai_home }}/.local/bin/uv run python -m app.mcp.mcp_server --config {{ netai_mcp_config_path }}
+ExecStart={{ netai_home }}/.local/bin/uv run python -m app.mcp.mcp_server
 Restart=always
 RestartSec=5
 KillSignal=SIGINT

@@ -6,13 +6,10 @@ from fastmcp import Client
 from haystack.tools import Tool
 
 from app.mcp.mcp_server import (
-    DEFAULT_ZABBIX_TOOLS,
     create_configured_mcp_server,
     create_mcp_server,
-    create_zabbix_mcp_server,
-    get_zabbix_tools,
-    load_mcp_server_config,
     netai_tool_to_fastmcp,
+    validate_mcp_server_configs,
 )
 
 
@@ -67,22 +64,22 @@ def test_server_preserves_haystack_schema_and_returns_structured_data() -> None:
     asyncio.run(exercise())
 
 
-def test_zabbix_server_exposes_curated_tools() -> None:
-    tools = get_zabbix_tools(use_mock_data=True)
-    assert [tool.name for tool in tools] == list(DEFAULT_ZABBIX_TOOLS)
-
-    server = create_zabbix_mcp_server(use_mock_data=True)
-    assert server.name == "NetAI Zabbix"
-
-
-def test_mcp_uses_haystack_tool_descriptions() -> None:
+def test_configured_server_uses_registered_tool_descriptions(monkeypatch) -> None:
     async def exercise() -> None:
-        tools = get_zabbix_tools(use_mock_data=False)
-        server = create_zabbix_mcp_server(use_mock_data=False)
+        from app.core.config import project_settings
+
+        monkeypatch.setattr(project_settings, "TOOLS_USE_MOCK_DATA", True)
+        server = create_configured_mcp_server(
+            {
+                "name": "zabbix",
+                "connector": "zabbix",
+                "tool_names": ["zabbix_get_hosts"],
+            }
+        )
         async with Client(server) as client:
             definitions = {tool.name: tool for tool in await client.list_tools()}
 
-        assert definitions[tools[0].name].description == tools[0].description
+        assert definitions["zabbix_get_hosts"].description.startswith("[Zabbix]")
 
     asyncio.run(exercise())
 
@@ -96,18 +93,14 @@ def test_mcp_falls_back_to_tool_docstring() -> None:
     )
 
 
-def test_mcp_server_config_rejects_duplicate_endpoints(tmp_path) -> None:
-    config_path = tmp_path / "mcp.json"
-    config_path.write_text(
-        "["
-        '{"name":"one","connector":"zabbix","host":"127.0.0.1","port":8030},'
-        '{"name":"two","connector":"zabbix","host":"127.0.0.1","port":8030}'
-        "]",
-        encoding="utf-8",
-    )
-
+def test_mcp_server_config_rejects_duplicate_endpoints() -> None:
     with pytest.raises(ValueError, match="Duplicate MCP server endpoint"):
-        load_mcp_server_config(str(config_path))
+        validate_mcp_server_configs(
+            [
+                {"name": "one", "connector": "zabbix", "port": 8030},
+                {"name": "two", "connector": "zabbix", "port": 8030},
+            ]
+        )
 
 
 def test_configured_mcp_server_can_select_a_registry_connector(monkeypatch) -> None:
@@ -123,8 +116,3 @@ def test_configured_mcp_server_can_select_a_registry_connector(monkeypatch) -> N
     )
 
     assert server.name == "SuzieQ"
-
-
-def test_zabbix_server_rejects_unknown_tool() -> None:
-    with pytest.raises(ValueError, match="Unknown Zabbix MCP tool"):
-        get_zabbix_tools(use_mock_data=True, tool_names=["not_a_zabbix_tool"])
