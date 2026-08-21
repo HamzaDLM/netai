@@ -22,6 +22,7 @@ MCP_SERVERS = (
   {
     "name": "zabbix",
     "connector": "zabbix",
+    "description": "Read-only Zabbix monitoring, host inventory, and active problem data.",
     "host": "127.0.0.1",
     "port": 8030,
     "transport": "http",
@@ -30,6 +31,7 @@ MCP_SERVERS = (
   {
     "name": "suzieq",
     "connector": "suzieq",
+    "description": "Read-only SuzieQ network state and control-plane data.",
     "host": "127.0.0.1",
     "port": 8031,
     "transport": "http",

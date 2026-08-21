@@ -21,6 +21,7 @@ MCP_SERVERS: tuple[dict[str, Any], ...] = (
     {
         "name": "zabbix",
         "connector": "zabbix",
+        "description": "Read-only Zabbix monitoring, host inventory, and active problem data.",
         "host": "127.0.0.1",
         "port": 8030,
         "transport": "http",
@@ -85,10 +86,13 @@ def create_configured_mcp_server(config: dict[str, Any]) -> FastMCP:
 
     name = str(config.get("name", "")).strip()
     connector = str(config.get("connector", "")).strip().lower()
+    description = str(config.get("description", "")).strip()
     if not name:
         raise ValueError("MCP server configuration has no name")
     if not connector:
         raise ValueError(f"MCP server '{name}' has no connector")
+    if not description:
+        raise ValueError(f"MCP server '{name}' has no description")
     tool_names_value = config.get("tool_names")
     tool_names = (
         [str(name) for name in tool_names_value]
@@ -123,7 +127,7 @@ def create_configured_mcp_server(config: dict[str, Any]) -> FastMCP:
     return create_mcp_server(
         selected_tools,
         name=name,
-        instructions=f"Read-only {connector} tools exposed by NetAI.",
+        instructions=description,
     )
 
 
@@ -142,6 +146,7 @@ def validate_mcp_server_configs(
             )
         name = str(item.get("name", "")).strip()
         connector = str(item.get("connector", "")).strip().lower()
+        description = str(item.get("description", "")).strip()
         host = str(item.get("host", "127.0.0.1")).strip()
         port = item.get("port")
         transport = str(item.get("transport", "http")).strip()
@@ -149,6 +154,8 @@ def validate_mcp_server_configs(
             raise ValueError(f"MCP server configuration entry {index} has no name")
         if not connector:
             raise ValueError(f"MCP server '{name}' has no connector")
+        if not description:
+            raise ValueError(f"MCP server '{name}' has no description")
         if name in names:
             raise ValueError(f"Duplicate MCP server name '{name}'")
         if not host:
@@ -167,6 +174,7 @@ def validate_mcp_server_configs(
                 **item,
                 "name": name,
                 "connector": connector,
+                "description": description,
                 "host": host,
                 "port": port,
                 "transport": transport,
