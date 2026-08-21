@@ -92,7 +92,24 @@ def create_configured_mcp_server(config: dict[str, Any]) -> FastMCP:
         else None
     )
     registry = ToolRegistry(project_settings)
-    selected_tools = registry.tools_for(connector, tool_names)
+    available_tools = [
+        tool
+        for tool in registry.tools
+        if getattr(tool, "netai_connector", None) == connector
+    ]
+    if not available_tools:
+        raise ValueError(f"Unknown connector '{connector}'")
+    if tool_names is None:
+        selected_tools = available_tools
+    else:
+        tools_by_name = {tool.name: tool for tool in available_tools}
+        missing = [name for name in tool_names if name not in tools_by_name]
+        if missing:
+            raise ValueError(
+                f"Unknown {connector} MCP tool(s): {', '.join(missing)}. "
+                f"Available: {', '.join(sorted(tools_by_name))}"
+            )
+        selected_tools = [tools_by_name[name] for name in tool_names]
     logger.debug(
         "creating MCP server name=%s connector=%s tools=%s",
         name,

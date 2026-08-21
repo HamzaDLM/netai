@@ -9,7 +9,6 @@ agent tool lists.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from dataclasses import dataclass
 from importlib import import_module
 from types import ModuleType
@@ -208,29 +207,6 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool | None:
         return self._tools_by_name.get(name)
-
-    def tools_for(
-        self,
-        connector: str,
-        names: Iterable[str] | None = None,
-    ) -> list[Tool]:
-        """Return the registered tools for one connector, optionally selected by name."""
-
-        available = self._tools_by_connector.get(connector)
-        if available is None:
-            raise ValueError(f"Unknown connector '{connector}'")
-        if names is None:
-            return list(available)
-
-        by_name = {tool.name: tool for tool in available}
-        selected_names = list(names)
-        missing = [name for name in selected_names if name not in by_name]
-        if missing:
-            raise ValueError(
-                f"Unknown {connector} MCP tool(s): {', '.join(missing)}. "
-                f"Available: {', '.join(sorted(by_name))}"
-            )
-        return [by_name[name] for name in selected_names]
 
     def connector_for(self, name: str) -> str:
         if name == "search_tools":
