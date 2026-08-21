@@ -4,7 +4,8 @@ import asyncio
 import inspect
 import logging
 from collections.abc import Iterable
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
 from fastmcp import FastMCP
 from fastmcp.tools import FunctionTool
@@ -15,23 +16,54 @@ from app.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
+
+MCPTransport = Literal["http", "streamable-http", "sse"]
+
+
+@dataclass(frozen=True, slots=True)
+class MCPServerConfig:
+    """Configuration for one locally exposed MCP listener."""
+
+    name: str
+    connector: str
+    description: str
+    host: str = "127.0.0.1"
+    port: int = 8030
+    transport: MCPTransport = "http"
+    tool_names: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.name.strip():
+            raise ValueError("MCP server configuration has no name")
+        if not self.connector.strip():
+            raise ValueError(f"MCP server '{self.name}' has no connector")
+        if not self.description.strip():
+            raise ValueError(f"MCP server '{self.name}' has no description")
+        if not self.host.strip():
+            raise ValueError(f"MCP server '{self.name}' has no host")
+        if not 1 <= self.port <= 65535:
+            raise ValueError(f"MCP server '{self.name}' has an invalid port")
+        if self.transport not in {"http", "streamable-http", "sse"}:
+            raise ValueError(f"MCP server '{self.name}' has an unsupported transport")
+
+
 # Edit this tuple to choose which local connectors and tools are exposed.
 # ``TOOLS_USE_MOCK_DATA`` still controls whether the registry uses mock clients.
-MCP_SERVERS: tuple[dict[str, Any], ...] = (
-    {
-        "name": "zabbix",
-        "connector": "zabbix",
-        "description": "Read-only Zabbix monitoring, host inventory, and active problem data.",
-        "host": "127.0.0.1",
-        "port": 8030,
-        "transport": "http",
-        "tool_names": (
+MCP_SERVERS: tuple[MCPServerConfig, ...] = (
+    MCPServerConfig(
+        name="zabbix",
+        connector="zabbix",
+        description="Read-only Zabbix monitoring, host inventory, and active problem data.",
+        host="127.0.0.1",
+        port=8030,
+        transport="http",
+        tool_names=(
             "zabbix_get_hosts",
             "zabbix_get_problems",
             "zabbix_diagnose_host",
             "zabbix_get_zabbix_server_status",
         ),
-    },
+    ),
 )
 
 
@@ -81,24 +113,13 @@ def create_mcp_server(
     return server
 
 
-def create_configured_mcp_server(config: dict[str, Any]) -> FastMCP:
+def create_configured_mcp_server(config: MCPServerConfig) -> FastMCP:
     """Create one MCP server from a declarative runtime configuration."""
 
-    name = str(config.get("name", "")).strip()
-    connector = str(config.get("connector", "")).strip().lower()
-    description = str(config.get("description", "")).strip()
-    if not name:
-        raise ValueError("MCP server configuration has no name")
-    if not connector:
-        raise ValueError(f"MCP server '{name}' has no connector")
-    if not description:
-        raise ValueError(f"MCP server '{name}' has no description")
-    tool_names_value = config.get("tool_names")
-    tool_names = (
-        [str(name) for name in tool_names_value]
-        if isinstance(tool_names_value, (list, tuple))
-        else None
-    )
+    name = config.name.strip()
+    connector = config.connector.strip().lower()
+    description = config.description.strip()
+    tool_names = list(config.tool_names) or None
     registry = ToolRegistry(project_settings)
     available_tools = [
         tool
@@ -132,75 +153,46 @@ def create_configured_mcp_server(config: dict[str, Any]) -> FastMCP:
 
 
 def validate_mcp_server_configs(
-    raw_configs: Iterable[dict[str, Any]],
-) -> list[dict[str, Any]]:
+    raw_configs: Iterable[MCPServerConfig],
+) -> list[MCPServerConfig]:
     """Validate and normalize the module-level MCP server configuration."""
 
-    configs: list[dict[str, Any]] = []
     names: set[str] = set()
     endpoints: set[tuple[str, int]] = set()
-    for index, item in enumerate(raw_configs):
-        if not isinstance(item, dict):
-            raise ValueError(
-                f"MCP server configuration entry {index} must be an object"
-            )
-        name = str(item.get("name", "")).strip()
-        connector = str(item.get("connector", "")).strip().lower()
-        description = str(item.get("description", "")).strip()
-        host = str(item.get("host", "127.0.0.1")).strip()
-        port = item.get("port")
-        transport = str(item.get("transport", "http")).strip()
-        if not name:
-            raise ValueError(f"MCP server configuration entry {index} has no name")
-        if not connector:
-            raise ValueError(f"MCP server '{name}' has no connector")
-        if not description:
-            raise ValueError(f"MCP server '{name}' has no description")
-        if name in names:
-            raise ValueError(f"Duplicate MCP server name '{name}'")
-        if not host:
-            raise ValueError(f"MCP server '{name}' has no host")
-        if not isinstance(port, int) or not 1 <= port <= 65535:
-            raise ValueError(f"MCP server '{name}' has an invalid port")
-        endpoint = (host, port)
+    configs = list(raw_configs)
+    if not configs:
+        raise ValueError("At least one MCP server must be configured")
+    for config in configs:
+        if config.name in names:
+            raise ValueError(f"Duplicate MCP server name '{config.name}'")
+        endpoint = (config.host, config.port)
         if endpoint in endpoints:
-            raise ValueError(f"Duplicate MCP server endpoint '{host}:{port}'")
-        if transport not in {"http", "streamable-http", "sse"}:
-            raise ValueError(f"MCP server '{name}' has an unsupported transport")
-        names.add(name)
+            raise ValueError(
+                f"Duplicate MCP server endpoint '{config.host}:{config.port}'"
+            )
+        names.add(config.name)
         endpoints.add(endpoint)
-        configs.append(
-            {
-                **item,
-                "name": name,
-                "connector": connector,
-                "description": description,
-                "host": host,
-                "port": port,
-                "transport": transport,
-            }
-        )
     logger.info("validated %d MCP server configurations", len(configs))
     return configs
 
 
-async def _run_mcp_server(server: FastMCP, config: dict[str, Any]) -> None:
+async def _run_mcp_server(server: FastMCP, config: MCPServerConfig) -> None:
     """Run one listener and log failures without hiding them from the supervisor."""
 
-    name = config["name"]
-    endpoint = f"{config['host']}:{config['port']}"
+    name = config.name
+    endpoint = f"{config.host}:{config.port}"
     logger.info(
         "starting MCP server name=%s connector=%s transport=%s endpoint=%s",
         name,
-        config["connector"],
-        config["transport"],
+        config.connector,
+        config.transport,
         endpoint,
     )
     try:
         await server.run_async(
-            transport=config["transport"],
-            host=config["host"],
-            port=config["port"],
+            transport=config.transport,
+            host=config.host,
+            port=config.port,
             show_banner=False,
         )
     except asyncio.CancelledError:
@@ -213,7 +205,7 @@ async def _run_mcp_server(server: FastMCP, config: dict[str, Any]) -> None:
         logger.info("mcp server stopped name=%s endpoint=%s", name, endpoint)
 
 
-async def run_mcp_servers(configs: Iterable[dict[str, Any]]) -> None:
+async def run_mcp_servers(configs: Iterable[MCPServerConfig]) -> None:
     """Run all configured MCP servers concurrently under one process."""
 
     server_configs = validate_mcp_server_configs(configs)
@@ -223,9 +215,7 @@ async def run_mcp_servers(configs: Iterable[dict[str, Any]]) -> None:
     logger.info("starting MCP supervisor with %d server(s)", len(server_configs))
     servers = [create_configured_mcp_server(config) for config in server_configs]
     tasks = [
-        asyncio.create_task(
-            _run_mcp_server(server, config), name=f"mcp:{config['name']}"
-        )
+        asyncio.create_task(_run_mcp_server(server, config), name=f"mcp:{config.name}")
         for server, config in zip(servers, server_configs, strict=True)
     ]
     try:

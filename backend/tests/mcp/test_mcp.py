@@ -6,6 +6,7 @@ from fastmcp import Client
 from haystack.tools import Tool
 
 from app.mcp.mcp_server import (
+    MCPServerConfig,
     create_configured_mcp_server,
     create_mcp_server,
     netai_tool_to_fastmcp,
@@ -70,12 +71,12 @@ def test_configured_server_uses_registered_tool_descriptions(monkeypatch) -> Non
 
         monkeypatch.setattr(project_settings, "TOOLS_USE_MOCK_DATA", True)
         server = create_configured_mcp_server(
-            {
-                "name": "zabbix",
-                "connector": "zabbix",
-                "description": "Read-only Zabbix monitoring tools.",
-                "tool_names": ["zabbix_get_hosts"],
-            }
+            MCPServerConfig(
+                name="zabbix",
+                connector="zabbix",
+                description="Read-only Zabbix monitoring tools.",
+                tool_names=("zabbix_get_hosts",),
+            )
         )
         async with Client(server) as client:
             definitions = {tool.name: tool for tool in await client.list_tools()}
@@ -98,31 +99,39 @@ def test_mcp_server_config_rejects_duplicate_endpoints() -> None:
     with pytest.raises(ValueError, match="Duplicate MCP server endpoint"):
         validate_mcp_server_configs(
             [
-                {
-                    "name": "one",
-                    "connector": "zabbix",
-                    "description": "First server.",
-                    "port": 8030,
-                },
-                {
-                    "name": "two",
-                    "connector": "zabbix",
-                    "description": "Second server.",
-                    "port": 8030,
-                },
+                MCPServerConfig(
+                    name="one",
+                    connector="zabbix",
+                    description="First server.",
+                ),
+                MCPServerConfig(
+                    name="two",
+                    connector="zabbix",
+                    description="Second server.",
+                ),
             ]
         )
 
 
 def test_mcp_server_config_requires_connector() -> None:
     with pytest.raises(ValueError, match="has no connector"):
-        validate_mcp_server_configs([{"name": "unnamed-connector", "port": 8030}])
+        MCPServerConfig(
+            name="unnamed-connector",
+            connector="",
+            description="A server.",
+        )
 
 
 def test_mcp_server_config_requires_description() -> None:
     with pytest.raises(ValueError, match="has no description"):
         validate_mcp_server_configs(
-            [{"name": "undocumented", "connector": "zabbix", "port": 8030}]
+            [
+                MCPServerConfig(
+                    name="undocumented",
+                    connector="zabbix",
+                    description="",
+                )
+            ]
         )
 
 
@@ -131,12 +140,12 @@ def test_configured_mcp_server_can_select_a_registry_connector(monkeypatch) -> N
 
     monkeypatch.setattr(project_settings, "TOOLS_USE_MOCK_DATA", True)
     server = create_configured_mcp_server(
-        {
-            "name": "SuzieQ",
-            "connector": "suzieq",
-            "description": "Read-only SuzieQ network state.",
-            "tool_names": ["suzieq_get_devices"],
-        }
+        MCPServerConfig(
+            name="SuzieQ",
+            connector="suzieq",
+            description="Read-only SuzieQ network state.",
+            tool_names=("suzieq_get_devices",),
+        )
     )
 
     assert server.name == "SuzieQ"

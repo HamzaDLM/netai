@@ -18,25 +18,27 @@ For a host that exposes more than one MCP server, edit `MCP_SERVERS` in
 server implementation without a second configuration format:
 
 ```python
+from app.mcp.mcp_server import MCPServerConfig
+
 MCP_SERVERS = (
-  {
-    "name": "zabbix",
-    "connector": "zabbix",
-    "description": "Read-only Zabbix monitoring, host inventory, and active problem data.",
-    "host": "127.0.0.1",
-    "port": 8030,
-    "transport": "http",
-    "tool_names": ("zabbix_get_hosts", "zabbix_get_problems")
-  },
-  {
-    "name": "suzieq",
-    "connector": "suzieq",
-    "description": "Read-only SuzieQ network state and control-plane data.",
-    "host": "127.0.0.1",
-    "port": 8031,
-    "transport": "http",
-    "tool_names": ("suzieq_get_devices", "suzieq_get_interfaces")
-  },
+    MCPServerConfig(
+        name="zabbix",
+        connector="zabbix",
+        description="Read-only Zabbix monitoring, host inventory, and active problem data.",
+        host="127.0.0.1",
+        port=8030,
+        transport="http",
+        tool_names=("zabbix_get_hosts", "zabbix_get_problems"),
+    ),
+    MCPServerConfig(
+        name="suzieq",
+        connector="suzieq",
+        description="Read-only SuzieQ network state and control-plane data.",
+        host="127.0.0.1",
+        port=8031,
+        transport="http",
+        tool_names=("suzieq_get_devices", "suzieq_get_interfaces"),
+    ),
 )
 ```
 
