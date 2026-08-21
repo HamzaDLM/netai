@@ -103,6 +103,11 @@ def test_mcp_server_config_rejects_duplicate_endpoints() -> None:
         )
 
 
+def test_mcp_server_config_requires_connector() -> None:
+    with pytest.raises(ValueError, match="has no connector"):
+        validate_mcp_server_configs([{"name": "unnamed-connector", "port": 8030}])
+
+
 def test_configured_mcp_server_can_select_a_registry_connector(monkeypatch) -> None:
     from app.core.config import project_settings
 

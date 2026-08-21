@@ -83,8 +83,12 @@ def create_mcp_server(
 def create_configured_mcp_server(config: dict[str, Any]) -> FastMCP:
     """Create one MCP server from a declarative runtime configuration."""
 
-    name = str(config.get("name", "NetAI Zabbix")).strip() or "NetAI Zabbix"
-    connector = str(config.get("connector", "zabbix")).strip().lower()
+    name = str(config.get("name", "")).strip()
+    connector = str(config.get("connector", "")).strip().lower()
+    if not name:
+        raise ValueError("MCP server configuration has no name")
+    if not connector:
+        raise ValueError(f"MCP server '{name}' has no connector")
     tool_names_value = config.get("tool_names")
     tool_names = (
         [str(name) for name in tool_names_value]
@@ -137,11 +141,14 @@ def validate_mcp_server_configs(
                 f"MCP server configuration entry {index} must be an object"
             )
         name = str(item.get("name", "")).strip()
+        connector = str(item.get("connector", "")).strip().lower()
         host = str(item.get("host", "127.0.0.1")).strip()
         port = item.get("port")
         transport = str(item.get("transport", "http")).strip()
         if not name:
             raise ValueError(f"MCP server configuration entry {index} has no name")
+        if not connector:
+            raise ValueError(f"MCP server '{name}' has no connector")
         if name in names:
             raise ValueError(f"Duplicate MCP server name '{name}'")
         if not host:
@@ -156,7 +163,14 @@ def validate_mcp_server_configs(
         names.add(name)
         endpoints.add(endpoint)
         configs.append(
-            {**item, "name": name, "host": host, "port": port, "transport": transport}
+            {
+                **item,
+                "name": name,
+                "connector": connector,
+                "host": host,
+                "port": port,
+                "transport": transport,
+            }
         )
     logger.info("validated %d MCP server configurations", len(configs))
     return configs
@@ -170,7 +184,7 @@ async def _run_mcp_server(server: FastMCP, config: dict[str, Any]) -> None:
     logger.info(
         "starting MCP server name=%s connector=%s transport=%s endpoint=%s",
         name,
-        config.get("connector", "zabbix"),
+        config["connector"],
         config["transport"],
         endpoint,
     )
