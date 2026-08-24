@@ -25,6 +25,7 @@ MCP_SERVERS = (
         name="zabbix",
         connector="zabbix",
         description="Read-only Zabbix monitoring, host inventory, and active problem data.",
+        allowed_consumer_urls=("https://netai.example.com",),
         host="127.0.0.1",
         port=8030,
         transport="http",
@@ -34,6 +35,7 @@ MCP_SERVERS = (
         name="suzieq",
         connector="suzieq",
         description="Read-only SuzieQ network state and control-plane data.",
+        allowed_consumer_urls=("https://netai.example.com",),
         host="127.0.0.1",
         port=8031,
         transport="http",
@@ -50,10 +52,35 @@ uv run python -m app.mcp.mcp_server
 ```
 
 The Ansible `netai-mcp-servers` systemd service runs the same module. Each
-instance must have a unique name and host/port pair.
+instance must have a unique name and host/port pair. Clients must send the
+configured bearer token and either an `Origin` header or
+`X-MCP-Consumer-URL` matching the server's `allowed_consumer_urls`.
 
-The HTTP endpoint is `http://127.0.0.1:8030/mcp`. The example has no transport
-authentication; keep it private or place it behind an authenticated gateway.
+Set the shared token in `MCP_CONSUMER_TOKEN`. This is bearer-token resource
+server authentication using FastMCP's token-verifier API; it does not issue
+OAuth tokens or implement an interactive authorization-code flow. Replace
+`SharedTokenVerifier` with a JWT or introspection verifier when an external
+OAuth provider is introduced.
+
+The HTTP endpoint is `http://127.0.0.1:8030/mcp`. Keep the token in the
+environment and place the service behind TLS or an authenticated gateway when
+it is reachable outside the local host.
+
+## Standalone Zabbix server
+
+`zabbix_server.py` is a self-contained FastMCP server copy of the Zabbix
+integration. It has no NetAI or Haystack imports; the functions are registered
+directly with FastMCP. Configure the Zabbix connection with environment
+variables and run it independently:
+
+```bash
+export ZABBIX_ENABLED=true
+export ZABBIX_API_URL=https://zabbix.example.com/api_jsonrpc.php
+export ZABBIX_API_TOKEN=...
+export MCP_HOST=127.0.0.1
+export MCP_PORT=8030
+uv run mcp-zabbix-standalone
+```
 
 ## Consume Infrahub
 

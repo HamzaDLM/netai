@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import inspect
+import logging
 from dataclasses import dataclass
 from time import perf_counter
 from typing import cast
 from uuid import uuid4
 
 from haystack.components.generators.chat.types import ChatGenerator
-from haystack.dataclasses import ChatMessage, StreamingChunk
+from haystack.dataclasses import AsyncStreamingCallbackT, ChatMessage, StreamingChunk
 from haystack.tools import SearchableToolset
 from haystack.utils import Secret
 from haystack_integrations.components.generators.google_genai import (
@@ -23,6 +24,8 @@ from app.mcp.infrahub import InfrahubToolProvider
 from app.mcp.mcp_client import MCPClientConfig
 from app.services.agent_events import RunObserver
 from app.tools.registry import ToolRegistry
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -47,6 +50,9 @@ class NetAIRun:
                 "step_count": self.result.get("step_count", 0),
                 "token_usage": self.result.get("token_usage", {}),
                 "tool_call_counts": self.result.get("tool_call_counts", {}),
+                "finalization_performed": bool(
+                    self.result.get("finalization_performed", False)
+                ),
             },
             "tool_calls": public_tools,
         }
@@ -121,8 +127,9 @@ class NetAIService:
         messages: list[ChatMessage],
         *,
         generation_kwargs: dict[str, object] | None = None,
+        streaming_callback: AsyncStreamingCallbackT | None = None,
     ) -> dict[str, object]:
-        """Use the shared generator for title and context-summary requests."""
+        """Run a tool-free generation with the shared chat generator."""
 
         run_async = getattr(self.chat_generator, "run_async", None)
         if not callable(run_async):
@@ -130,6 +137,7 @@ class NetAIService:
         result = await run_async(
             messages=messages,
             generation_kwargs=generation_kwargs,
+            streaming_callback=streaming_callback,
         )
         return cast(dict[str, object], result)
 
@@ -178,15 +186,105 @@ class NetAIService:
 
     @staticmethod
     def _answer_from(result: dict[str, object]) -> str:
-        last_message = result.get("last_message")
-        if isinstance(last_message, ChatMessage):
-            return (last_message.text or "").strip()
-        messages = result.get("messages")
-        if isinstance(messages, list):
-            for message in reversed(messages):
-                if isinstance(message, ChatMessage) and message.text:
-                    return message.text.strip()
+        candidate = result.get("last_message")
+        if not isinstance(candidate, ChatMessage):
+            messages = NetAIService._result_messages(result)
+            candidate = messages[-1] if messages else None
+        if (
+            isinstance(candidate, ChatMessage)
+            and candidate.is_from("assistant")
+            and not candidate.tool_calls
+        ):
+            return (candidate.text or "").strip()
         return ""
+
+    @staticmethod
+    def _result_messages(result: dict[str, object]) -> list[ChatMessage]:
+        messages = result.get("messages")
+        if not isinstance(messages, list):
+            return []
+        return [message for message in messages if isinstance(message, ChatMessage)]
+
+    @staticmethod
+    def _fallback_answer(observer: RunObserver) -> str:
+        succeeded = sum(
+            execution.status == "success" for execution in observer.tool_executions
+        )
+        failed = sum(
+            execution.status == "error" for execution in observer.tool_executions
+        )
+        if observer.tool_executions:
+            return (
+                "The investigation finished, but I could not produce the final "
+                f"synthesis. {succeeded} tool call(s) succeeded and {failed} failed. "
+                "Please retry the request or narrow the investigation."
+            )
+        return (
+            "I could not produce a final answer for this request. Please retry or "
+            "rephrase the question."
+        )
+
+    async def _ensure_final_answer(
+        self,
+        result: dict[str, object],
+        observer: RunObserver,
+        streaming_callback: AsyncStreamingCallbackT | None = None,
+    ) -> str:
+        answer = self._answer_from(result)
+        if answer:
+            return answer
+
+        messages = self._result_messages(result)
+        logger.warning(
+            "agent ended without a final assistant answer; requesting final synthesis",
+            extra={
+                "event": "agent.finalize",
+                "step_count": result.get("step_count"),
+                "tool_call_counts": result.get("tool_call_counts"),
+            },
+        )
+        final_message: ChatMessage | None = None
+        if messages:
+            synthesis_prompt = ChatMessage.from_user(
+                "The tool investigation is complete. Using only the evidence in the "
+                "messages above, provide the final answer to the original request. "
+                "Summarize successful findings, mention material tool failures or "
+                "missing evidence, and do not call any more tools."
+            )
+            try:
+                finalization = await self.generate(
+                    [*messages, synthesis_prompt],
+                    streaming_callback=streaming_callback,
+                )
+                replies = finalization.get("replies")
+                if isinstance(replies, list):
+                    final_message = next(
+                        (
+                            message
+                            for message in reversed(replies)
+                            if isinstance(message, ChatMessage)
+                            and message.is_from("assistant")
+                            and not message.tool_calls
+                            and (message.text or "").strip()
+                        ),
+                        None,
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "agent final synthesis failed: %s",
+                    type(exc).__name__,
+                    extra={"event": "agent.finalize_failed"},
+                )
+
+        if final_message is None:
+            final_message = ChatMessage.from_assistant(self._fallback_answer(observer))
+
+        result_messages = self._result_messages(result)
+        result_messages.append(final_message)
+        result["messages"] = result_messages
+        result["last_message"] = final_message
+        result["finalization_performed"] = True
+        return (final_message.text or "").strip()
 
     async def run(
         self,
@@ -241,9 +339,14 @@ class NetAIService:
             request_id=resolved_request_id,
             user_id=user_id,
         )
+        answer = await self._ensure_final_answer(
+            result,
+            run_observer,
+            streaming_callback=handle_chunk if stream else None,
+        )
         duration_ms = max(0, int(round((perf_counter() - started_at) * 1000)))
         return NetAIRun(
-            answer=self._answer_from(result),
+            answer=answer,
             duration_ms=duration_ms,
             result=result,
             observer=run_observer,

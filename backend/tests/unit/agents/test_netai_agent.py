@@ -204,3 +204,57 @@ async def test_agent_provider_error_propagates_to_application_boundary() -> None
             )
     finally:
         await service.close()
+
+
+@pytest.mark.anyio
+async def test_max_step_tool_run_gets_a_final_synthesis() -> None:
+    tool_steps = [
+        ChatMessage.from_assistant(
+            tool_calls=[
+                ToolCall(
+                    tool_name="search_tools",
+                    arguments={"tool_keywords": "topology devices"},
+                    id="search-0",
+                )
+            ]
+        ),
+        *[
+            ChatMessage.from_assistant(
+                tool_calls=[
+                    ToolCall(
+                        tool_name="datamodel_list_devices",
+                        arguments={},
+                        id=f"devices-{index}",
+                    )
+                ]
+            )
+            for index in range(11)
+        ],
+    ]
+    generator = ScriptedGenerator(
+        [
+            *tool_steps,
+            ChatMessage.from_assistant(
+                "The available topology evidence is incomplete, but the successful "
+                "queries identified the relevant nodes."
+            ),
+        ]
+    )
+    service = NetAIService(settings=project_settings, chat_generator=generator)
+    try:
+        run = await service.run(
+            messages=[
+                ChatMessage.from_user("What is in the inventory?"),
+                ChatMessage.from_assistant("A previous turn's answer."),
+                ChatMessage.from_user("Inspect the topology inventory"),
+            ],
+            conversation_id="conversation-max-steps",
+            user_id=7,
+        )
+    finally:
+        await service.close()
+
+    assert run.result["step_count"] == 12
+    assert run.result["finalization_performed"] is True
+    assert generator.calls == 13
+    assert run.answer.startswith("The available topology evidence")

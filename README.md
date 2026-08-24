@@ -103,6 +103,7 @@ Connectors:
   `CLICKHOUSE_PASSWORD`
 - Infrahub: `INFRAHUB_MCP_URL`, `INFRAHUB_MCP_TOKEN`,
   `INFRAHUB_MCP_TIMEOUT_SECONDS`
+- Exposed MCP authentication: `MCP_CONSUMER_TOKEN`
 
 Optional tracing can target any OTLP/HTTP backend with
 `OTEL_TRACING_ENABLED`, `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, and

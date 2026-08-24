@@ -1,20 +1,28 @@
 """Configuration-driven MCP server for NetAI's registered tools."""
 
 import asyncio
+import hmac
 import inspect
 import logging
 from collections.abc import Iterable
-from dataclasses import dataclass
 from typing import Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp.server.auth import AccessToken, AuthContext, TokenVerifier
+from fastmcp.server.dependencies import get_http_headers
+from fastmcp.server.middleware import AuthMiddleware
 from fastmcp.tools import FunctionTool
 from haystack.tools import Tool
+from pydantic import HttpUrl
+from pydantic.dataclasses import dataclass
 
 from app.core.config import project_settings
+from app.core.logging import configure_logging
 from app.tools.registry import ToolRegistry
 
-logger = logging.getLogger(__name__)
+# Use Uvicorn's error logger so standalone MCP execution and FastAPI share the
+# same formatter and handler configuration.
+logger = logging.getLogger("uvicorn.error")
 
 
 MCPTransport = Literal["http", "streamable-http", "sse"]
@@ -27,6 +35,7 @@ class MCPServerConfig:
     name: str
     connector: str
     description: str
+    allowed_consumer_urls: tuple[HttpUrl, ...]
     host: str = "127.0.0.1"
     port: int = 8030
     transport: MCPTransport = "http"
@@ -39,12 +48,40 @@ class MCPServerConfig:
             raise ValueError(f"MCP server '{self.name}' has no connector")
         if not self.description.strip():
             raise ValueError(f"MCP server '{self.name}' has no description")
+        if not self.allowed_consumer_urls:
+            raise ValueError(f"MCP server '{self.name}' has no consumer URL allowlist")
         if not self.host.strip():
             raise ValueError(f"MCP server '{self.name}' has no host")
         if not 1 <= self.port <= 65535:
             raise ValueError(f"MCP server '{self.name}' has an invalid port")
         if self.transport not in {"http", "streamable-http", "sse"}:
             raise ValueError(f"MCP server '{self.name}' has an unsupported transport")
+
+
+class SharedTokenVerifier(TokenVerifier):
+    """Verify NetAI's shared bearer token without storing it in a token map."""
+
+    def __init__(self, token: str) -> None:
+        super().__init__(required_scopes=["mcp:read"])
+        self._token = token
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        consumer_url = _request_consumer_url()
+        if not hmac.compare_digest(token, self._token):
+            logger.warning(
+                "mcp authentication failed client_id=netai-mcp-consumer url=%s",
+                consumer_url or "<missing>",
+            )
+            return None
+        logger.info(
+            "mcp authentication succeeded client_id=netai-mcp-consumer url=%s",
+            consumer_url or "<missing>",
+        )
+        return AccessToken(
+            token=token,
+            client_id="netai-mcp-consumer",
+            scopes=["mcp:read"],
+        )
 
 
 # Edit this tuple to choose which local connectors and tools are exposed.
@@ -54,6 +91,7 @@ MCP_SERVERS: tuple[MCPServerConfig, ...] = (
         name="zabbix",
         connector="zabbix",
         description="Read-only Zabbix monitoring, host inventory, and active problem data.",
+        allowed_consumer_urls=(HttpUrl("http://localhost:5173"),),
         host="127.0.0.1",
         port=8030,
         transport="http",
@@ -104,13 +142,60 @@ def create_mcp_server(
     *,
     name: str = "NetAI",
     instructions: str | None = None,
+    auth: Any = None,
+    middleware: list[Any] | None = None,
 ) -> FastMCP:
     """Create an MCP server exposing the supplied NetAI tools and metadata."""
 
-    server = FastMCP(name=name, instructions=instructions)
+    server = FastMCP(
+        name=name,
+        instructions=instructions,
+        auth=auth,
+        middleware=middleware,
+    )
     for tool in tools:
         server.add_tool(netai_tool_to_fastmcp(tool))
     return server
+
+
+def _create_token_verifier() -> SharedTokenVerifier:
+    token = project_settings.MCP_CONSUMER_TOKEN.strip()
+    if not token:
+        raise RuntimeError(
+            "MCP_CONSUMER_TOKEN must be configured before starting MCP servers"
+        )
+    return SharedTokenVerifier(token)
+
+
+def _request_consumer_url() -> str:
+    headers = get_http_headers()
+    return (headers.get("x-mcp-consumer-url") or headers.get("origin") or "").rstrip(
+        "/"
+    )
+
+
+def _consumer_access_check(config: MCPServerConfig):
+    allowed_urls = {str(url).rstrip("/") for url in config.allowed_consumer_urls}
+
+    def check(_context: AuthContext) -> bool:
+        consumer_url = _request_consumer_url()
+        allowed = consumer_url in allowed_urls
+        if not allowed:
+            logger.warning(
+                "mcp consumer authorization failed server name=%s url=%s",
+                config.name,
+                consumer_url or "<missing>",
+            )
+        else:
+            logger.info(
+                "mcp consumer authorized server name=%s connector=%s url=%s",
+                config.name,
+                config.connector,
+                consumer_url,
+            )
+        return allowed
+
+    return check
 
 
 def create_configured_mcp_server(config: MCPServerConfig) -> FastMCP:
@@ -149,6 +234,8 @@ def create_configured_mcp_server(config: MCPServerConfig) -> FastMCP:
         selected_tools,
         name=name,
         instructions=description,
+        auth=_create_token_verifier(),
+        middleware=[AuthMiddleware(auth=_consumer_access_check(config))],
     )
 
 
@@ -208,6 +295,7 @@ async def _run_mcp_server(server: FastMCP, config: MCPServerConfig) -> None:
 async def run_mcp_servers(configs: Iterable[MCPServerConfig]) -> None:
     """Run all configured MCP servers concurrently under one process."""
 
+    configure_logging()
     server_configs = validate_mcp_server_configs(configs)
     if not server_configs:
         raise ValueError("At least one MCP server must be configured")
@@ -230,12 +318,8 @@ async def run_mcp_servers(configs: Iterable[MCPServerConfig]) -> None:
 
 def main() -> None:
     # The MCP module is also launched directly by systemd, outside FastAPI's
-    # application bootstrap. Configure a useful default without overriding an
-    # application's existing logging configuration.
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    # application bootstrap, so initialize the shared logging configuration.
+    configure_logging()
     asyncio.run(run_mcp_servers(MCP_SERVERS))
 
 

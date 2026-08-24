@@ -35,6 +35,7 @@ dev = [
 [project.scripts]
 api = "app.main:run_api"
 mcp-server = "app.mcp.mcp_server:main"
+mcp-zabbix-standalone = "app.mcp.zabbix_server:main"
 
 [tool.uv]
 package = true

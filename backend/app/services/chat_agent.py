@@ -362,14 +362,15 @@ async def run_agent_stream(
             stream=True,
         )
     )
-    streamed_token = False
+    streamed_text: list[str] = []
     try:
         while not run_task.done() or not queue.empty():
             try:
                 event = await asyncio.wait_for(queue.get(), timeout=0.1)
             except asyncio.TimeoutError:
                 continue
-            streamed_token = streamed_token or event.get("type") == "token"
+            if event.get("type") == "token":
+                streamed_text.append(str(event.get("token") or ""))
             yield event
         run = await run_task
     except Exception as exc:
@@ -378,7 +379,11 @@ async def run_agent_stream(
             yield queue.get_nowait()
         raise
 
-    if not streamed_token:
+    emitted_text = "".join(streamed_text).strip()
+    final_answer = run.answer.strip()
+    if final_answer and not emitted_text.endswith(final_answer):
+        if emitted_text:
+            yield await observer.emit("token", {"token": "\n\n"})
         for token in _tokenize(run.answer):
             yield await observer.emit("token", {"token": token})
     yield await observer.emit("run_finished", {"duration_ms": run.duration_ms})

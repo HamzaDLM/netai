@@ -53,6 +53,7 @@ netai_backend_env:
   GEMINI_MODEL: gemini-2.5-flash
   GEMINI_API_KEY: "<set-me>"
   TOOLS_USE_MOCK_DATA: "false"
+  MCP_CONSUMER_TOKEN: "<set-me>"
 
 netai_log_ingestor_env:
   KAFKA_BROKERS: 127.0.0.1:9092
