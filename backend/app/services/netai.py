@@ -64,7 +64,11 @@ class NetAIRun:
         }
 
 
-def create_chat_generator(settings: Settings) -> ChatGenerator:
+def create_chat_generator(
+    settings: Settings,
+    *,
+    generation_kwargs: dict[str, object] | None = None,
+) -> ChatGenerator:
     """Construct the configured native Haystack ChatGenerator."""
 
     api_key = (
@@ -75,7 +79,7 @@ def create_chat_generator(settings: Settings) -> ChatGenerator:
     return GoogleGenAIChatGenerator(
         api_key=api_key,
         model=settings.GEMINI_MODEL,
-        generation_kwargs={"temperature": 0.1},
+        generation_kwargs=generation_kwargs or {"temperature": 0.1},
     )
 
 
