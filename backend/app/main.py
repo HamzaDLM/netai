@@ -18,6 +18,7 @@ from app.core.logging import configure_logging
 from app.db.init_db import init_db
 from app.db.session import close_engine
 from app.observability import configure_tracing
+from app.services.evals import EvalService
 from app.services.netai import NetAIService
 
 configure_logging()
@@ -32,23 +33,36 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 async def lifespan(application: FastAPI):
     tracer_provider = configure_tracing(project_settings)
     netai_service: NetAIService | None = None
+    eval_service: EvalService | None = None
     try:
         await init_db()
         netai_service = NetAIService(settings=project_settings)
         application.state.netai_service = netai_service
         await netai_service.warm_up()
+        eval_service = EvalService(
+            settings=project_settings, netai_service=netai_service
+        )
+        application.state.eval_service = eval_service
+        await eval_service.warm_up()
         yield
     finally:
         try:
-            if netai_service is not None:
+            if eval_service is not None:
                 try:
-                    await netai_service.close()
+                    await eval_service.close()
                 finally:
-                    delattr(application.state, "netai_service")
+                    delattr(application.state, "eval_service")
         finally:
-            await close_engine()
-            if tracer_provider is not None:
-                tracer_provider.shutdown()
+            try:
+                if netai_service is not None:
+                    try:
+                        await netai_service.close()
+                    finally:
+                        delattr(application.state, "netai_service")
+            finally:
+                await close_engine()
+                if tracer_provider is not None:
+                    tracer_provider.shutdown()
 
 
 app = FastAPI(

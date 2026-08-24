@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.api.models.evals import EvalEvaluator, EvalEvaluatorKind, EvalEvaluatorRule
 from app.api.models.skills import Skill
 from app.api.models.users import User, UserRole
 from app.db.session import SessionLocal
@@ -60,6 +61,59 @@ When the user asks whether a change caused an outage or wants blast-radius analy
     },
 )
 
+DEFAULT_EVALUATORS: Sequence[
+    dict[str, str | int | EvalEvaluatorKind | EvalEvaluatorRule]
+] = (
+    {
+        "id": "tool-trajectory",
+        "name": "Tool trajectory",
+        "kind": EvalEvaluatorKind.deterministic,
+        "rule": EvalEvaluatorRule.tool_trajectory,
+        "description": "Checks required and forbidden tools against the recorded Agent run.",
+        "criteria": (
+            "Every required tool must complete successfully and no forbidden tool may "
+            "be invoked."
+        ),
+        "threshold": 100,
+    },
+    {
+        "id": "completion-safety",
+        "name": "Completion and safety",
+        "kind": EvalEvaluatorKind.deterministic,
+        "rule": EvalEvaluatorRule.completion_safety,
+        "description": "Ensures the Agent finishes safely within its execution budget.",
+        "criteria": (
+            "A final answer must exist and the run must remain within ten read-only "
+            "infrastructure calls."
+        ),
+        "threshold": 100,
+    },
+    {
+        "id": "answer-groundedness",
+        "name": "Answer groundedness",
+        "kind": EvalEvaluatorKind.llm_judge,
+        "rule": EvalEvaluatorRule.llm_judge,
+        "description": "Judges whether material answer claims are supported by tool evidence.",
+        "criteria": (
+            "Compare every material answer claim with successful tool evidence. Penalize "
+            "unsupported facts and overconfident causal claims."
+        ),
+        "threshold": 85,
+    },
+    {
+        "id": "diagnostic-quality",
+        "name": "Diagnostic quality",
+        "kind": EvalEvaluatorKind.llm_judge,
+        "rule": EvalEvaluatorRule.llm_judge,
+        "description": "Scores correctness, completeness, uncertainty, and operational value.",
+        "criteria": (
+            "The response should identify the likely cause, distinguish evidence from "
+            "inference, communicate limitations, and propose safe next checks."
+        ),
+        "threshold": 80,
+    },
+)
+
 
 async def _ensure_demo_user(db: AsyncSession) -> User:
     result = await db.execute(select(User).where(User.id == DEMO_USER_ID))
@@ -105,6 +159,26 @@ async def init_db(
                     description=str(skill["description"]).strip(),
                     instructions=str(skill["instructions"]).strip(),
                     enabled=bool(skill.get("enabled", True)),
+                )
+            )
+
+        existing_evaluator_result = await db.execute(select(EvalEvaluator.id))
+        existing_evaluator_ids = set(existing_evaluator_result.scalars().all())
+        for evaluator in DEFAULT_EVALUATORS:
+            evaluator_id = str(evaluator["id"])
+            if evaluator_id in existing_evaluator_ids:
+                continue
+            db.add(
+                EvalEvaluator(
+                    id=evaluator_id,
+                    created_by_user_id=user.id,
+                    name=str(evaluator["name"]),
+                    kind=EvalEvaluatorKind(evaluator["kind"]),
+                    rule=EvalEvaluatorRule(evaluator["rule"]),
+                    description=str(evaluator["description"]),
+                    criteria=str(evaluator["criteria"]),
+                    threshold=int(evaluator["threshold"]),
+                    builtin=True,
                 )
             )
 

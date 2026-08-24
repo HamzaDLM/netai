@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import ChatAdminFeedbacksTab from '@/components/chat/admin/ChatAdminFeedbacksTab.vue'
+import ChatAdminEvalsTab from '@/components/chat/admin/ChatAdminEvalsTab.vue'
 import ChatAdminOverviewTab from '@/components/chat/admin/ChatAdminOverviewTab.vue'
 import ChatAdminPlaceholderTab from '@/components/chat/admin/ChatAdminPlaceholderTab.vue'
 import ChatAdminSidebar from '@/components/chat/admin/ChatAdminSidebar.vue'
@@ -52,12 +53,7 @@ onMounted(async () => {
 			description="Model, tool, and orchestration timing views will live here."
 			coming-soon-label="Latency dashboards coming next"
 			empty-state-copy="This section is reserved for response-time breakdowns and performance trends once those metrics are exposed to the UI." />
-		<ChatAdminPlaceholderTab
-			v-else-if="activeSection === 'evals'"
-			title="Evals"
-			description="Model evaluation workflows will live here."
-			coming-soon-label="Evaluation tooling is not wired yet"
-			empty-state-copy="This section is reserved for admin workflows that run question, context, and expected-answer sets against the multi-agent setup." />
+		<ChatAdminEvalsTab v-else-if="activeSection === 'evals'" />
 		<ChatAdminPlaceholderTab
 			v-else-if="activeSection === 'documents'"
 			title="Documents"
