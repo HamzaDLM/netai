@@ -39,32 +39,28 @@ class FakeInfrahubProvider:
     status = "available"
     status_message = "connected"
 
-    async def get_toolset(self, *, force: bool = False):
-        assert force is True
-        return SimpleNamespace(
-            tools=[
-                SimpleNamespace(
-                    name="infrahub_query_nodes",
-                    description="Query Infrahub nodes without changing them.",
-                )
-            ]
-        )
+    toolset = SimpleNamespace(
+        tools=[
+            SimpleNamespace(
+                name="infrahub_query_nodes",
+                description="Query Infrahub nodes without changing them.",
+            )
+        ]
+    )
 
 
 class FakeSuzieQProvider:
     status = "available"
     status_message = "connected"
 
-    async def get_toolset(self, *, force: bool = False):
-        assert force is True
-        return SimpleNamespace(
-            tools=[
-                SimpleNamespace(
-                    name="suzieq_get_bgp",
-                    description="Return current BGP session state.",
-                )
-            ]
-        )
+    toolset = SimpleNamespace(
+        tools=[
+            SimpleNamespace(
+                name="suzieq_get_bgp",
+                description="Return current BGP session state.",
+            )
+        ]
+    )
 
 
 @pytest.mark.anyio

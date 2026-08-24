@@ -1,73 +1,303 @@
-from collections.abc import Callable
+from __future__ import annotations
+
 from types import SimpleNamespace
 
 import pytest
+from fastmcp import Client as FastMCPClient
+from fastmcp import FastMCP
+from fastmcp.client.client import CallToolResult
+from mcp import types as mcp_types
+from pydantic import AnyUrl
 
-from app.mcp import mcp_client
-from app.mcp.mcp_client import MCPClientConfig
-from app.mcp.suzieq import SuzieQToolProvider
-
-
-@pytest.fixture(autouse=True)
-def run_threaded_lifecycle_inline(monkeypatch) -> None:
-    async def run_inline(
-        function: Callable[..., object],
-        *args: object,
-        **kwargs: object,
-    ) -> object:
-        return function(*args, **kwargs)
-
-    monkeypatch.setattr(mcp_client.asyncio, "to_thread", run_inline)
+from app.mcp.mcp_client import MCPClientConfig, OptionalMCPToolProvider
 
 
-class FakeToolset:
-    def __init__(self, names: list[str], *, fail_warm_up: bool = False) -> None:
-        self.tools = [SimpleNamespace(name=name) for name in names]
-        self.fail_warm_up = fail_warm_up
-        self.warmed_up = False
+class FakeMCPClient:
+    def __init__(
+        self,
+        *,
+        tools: bool = False,
+        prompts: bool = False,
+        resources: bool = False,
+        fail_connect: bool = False,
+    ) -> None:
+        self.supports_tools = tools
+        self.supports_prompts = prompts
+        self.supports_resources = resources
+        self.fail_connect = fail_connect
         self.closed = False
+        self.calls = {
+            "tools/list": 0,
+            "tools/call": 0,
+            "prompts/list": 0,
+            "prompts/get": 0,
+            "resources/list": 0,
+            "resources/read": 0,
+        }
+        self.initialize_result = SimpleNamespace(
+            capabilities=SimpleNamespace(
+                tools=object() if tools else None,
+                prompts=object() if prompts else None,
+                resources=object() if resources else None,
+            )
+        )
 
-    def warm_up(self) -> None:
-        self.warmed_up = True
-        if self.fail_warm_up:
+    async def __aenter__(self) -> FakeMCPClient:
+        if self.fail_connect:
             raise ConnectionError("unavailable")
+        return self
 
-    def close(self) -> None:
+    async def __aexit__(self, *_args: object) -> None:
         self.closed = True
 
+    async def list_tools(self) -> list[mcp_types.Tool]:
+        assert self.supports_tools
+        self.calls["tools/list"] += 1
+        return [
+            mcp_types.Tool(
+                name="inspect_routing",
+                description="Inspect routing state for a device",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"device": {"type": "string"}},
+                    "required": ["device"],
+                },
+            ),
+            mcp_types.Tool(
+                name="update_routing",
+                description="Mutate routing state",
+                inputSchema={"type": "object", "properties": {}},
+            ),
+        ]
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, object]
+    ) -> CallToolResult:
+        assert self.supports_tools
+        self.calls["tools/call"] += 1
+        return CallToolResult(
+            content=[],
+            structured_content={"name": name, **arguments},
+            meta=None,
+        )
+
+    async def list_prompts(self) -> list[mcp_types.Prompt]:
+        assert self.supports_prompts
+        self.calls["prompts/list"] += 1
+        return [
+            mcp_types.Prompt(
+                name="routing_diagnostic",
+                description="Instructions for diagnosing routing behavior",
+            ),
+            mcp_types.Prompt(
+                name="unrelated_wireless",
+                description="Instructions for wireless access points",
+            ),
+            mcp_types.Prompt(
+                name="site_specific",
+                description="Instructions requiring a site argument",
+                arguments=[mcp_types.PromptArgument(name="site", required=True)],
+            ),
+        ]
+
+    async def get_prompt(
+        self, name: str, arguments: dict[str, str] | None = None
+    ) -> mcp_types.GetPromptResult:
+        assert self.supports_prompts
+        assert arguments is None
+        self.calls["prompts/get"] += 1
+        return mcp_types.GetPromptResult(
+            messages=[
+                mcp_types.PromptMessage(
+                    role="user",
+                    content=mcp_types.TextContent(
+                        type="text", text=f"Apply the {name} workflow"
+                    ),
+                )
+            ]
+        )
+
+    async def list_resources(self) -> list[mcp_types.Resource]:
+        assert self.supports_resources
+        self.calls["resources/list"] += 1
+        return [
+            mcp_types.Resource(
+                uri=AnyUrl("schema://inventory"),
+                name="inventory_schema",
+                description="Inventory schema for routing devices",
+                mimeType="text/plain",
+            ),
+            mcp_types.Resource(
+                uri=AnyUrl("docs://wireless"),
+                name="wireless_guide",
+                description="Wireless access point guide",
+                mimeType="text/plain",
+            ),
+        ]
+
+    async def read_resource(self, uri: str) -> list[mcp_types.ResourceContents]:
+        assert self.supports_resources
+        self.calls["resources/read"] += 1
+        return [
+            mcp_types.TextResourceContents(
+                uri=AnyUrl(uri),
+                mimeType="text/plain",
+                text=f"resource body for {uri}",
+            )
+        ]
+
+
+def make_provider(
+    client: FakeMCPClient, *, resource_ttl: float = 60.0
+) -> OptionalMCPToolProvider:
+    return OptionalMCPToolProvider(
+        MCPClientConfig(
+            url="http://example.test/mcp",
+            resource_cache_ttl_seconds=resource_ttl,
+        ),
+        connector="example",
+        display_name="Example",
+        client_factory=lambda _config: client,  # type: ignore[arg-type,return-value]
+    )
+
 
 @pytest.mark.anyio
-async def test_suzieq_provider_discovers_only_read_only_tools(monkeypatch) -> None:
-    toolset = FakeToolset(["suzieq_get_bgp", "suzieq_update_device"])
-    monkeypatch.setattr(mcp_client, "create_haystack_toolset", lambda _config: toolset)
-    provider = SuzieQToolProvider(MCPClientConfig(url="http://suzieq.test/mcp"))
+@pytest.mark.parametrize(
+    ("has_tools", "has_prompts", "has_resources"),
+    [
+        (False, False, False),
+        (True, False, False),
+        (False, True, False),
+        (False, False, True),
+        (True, True, False),
+        (True, False, True),
+        (False, True, True),
+        (True, True, True),
+    ],
+)
+async def test_capabilities_discover_metadata_and_fetch_content_on_demand(
+    has_tools: bool,
+    has_prompts: bool,
+    has_resources: bool,
+) -> None:
+    client = FakeMCPClient(
+        tools=has_tools,
+        prompts=has_prompts,
+        resources=has_resources,
+    )
+    provider = make_provider(client)
 
-    discovered = await provider.get_toolset()
+    assert await provider.warm_up() is True
+    assert provider.capabilities.tools is has_tools
+    assert provider.capabilities.prompts is has_prompts
+    assert provider.capabilities.resources is has_resources
+    assert len(provider.toolset.tools if provider.toolset else []) == int(has_tools)
+    assert len(provider.prompt_metadata) == (3 if has_prompts else 0)
+    assert len(provider.resource_metadata) == (2 if has_resources else 0)
+    assert client.calls["prompts/get"] == 0
+    assert client.calls["resources/read"] == 0
 
-    assert discovered is toolset
-    assert [tool.name for tool in toolset.tools] == ["suzieq_get_bgp"]
-    assert toolset.tools[0].netai_connector == "suzieq"
-    assert provider.status == "available"
+    context = await provider.request_context(
+        "diagnose routing behavior using the inventory schema"
+    )
+
+    assert len(context.prompts) == int(has_prompts)
+    assert len(context.resources) == int(has_resources)
+    assert "wireless" not in " ".join(item.text for item in context.prompts)
+    assert "wireless" not in " ".join(item.text for item in context.resources)
+    assert client.calls["prompts/get"] == int(has_prompts)
+    assert client.calls["resources/read"] == int(has_resources)
+
+    await provider.request_context(
+        "diagnose routing behavior using the inventory schema"
+    )
+    assert client.calls["prompts/get"] == int(has_prompts)
+    assert client.calls["resources/read"] == int(has_resources)
     await provider.close()
-    assert toolset.closed is True
+    assert client.closed is True
 
 
 @pytest.mark.anyio
-async def test_suzieq_provider_caches_connection_failure(monkeypatch) -> None:
-    toolset = FakeToolset([], fail_warm_up=True)
-    calls = 0
+async def test_tools_only_server_exposes_callable_read_only_tool() -> None:
+    client = FakeMCPClient(tools=True)
+    provider = make_provider(client)
 
-    def create(_config: MCPClientConfig) -> FakeToolset:
-        nonlocal calls
-        calls += 1
-        return toolset
+    toolset = await provider.get_toolset()
 
-    monkeypatch.setattr(mcp_client, "create_haystack_toolset", create)
-    provider = SuzieQToolProvider(MCPClientConfig(url="http://suzieq.test/mcp"))
+    assert toolset is not None
+    assert [tool.name for tool in toolset.tools] == ["inspect_routing"]
+    result = await toolset.tools[0].invoke_async(device="edge-01")
+    assert result == {"name": "inspect_routing", "device": "edge-01"}
+    assert client.calls["tools/call"] == 1
+    await provider.close()
+
+
+@pytest.mark.anyio
+async def test_resource_content_expires_after_configured_ttl() -> None:
+    client = FakeMCPClient(resources=True)
+    provider = make_provider(client, resource_ttl=0)
+
+    await provider.request_context("inventory schema")
+    await provider.request_context("inventory schema")
+
+    assert client.calls["resources/read"] == 2
+    await provider.close()
+
+
+@pytest.mark.anyio
+async def test_connection_failure_is_cached_and_does_not_raise() -> None:
+    client = FakeMCPClient(fail_connect=True)
+    provider = make_provider(client)
 
     assert await provider.get_toolset() is None
     assert await provider.get_toolset() is None
     assert provider.status == "unavailable"
-    assert provider.status_message == "SuzieQ is currently unavailable."
-    assert calls == 1
-    assert toolset.closed is True
+    assert "unavailable" in provider.status_message
+    assert client.closed is True
+
+
+@pytest.mark.anyio
+async def test_provider_uses_real_fastmcp_tools_prompts_and_resources() -> None:
+    server = FastMCP("consumed-server")
+    content_calls = {"prompt": 0, "resource": 0}
+
+    @server.tool
+    async def inspect_routing(device: str) -> dict[str, str]:
+        """Inspect routing state for a device."""
+
+        return {"device": device}
+
+    @server.prompt(name="routing_diagnostic", description="Routing diagnostic steps")
+    async def routing_prompt() -> str:
+        content_calls["prompt"] += 1
+        return "Inspect the route table."
+
+    @server.resource(
+        "schema://inventory",
+        name="inventory_schema",
+        description="Inventory routing schema",
+    )
+    async def inventory_schema() -> str:
+        content_calls["resource"] += 1
+        return "device -> route"
+
+    provider = OptionalMCPToolProvider(
+        MCPClientConfig(url="http://unused.test/mcp"),
+        connector="example",
+        display_name="Example",
+        client_factory=lambda _config: FastMCPClient(server),  # type: ignore[arg-type,return-value]
+    )
+
+    assert await provider.warm_up() is True
+    assert content_calls == {"prompt": 0, "resource": 0}
+    assert provider.toolset is not None
+    tool_result = await provider.toolset.tools[0].invoke_async(device="edge-01")
+    context = await provider.request_context("routing diagnostic inventory schema")
+
+    assert tool_result == {"device": "edge-01"}
+    assert context.prompts[0].name == "routing_diagnostic"
+    assert "route table" in context.prompts[0].text
+    assert context.resources[0].uri == "schema://inventory"
+    assert context.resources[0].text == "device -> route"
+    assert content_calls == {"prompt": 1, "resource": 1}
+    await provider.close()

@@ -1,26 +1,10 @@
-"""Lazy, failure-isolated SuzieQ MCP tools for the internal NetAI agent."""
+"""Failure-isolated SuzieQ MCP capabilities consumed by NetAI."""
 
 from app.mcp.mcp_client import MCPClientConfig, OptionalMCPToolProvider
 
-_RELEVANT_TERMS = (
-    "suzieq",
-    "suzie q",
-    "network state",
-    "control plane",
-    "control-plane",
-    "bgp session",
-    "ospf neighbor",
-    "lldp neighbor",
-    "route table",
-    "routing table",
-    "mac table",
-    "arp table",
-    "path analysis",
-)
-
 
 class SuzieQToolProvider(OptionalMCPToolProvider):
-    """Discover read-only SuzieQ tools only for relevant requests."""
+    """Name the generic consumed-MCP provider at the composition boundary."""
 
     def __init__(
         self,
@@ -32,6 +16,5 @@ class SuzieQToolProvider(OptionalMCPToolProvider):
             config,
             connector="suzieq",
             display_name="SuzieQ",
-            relevant_terms=_RELEVANT_TERMS,
             retry_after_seconds=retry_after_seconds,
         )

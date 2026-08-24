@@ -74,9 +74,11 @@ class Settings(BaseSettings):
     INFRAHUB_MCP_URL: str = "http://127.0.0.1:8001/mcp"
     INFRAHUB_MCP_TOKEN: str = ""
     INFRAHUB_MCP_TIMEOUT_SECONDS: float = 5.0
+    INFRAHUB_MCP_RESOURCE_TTL_SECONDS: float = 60.0
     SUZIEQ_MCP_URL: str = "http://127.0.0.1:8002/mcp"
     SUZIEQ_MCP_TOKEN: str = ""
     SUZIEQ_MCP_TIMEOUT_SECONDS: float = 5.0
+    SUZIEQ_MCP_RESOURCE_TTL_SECONDS: float = 60.0
     MCP_CONSUMER_TOKEN: str = ""
 
     BITBUCKET_CLONE_DIR: str = ""

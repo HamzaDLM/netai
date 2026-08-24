@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-
-from haystack_integrations.tools.mcp import MCPToolset
+from haystack.tools import Toolset
 
 from app.core.config import Settings, project_settings
 from app.mcp.infrahub import InfrahubToolProvider
@@ -74,7 +72,7 @@ def get_agent_tool_catalog(
 
 
 def _remote_tools(
-    toolset: MCPToolset | None,
+    toolset: Toolset | None,
     *,
     connector_name: str,
 ) -> list[dict[str, object]]:
@@ -99,20 +97,16 @@ async def get_resolved_agent_tool_catalog(
 ) -> list[dict[str, object]]:
     """Resolve optional MCP entries without affecting local connectors."""
 
-    infrahub_toolset, suzieq_toolset = await asyncio.gather(
-        infrahub.get_toolset(force=True),
-        suzieq.get_toolset(force=True),
-    )
     return [
         *registry.catalog(),
         _infrahub_entry(
             status=infrahub.status,
             status_message=infrahub.status_message,
-            tools=_remote_tools(infrahub_toolset, connector_name="Infrahub"),
+            tools=_remote_tools(infrahub.toolset, connector_name="Infrahub"),
         ),
         _suzieq_mcp_entry(
             status=suzieq.status,
             status_message=suzieq.status_message,
-            tools=_remote_tools(suzieq_toolset, connector_name="SuzieQ"),
+            tools=_remote_tools(suzieq.toolset, connector_name="SuzieQ"),
         ),
     ]

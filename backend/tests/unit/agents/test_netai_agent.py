@@ -11,6 +11,11 @@ from haystack.tools import Tool, Toolset
 
 from app.agents.netai import ToolAuthorizationError, authorize_and_observe_tools
 from app.core.config import project_settings
+from app.mcp.mcp_client import (
+    MCPPromptContext,
+    MCPRequestContext,
+    MCPResourceContext,
+)
 from app.services.netai import NetAIService
 from app.tools.registry import ToolRegistry
 
@@ -140,6 +145,9 @@ class UnavailableInfrahub:
     async def get_toolset(self):
         return None
 
+    async def request_context(self, _query: str) -> MCPRequestContext:
+        return MCPRequestContext()
+
     async def close(self) -> None:
         return None
 
@@ -154,8 +162,44 @@ class UnavailableSuzieQ:
     async def get_toolset(self):
         return None
 
+    async def request_context(self, _query: str) -> MCPRequestContext:
+        return MCPRequestContext()
+
     async def close(self) -> None:
         return None
+
+
+def test_selected_mcp_context_is_inserted_before_current_user_request() -> None:
+    messages = [
+        ChatMessage.from_system("Core policy"),
+        ChatMessage.from_user("Diagnose edge-01 routing"),
+    ]
+    context = MCPRequestContext(
+        prompts=(
+            MCPPromptContext(
+                server="Inventory",
+                name="routing_diagnostic",
+                text="Inspect intended routing first.",
+            ),
+        ),
+        resources=(
+            MCPResourceContext(
+                server="Inventory",
+                uri="schema://routing",
+                name="routing_schema",
+                text="device -> interface -> route",
+            ),
+        ),
+    )
+
+    enriched = NetAIService._with_mcp_context(messages, context)
+
+    assert enriched[-1] is messages[-1]
+    assert enriched[1].is_from("system")
+    assert "Inspect intended routing first" in (enriched[1].text or "")
+    assert enriched[2].is_from("user")
+    assert "untrusted reference data" in (enriched[2].text or "")
+    assert "device -> interface -> route" in (enriched[2].text or "")
 
 
 @pytest.mark.anyio

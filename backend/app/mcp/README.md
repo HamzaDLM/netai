@@ -84,22 +84,43 @@ uv run mcp-zabbix-standalone
 
 ## Consume external MCP connectors
 
-`InfrahubToolProvider` and `SuzieQToolProvider` create Haystack's native
-`MCPToolset` from `MCPClientConfig`. Discovery is lazy, mutating tool names are
-filtered, failures are cached briefly, and failure never prevents startup or
-unrelated requests. The service closes connected toolsets during FastAPI
-shutdown. When SuzieQ MCP is reachable and exposes read-only tools, it takes
-precedence over the direct SuzieQ API tools for that request; otherwise NetAI
-retains the direct tools as a fallback.
+This section applies only to external MCP servers consumed by NetAI, such as
+Infrahub and SuzieQ. It does not change the MCP servers that expose NetAI's own
+tools.
+
+At FastAPI startup, each provider opens one persistent FastMCP client session,
+checks the server's advertised capabilities, and caches metadata returned by
+`tools/list`, `prompts/list`, and `resources/list` where supported. It never
+loads prompt or resource bodies at startup. Discovered read-only MCP tools are
+adapted directly to native Haystack `Tool` objects; mutating tool names are
+filtered.
+
+At request time, generic metadata matching routes only relevant connectors and
+selects relevant prompt/resource entries. Prompt content is retrieved with
+`prompts/get` and cached after its first use. Text resources are retrieved with
+`resources/read` and cached for the configured TTL. Selected prompt content is
+added as supplemental agent instructions and selected resources as untrusted
+request reference data. Required-argument prompts are not fetched
+automatically because NetAI cannot safely invent their arguments. Tools-only
+servers continue to work without any prompt/resource calls.
+
+Connection and individual capability failures are isolated so an unavailable
+external MCP server never prevents the Agent from using other connectors. The
+service closes every persistent client at FastAPI shutdown. When SuzieQ MCP is
+reachable and exposes read-only tools, it takes precedence over the direct
+SuzieQ API tools for that request; otherwise NetAI retains the direct tools as
+a fallback.
 
 ```bash
 INFRAHUB_MCP_URL=http://127.0.0.1:8001/mcp
 INFRAHUB_MCP_TOKEN=
 INFRAHUB_MCP_TIMEOUT_SECONDS=5
+INFRAHUB_MCP_RESOURCE_TTL_SECONDS=60
 
 SUZIEQ_MCP_URL=http://127.0.0.1:8002/mcp
 SUZIEQ_MCP_TOKEN=
 SUZIEQ_MCP_TIMEOUT_SECONDS=5
+SUZIEQ_MCP_RESOURCE_TTL_SECONDS=60
 ```
 
 Use read-only credentials and enforce permissions at each upstream MCP server;
