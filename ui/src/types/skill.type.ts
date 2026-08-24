@@ -79,3 +79,25 @@ export interface SkillsBootstrap {
 	marketplace: SkillMarketplaceListing[]
 	review_queue: SkillMarketplaceListing[]
 }
+
+export interface AdminSkill extends Skill {
+	owner_username: string
+}
+
+export interface AdminSkillMarketplaceListing extends SkillMarketplaceListing {
+	owner_username: string
+}
+
+export interface AdminSkillStats {
+	registered_skills: number
+	enabled_skills: number
+	created_last_7_days: number
+	pending_approvals: number
+	marketplace_skills: number
+}
+
+export interface AdminSkillsBootstrap {
+	skills: AdminSkill[]
+	review_queue: AdminSkillMarketplaceListing[]
+	stats: AdminSkillStats
+}

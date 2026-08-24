@@ -62,6 +62,28 @@ class SkillMarketplaceListingResponse(ORMBaseModel):
     updated_at: datetime
 
 
+class AdminSkillResponse(SkillResponse):
+    owner_username: str
+
+
+class AdminSkillMarketplaceListingResponse(SkillMarketplaceListingResponse):
+    owner_username: str
+
+
+class AdminSkillStats(BaseModel):
+    registered_skills: int
+    enabled_skills: int
+    created_last_7_days: int
+    pending_approvals: int
+    marketplace_skills: int
+
+
+class AdminSkillsBootstrapResponse(BaseModel):
+    skills: list[AdminSkillResponse]
+    review_queue: list[AdminSkillMarketplaceListingResponse]
+    stats: AdminSkillStats
+
+
 class ToolCatalogTool(BaseModel):
     python_name: str
     runtime_name: str | None = None

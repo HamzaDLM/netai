@@ -1,13 +1,19 @@
 import re
 from collections.abc import Sequence
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import func, select
 
 from app.api.deps import AsyncSessionDep, CheckUserSSODep, NetAIServiceDep
 from app.api.models.skills import Skill, SkillMarketplaceListing, SkillMarketplaceStatus
+from app.api.models.users import User as UserModel
 from app.api.models.users import UserRole
 from app.api.schemas.skills import (
+    AdminSkillMarketplaceListingResponse,
+    AdminSkillResponse,
+    AdminSkillsBootstrapResponse,
+    AdminSkillStats,
     SkillBootstrapResponse,
     SkillCreate,
     SkillMarketplaceListingResponse,
@@ -35,6 +41,12 @@ def _marketplace_status_sort_value(status: SkillMarketplaceStatus) -> int:
     if status == SkillMarketplaceStatus.rejected:
         return 1
     return 2
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 async def _get_user_skill(db: AsyncSessionDep, skill_id: int, user_id: int) -> Skill:
@@ -223,6 +235,16 @@ def _require_admin(role: UserRole) -> None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
 
 
+async def _usernames_by_id(
+    db: AsyncSessionDep,
+    user_ids: set[int],
+) -> dict[int, str]:
+    if not user_ids:
+        return {}
+    result = await db.execute(select(UserModel).where(UserModel.id.in_(user_ids)))
+    return {item.id: item.username for item in result.scalars().all()}
+
+
 async def _sync_listing_from_skill(
     db: AsyncSessionDep,
     *,
@@ -336,6 +358,78 @@ async def get_skills_bootstrap(
         catalog=catalog,
         marketplace=marketplace,
         review_queue=review_queue,
+    )
+
+
+@router.get("/admin/bootstrap", response_model=AdminSkillsBootstrapResponse)
+async def get_admin_skills_bootstrap(
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+) -> AdminSkillsBootstrapResponse:
+    """Return the cross-user inventory and review queue used by the admin panel."""
+
+    _require_admin(user.role)
+    skills_result = await db.execute(
+        select(Skill)
+        .where(Skill.archived.is_(False))
+        .order_by(Skill.created_at.desc(), Skill.id.desc())
+    )
+    skill_models = list(skills_result.scalars().all())
+    serialized_skills = await _serialize_skills(db, skills=skill_models)
+
+    pending_result = await db.execute(
+        select(SkillMarketplaceListing)
+        .where(
+            SkillMarketplaceListing.archived.is_(False),
+            SkillMarketplaceListing.status == SkillMarketplaceStatus.pending,
+        )
+        .order_by(SkillMarketplaceListing.created_at.asc())
+    )
+    pending_models = list(pending_result.scalars().all())
+    owner_ids = {skill.user_id for skill in skill_models} | {
+        listing.owner_user_id for listing in pending_models
+    }
+    usernames = await _usernames_by_id(db, owner_ids)
+
+    skills = [
+        AdminSkillResponse.model_validate(
+            {
+                **serialized.model_dump(),
+                "owner_username": usernames.get(
+                    serialized.user_id, f"user-{serialized.user_id}"
+                ),
+            }
+        )
+        for serialized in serialized_skills
+    ]
+    review_queue = [
+        AdminSkillMarketplaceListingResponse.model_validate(
+            {
+                **_serialize_listing(listing).model_dump(),
+                "owner_username": usernames.get(
+                    listing.owner_user_id, f"user-{listing.owner_user_id}"
+                ),
+            }
+        )
+        for listing in pending_models
+    ]
+
+    seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    marketplace_skills = sum(
+        skill.marketplace_status == SkillMarketplaceStatus.approved for skill in skills
+    )
+    return AdminSkillsBootstrapResponse(
+        skills=skills,
+        review_queue=review_queue,
+        stats=AdminSkillStats(
+            registered_skills=len(skills),
+            enabled_skills=sum(skill.enabled for skill in skills),
+            created_last_7_days=sum(
+                _as_utc(skill.created_at) >= seven_days_ago for skill in skills
+            ),
+            pending_approvals=len(review_queue),
+            marketplace_skills=marketplace_skills,
+        ),
     )
 
 

@@ -1,6 +1,6 @@
 import { AxiosResponse } from 'axios'
 import API from './axios'
-import type { Skill, SkillCreatePayload, SkillMarketplaceListing, SkillsBootstrap, SkillUpdatePayload, ToolCatalogAgent } from '@/types/skill.type'
+import type { AdminSkillsBootstrap, Skill, SkillCreatePayload, SkillMarketplaceListing, SkillsBootstrap, SkillUpdatePayload, ToolCatalogAgent } from '@/types/skill.type'
 
 class SkillsService {
 	getSkills(): Promise<AxiosResponse<Skill[]>> {
@@ -13,6 +13,10 @@ class SkillsService {
 
 	getBootstrap(): Promise<AxiosResponse<SkillsBootstrap>> {
 		return API.get('/skills/bootstrap')
+	}
+
+	getAdminBootstrap(): Promise<AxiosResponse<AdminSkillsBootstrap>> {
+		return API.get('/skills/admin/bootstrap')
 	}
 
 	createSkill(payload: SkillCreatePayload): Promise<AxiosResponse<Skill>> {
