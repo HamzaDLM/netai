@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { Check, ChevronDown, RefreshCw, Sparkles, TriangleAlert, WandSparkles, X } from 'lucide-vue-next'
 import ChatAdminStatCard from './ChatAdminStatCard.vue'
 import ChatAdminSearchBar from './ChatAdminSearchBar.vue'
-import { Check, ChevronDown, Sparkles, TriangleAlert, WandSparkles, X } from 'lucide-vue-next'
+import { toast } from '@/components/ui/toast'
+import skillsService from '@/services/skills.service'
+import type { AdminSkill, AdminSkillMarketplaceListing, AdminSkillStats, SkillMarketplaceStatus } from '@/types/skill.type'
 
 type SummaryCard = {
 	title: string
@@ -12,175 +15,111 @@ type SummaryCard = {
 	spanClass: string
 }
 
-type ApprovalSkill = {
-	id: number
-	name: string
-	slug: string
-	description: string
-	owner: string
-}
-
-type AdminSkill = {
-	id: number
-	name: string
-	slug: string
-	description: string
-	owner: string
-	inMarketplace: boolean
-	createdAt: string
+const EMPTY_STATS: AdminSkillStats = {
+	registered_skills: 0,
+	enabled_skills: 0,
+	created_last_7_days: 0,
+	pending_approvals: 0,
+	marketplace_skills: 0,
 }
 
 const searchQuery = ref('')
 const approvalSearchQuery = ref('')
 const approvalExpanded = ref(false)
+const skills = ref<AdminSkill[]>([])
+const approvalQueue = ref<AdminSkillMarketplaceListing[]>([])
+const stats = ref<AdminSkillStats>({ ...EMPTY_STATS })
+const isLoading = ref(true)
+const busyListingId = ref<number | null>(null)
 
-const summaryCards: SummaryCard[] = [
+const summaryCards = computed<SummaryCard[]>(() => [
 	{
 		title: 'Registered Skills',
-		value: '1,239',
-		helper: 'active skills',
+		value: stats.value.registered_skills.toLocaleString(),
+		helper: `${stats.value.enabled_skills.toLocaleString()} enabled`,
 		icon: Sparkles,
 		spanClass: 'xl:col-span-3',
 	},
 	{
 		title: 'Newly Created Skills',
-		value: '52',
-		helper: 'this week',
+		value: stats.value.created_last_7_days.toLocaleString(),
+		helper: 'last 7 days',
 		icon: WandSparkles,
 		spanClass: 'xl:col-span-3',
 	},
 	{
 		title: 'Skills Requiring Approval',
-		value: '129',
+		value: stats.value.pending_approvals.toLocaleString(),
 		helper: 'pending review',
 		icon: TriangleAlert,
 		spanClass: 'xl:col-span-3',
 	},
-]
-
-const topSkills = ['/skill-slug1', '/skill-slug2', '/skill-slug3', '/skill-slug4', '/skill-slug5']
-
-const approvalQueue: ApprovalSkill[] = [
-	{
-		id: 1,
-		name: 'WAN Incident Summarizer',
-		slug: 'wan-incident-summary',
-		description: 'Condenses noisy incident threads into a concise outage summary for on-call handoff.',
-		owner: 'Maya Patel',
-	},
-	{
-		id: 2,
-		name: 'BGP Drift Watcher',
-		slug: 'bgp-drift-watcher',
-		description: 'Flags route-policy and neighbor drift patterns before they become customer-facing.',
-		owner: 'Daniel Kim',
-	},
-	{
-		id: 3,
-		name: 'Change Window Prep',
-		slug: 'change-window-prep',
-		description: 'Builds a pre-change checklist with config, incident, and monitoring context.',
-		owner: 'Julien Moreau',
-	},
-]
-
-const skills: AdminSkill[] = [
-	{
-		id: 1,
-		name: 'Edge Rollback Guide',
-		slug: 'edge-rollback-guide',
-		description: 'Provides rollback steps and dependency checks for failed edge deployments.',
-		owner: 'Maya Patel',
-		inMarketplace: true,
-		createdAt: 'May 14, 2026',
-	},
-	{
-		id: 2,
-		name: 'BGP Session Audit',
-		slug: 'bgp-session-audit',
-		description: 'Audits peer state, timer mismatches, and route-policy discrepancies.',
-		owner: 'Noah Fischer',
-		inMarketplace: false,
-		createdAt: 'May 13, 2026',
-	},
-	{
-		id: 3,
-		name: 'Incident Timeline Builder',
-		slug: 'incident-timeline-builder',
-		description: 'Builds an investigation timeline from incidents, alerts, and syslog evidence.',
-		owner: 'Amina Hassan',
-		inMarketplace: true,
-		createdAt: 'May 11, 2026',
-	},
-	{
-		id: 4,
-		name: 'Config Drift Lens',
-		slug: 'config-drift-lens',
-		description: 'Compares candidate and running config snapshots for operationally relevant drift.',
-		owner: 'Daniel Kim',
-		inMarketplace: false,
-		createdAt: 'May 9, 2026',
-	},
-	{
-		id: 5,
-		name: 'Service Blast Radius',
-		slug: 'service-blast-radius',
-		description: 'Maps impacted devices and downstream services when an incident is in flight.',
-		owner: 'Camila Torres',
-		inMarketplace: true,
-		createdAt: 'May 8, 2026',
-	},
-	{
-		id: 6,
-		name: 'Maintenance Comms Draft',
-		slug: 'maintenance-comms-draft',
-		description: 'Drafts stakeholder-facing maintenance notes from change request context.',
-		owner: 'Julien Moreau',
-		inMarketplace: false,
-		createdAt: 'May 7, 2026',
-	},
-]
+])
 
 const filteredApprovalQueue = computed(() => {
 	const query = approvalSearchQuery.value.trim().toLowerCase()
-	if (!query) return approvalQueue
-
-	return approvalQueue.filter(skill =>
-		[skill.name, skill.slug, skill.description, skill.owner].join(' ').toLowerCase().includes(query)
-	)
+	if (!query) return approvalQueue.value
+	return approvalQueue.value.filter(skill => [skill.name, skill.slug, skill.description, skill.owner_username].join(' ').toLowerCase().includes(query))
 })
 
 const filteredSkills = computed(() => {
 	const query = searchQuery.value.trim().toLowerCase()
-	if (!query) return skills
-
-	return skills.filter(skill =>
-		[
-			skill.name,
-			skill.slug,
-			skill.description,
-			skill.owner,
-			skill.inMarketplace ? 'marketplace' : 'private',
-			skill.createdAt,
-		]
-			.join(' ')
-			.toLowerCase()
-			.includes(query)
-	)
+	if (!query) return skills.value
+	return skills.value.filter(skill => [skill.name, skill.slug, skill.description, skill.owner_username, skill.marketplace_status ?? 'private', skill.enabled ? 'enabled' : 'disabled', skill.created_at].join(' ').toLowerCase().includes(query))
 })
+
+async function loadAdminSkills() {
+	isLoading.value = true
+	try {
+		const { data } = await skillsService.getAdminBootstrap()
+		skills.value = data.skills
+		approvalQueue.value = data.review_queue
+		stats.value = data.stats
+	} catch {
+		toast({ title: 'Unable to load admin skills data', variant: 'destructive' })
+	} finally {
+		isLoading.value = false
+	}
+}
+
+async function reviewSkill(listingId: number, decision: 'approve' | 'reject') {
+	if (busyListingId.value !== null) return
+	busyListingId.value = listingId
+	try {
+		if (decision === 'approve') await skillsService.approveMarketplaceSkill(listingId)
+		else await skillsService.rejectMarketplaceSkill(listingId)
+		await loadAdminSkills()
+		toast({ title: decision === 'approve' ? 'Skill approved' : 'Skill rejected' })
+	} catch {
+		toast({ title: `Unable to ${decision} skill`, variant: 'destructive' })
+	} finally {
+		busyListingId.value = null
+	}
+}
+
+function marketplaceLabel(status: SkillMarketplaceStatus | null): string {
+	if (status === 'approved') return 'Marketplace'
+	if (status === 'pending') return 'Pending'
+	if (status === 'rejected') return 'Rejected'
+	return 'Private'
+}
+
+function formattedDate(value: string): string {
+	return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value))
+}
+
+onMounted(loadAdminSkills)
 </script>
 
 <template>
 	<section class="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
-		<div class="px-6 py-4 border-b border-stone-900">
-			<p class="text-xl font-semibold text-stone-100">Skills</p>
-			<p class="mt-1 text-sm text-stone-500">
-				Frontend mock of skill inventory, approvals, and marketplace state.
-			</p>
+		<div class="flex items-center justify-between gap-4 px-6 py-4 border-b border-stone-900">
+			<div><p class="text-xl font-semibold text-stone-100">Skills</p><p class="mt-1 text-sm text-stone-500">Cross-user skill inventory, marketplace approvals, and live publication state.</p></div>
+			<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-800 px-3 text-sm text-stone-400 transition hover:border-stone-600 hover:text-stone-200 disabled:opacity-40" :disabled="isLoading" @click="loadAdminSkills"><RefreshCw class="h-3.5 w-3.5" :class="isLoading ? 'animate-spin' : ''" />Refresh</button>
 		</div>
 
 		<div class="flex flex-col flex-1 min-h-0 gap-4 p-6">
-			<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-9">
+			<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-9" :class="isLoading ? 'animate-pulse opacity-60' : ''">
 				<ChatAdminStatCard
 					v-for="card in summaryCards"
 					:key="card.title"
@@ -188,9 +127,7 @@ const filteredSkills = computed(() => {
 					:title="card.title"
 					:value="card.value"
 					:helper="card.helper"
-					:icon="card.icon"
-					:extra-lines="card.title === 'Top 5 Skills' ? topSkills : undefined"
-					:value-class="card.title === 'Top 5 Skills' ? 'text-[1.2rem]' : ''" />
+					:icon="card.icon" />
 			</div>
 
 			<div class="flex flex-col flex-1 min-h-0">
@@ -234,17 +171,21 @@ const filteredSkills = computed(() => {
 									</div>
 									<p class="mt-4 text-sm leading-6 text-stone-400">{{ skill.description }}</p>
 									<p class="mt-4 text-xs uppercase tracking-[0.18em] text-stone-500">Owner</p>
-									<p class="mt-1 text-sm text-stone-200">{{ skill.owner }}</p>
+									<p class="mt-1 text-sm text-stone-200">{{ skill.owner_username }}</p>
 									<div class="flex justify-end gap-2 mt-5">
 										<button
 											type="button"
-											class="inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.04] px-3 py-1.5 text-sm text-red-500 transition hover:bg-white/[0.06]">
+											class="inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.04] px-3 py-1.5 text-sm text-red-500 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+											:disabled="busyListingId !== null"
+											@click="reviewSkill(skill.id, 'reject')">
 											<X class="h-3.5 w-3.5" />
 											Reject
 										</button>
 										<button
 											type="button"
-											class="inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.04] px-3 py-1.5 text-sm text-emerald-500 transition hover:bg-white/[0.06]">
+											class="inline-flex items-center gap-1.5 rounded-full border border-white/8 bg-white/[0.04] px-3 py-1.5 text-sm text-emerald-500 transition hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-40"
+											:disabled="busyListingId !== null"
+											@click="reviewSkill(skill.id, 'approve')">
 											<Check class="h-3.5 w-3.5" />
 											Approve
 										</button>
@@ -254,7 +195,7 @@ const filteredSkills = computed(() => {
 								<div
 									v-if="filteredApprovalQueue.length === 0"
 									class="rounded-2xl border border-dashed border-white/8 bg-white/[0.02] px-5 py-10 text-center text-sm text-stone-500 xl:col-span-3">
-									No pending skills match that search.
+									{{ isLoading ? 'Loading pending skills…' : 'No pending skills match that search.' }}
 								</div>
 							</div>
 						</div>
@@ -287,8 +228,8 @@ const filteredSkills = computed(() => {
 								</div>
 								<span
 									class="shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium"
-									:class="skill.inMarketplace ? 'border-sky-700/30 bg-sky-500/10 text-sky-200' : 'border-white/8 bg-white/[0.04] text-stone-300'">
-									{{ skill.inMarketplace ? 'Marketplace' : 'Private' }}
+									:class="skill.marketplace_status === 'approved' ? 'border-sky-700/30 bg-sky-500/10 text-sky-200' : skill.marketplace_status === 'pending' ? 'border-amber-700/30 bg-amber-500/10 text-amber-200' : skill.marketplace_status === 'rejected' ? 'border-red-700/30 bg-red-500/10 text-red-200' : 'border-white/8 bg-white/[0.04] text-stone-300'">
+									{{ marketplaceLabel(skill.marketplace_status) }}
 								</span>
 							</div>
 
@@ -297,19 +238,20 @@ const filteredSkills = computed(() => {
 							<div class="grid gap-3 mt-4 sm:grid-cols-2">
 								<div>
 									<p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-stone-500">Owner</p>
-									<p class="mt-1.5 text-sm text-stone-200">{{ skill.owner }}</p>
+									<p class="mt-1.5 text-sm text-stone-200">{{ skill.owner_username }}</p>
 								</div>
 								<div>
 									<p class="text-[10px] font-semibold uppercase tracking-[0.22em] text-stone-500">Created At</p>
-									<p class="mt-1.5 text-sm text-stone-200">{{ skill.createdAt }}</p>
+									<p class="mt-1.5 text-sm text-stone-200">{{ formattedDate(skill.created_at) }}</p>
 								</div>
 							</div>
+							<div class="mt-4 flex items-center gap-2 text-xs"><span class="h-1.5 w-1.5 rounded-full" :class="skill.enabled ? 'bg-emerald-400' : 'bg-stone-600'" /><span :class="skill.enabled ? 'text-emerald-400' : 'text-stone-600'">{{ skill.enabled ? 'Enabled' : 'Disabled' }}</span></div>
 						</article>
 
 						<div
 							v-if="filteredSkills.length === 0"
 							class="rounded-2xl border border-dashed border-white/8 bg-white/[0.02] px-5 py-10 text-center text-sm text-stone-500 xl:col-span-3">
-							No skills match that search.
+							{{ isLoading ? 'Loading skill inventory…' : 'No skills match that search.' }}
 						</div>
 					</div>
 				</div>
