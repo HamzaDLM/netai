@@ -277,6 +277,7 @@ async def get_tool_catalog(service: NetAIServiceDep):
     catalog = await get_resolved_agent_tool_catalog(
         registry=service.registry,
         infrahub=service.infrahub,
+        suzieq=service.suzieq,
     )
     return [ToolCatalogAgent.model_validate(item) for item in catalog]
 

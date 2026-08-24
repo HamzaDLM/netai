@@ -163,12 +163,20 @@ class ToolRegistry:
 
         self.searchable = self.searchable_with()
 
-    def searchable_with(self, extra: Toolset | None = None) -> SearchableToolset:
-        """Build a native searchable view, optionally including an external toolset."""
+    def searchable_with(
+        self,
+        *extras: Toolset,
+        exclude_connectors: set[str] | None = None,
+    ) -> SearchableToolset:
+        """Build a searchable view with request-scoped external toolsets."""
 
-        catalog: list[Tool | Toolset] = list(self.tools)
-        if extra is not None:
-            catalog.append(extra)
+        excluded = exclude_connectors or set()
+        catalog: list[Tool | Toolset] = [
+            tool
+            for tool in self.tools
+            if getattr(tool, "netai_connector", None) not in excluded
+        ]
+        catalog.extend(extras)
         searchable = AsyncSearchableToolset(
             catalog=catalog,
             top_k=5,

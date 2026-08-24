@@ -30,6 +30,9 @@ def test_catalog_is_derived_from_runtime_registry() -> None:
     assert infrahub["source"] == "mcp"
     assert infrahub["connection_status"] == "not_checked"
     assert infrahub["specialist_tool"] is None
+    suzieq_mcp = _entry(catalog, "suzieq_mcp")
+    assert suzieq_mcp["source"] == "mcp"
+    assert suzieq_mcp["connection_status"] == "not_checked"
 
 
 class FakeInfrahubProvider:
@@ -48,6 +51,22 @@ class FakeInfrahubProvider:
         )
 
 
+class FakeSuzieQProvider:
+    status = "available"
+    status_message = "connected"
+
+    async def get_toolset(self, *, force: bool = False):
+        assert force is True
+        return SimpleNamespace(
+            tools=[
+                SimpleNamespace(
+                    name="suzieq_get_bgp",
+                    description="Return current BGP session state.",
+                )
+            ]
+        )
+
+
 @pytest.mark.anyio
 async def test_resolved_catalog_uses_lifecycle_mcp_provider() -> None:
     registry = ToolRegistry(project_settings)
@@ -55,6 +74,7 @@ async def test_resolved_catalog_uses_lifecycle_mcp_provider() -> None:
     catalog = await get_resolved_agent_tool_catalog(
         registry=registry,
         infrahub=FakeInfrahubProvider(),  # type: ignore[arg-type]
+        suzieq=FakeSuzieQProvider(),  # type: ignore[arg-type]
     )
 
     infrahub = _entry(catalog, "infrahub")
@@ -64,5 +84,14 @@ async def test_resolved_catalog_uses_lifecycle_mcp_provider() -> None:
             "python_name": "infrahub_query_nodes",
             "runtime_name": "infrahub_query_nodes",
             "summary": "Query Infrahub nodes without changing them.",
+        }
+    ]
+    suzieq_mcp = _entry(catalog, "suzieq_mcp")
+    assert suzieq_mcp["connection_status"] == "available"
+    assert suzieq_mcp["tools"] == [
+        {
+            "python_name": "suzieq_get_bgp",
+            "runtime_name": "suzieq_get_bgp",
+            "summary": "Return current BGP session state.",
         }
     ]

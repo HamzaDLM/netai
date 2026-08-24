@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from uuid import uuid4
 
 from haystack.components.generators.chat.types import ChatGenerator
 from haystack.dataclasses import AsyncStreamingCallbackT, ChatMessage, StreamingChunk
-from haystack.tools import SearchableToolset
+from haystack.tools import SearchableToolset, Toolset
 from haystack.utils import Secret
 from haystack_integrations.components.generators.google_genai import (
     GoogleGenAIChatGenerator,
@@ -21,7 +22,8 @@ from app.agents.netai import create_netai_agent
 from app.core.config import Settings
 from app.infrastructure import InfrastructureClients
 from app.mcp.infrahub import InfrahubToolProvider
-from app.mcp.mcp_client import MCPClientConfig
+from app.mcp.mcp_client import MCPClientConfig, OptionalMCPToolProvider
+from app.mcp.suzieq import SuzieQToolProvider
 from app.services.agent_events import RunObserver
 from app.tools.registry import ToolRegistry
 
@@ -83,6 +85,7 @@ class NetAIService:
         chat_generator: ChatGenerator | None = None,
         registry: ToolRegistry | None = None,
         infrahub: InfrahubToolProvider | None = None,
+        suzieq: SuzieQToolProvider | None = None,
     ) -> None:
         self.settings = settings
         self.chat_generator = chat_generator or create_chat_generator(settings)
@@ -93,6 +96,13 @@ class NetAIService:
                 url=settings.INFRAHUB_MCP_URL,
                 token=settings.INFRAHUB_MCP_TOKEN or None,
                 timeout=settings.INFRAHUB_MCP_TIMEOUT_SECONDS,
+            )
+        )
+        self.suzieq = suzieq or SuzieQToolProvider(
+            MCPClientConfig(
+                url=settings.SUZIEQ_MCP_URL,
+                token=settings.SUZIEQ_MCP_TOKEN or None,
+                timeout=settings.SUZIEQ_MCP_TIMEOUT_SECONDS,
             )
         )
         self.agent = create_netai_agent(
@@ -107,7 +117,7 @@ class NetAIService:
 
     async def close(self) -> None:
         try:
-            await self.infrahub.close()
+            await asyncio.gather(self.infrahub.close(), self.suzieq.close())
         finally:
             try:
                 await self.clients.close()
@@ -151,23 +161,48 @@ class NetAIService:
         observer: RunObserver,
     ) -> tuple[SearchableToolset, str | None, set[str]]:
         allowed_names = self.registry.tool_names | {"search_tools"}
-        if not self.infrahub.is_relevant(self._message_text(messages)):
+        message_text = self._message_text(messages)
+        provider_specs: list[tuple[str, OptionalMCPToolProvider, bool]] = [
+            ("infrahub", self.infrahub, False),
+            ("suzieq", self.suzieq, True),
+        ]
+        relevant = [
+            spec for spec in provider_specs if spec[1].is_relevant(message_text)
+        ]
+        if not relevant:
             return self.registry.searchable_with(), None, allowed_names
 
-        remote = await self.infrahub.get_toolset()
-        if remote is None:
-            return (
-                self.registry.searchable_with(),
-                self.infrahub.status_message,
-                allowed_names,
-            )
+        resolved = await asyncio.gather(
+            *(provider.get_toolset() for _, provider, _ in relevant)
+        )
+        remote_toolsets: list[Toolset] = []
+        excluded_connectors: set[str] = set()
+        notices: list[str] = []
+        for (connector, provider, replaces_local), remote in zip(
+            relevant, resolved, strict=True
+        ):
+            if remote is None:
+                notices.append(provider.status_message)
+                continue
+            if not remote.tools:
+                notices.append(
+                    f"{provider.display_name} MCP exposed no read-only tools."
+                )
+                continue
+            remote_toolsets.append(remote)
+            remote_names = {remote_tool.name for remote_tool in remote.tools}
+            observer.register_external_tools(remote_names, connector=connector)
+            allowed_names.update(remote_names)
+            if replaces_local:
+                excluded_connectors.add(connector)
 
-        remote_names = {remote_tool.name for remote_tool in remote.tools}
-        observer.register_external_tools(remote_names, connector="infrahub")
         return (
-            self.registry.searchable_with(remote),
-            None,
-            allowed_names | remote_names,
+            self.registry.searchable_with(
+                *remote_toolsets,
+                exclude_connectors=excluded_connectors,
+            ),
+            " ".join(notices) or None,
+            allowed_names,
         )
 
     @staticmethod
@@ -177,8 +212,8 @@ class NetAIService:
         if not notice:
             return messages
         connector_message = ChatMessage.from_system(
-            f"Optional connector status: {notice} Do not invent Infrahub evidence; "
-            "continue with other available sources when useful."
+            f"Optional connector status: {notice} Do not invent evidence from an "
+            "unavailable connector; continue with other available sources when useful."
         )
         if messages:
             return [*messages[:-1], connector_message, messages[-1]]

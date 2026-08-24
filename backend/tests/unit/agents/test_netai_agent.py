@@ -144,6 +144,20 @@ class UnavailableInfrahub:
         return None
 
 
+class UnavailableSuzieQ:
+    status_message = "SuzieQ is currently unavailable."
+
+    @staticmethod
+    def is_relevant(_text: str) -> bool:
+        return True
+
+    async def get_toolset(self):
+        return None
+
+    async def close(self) -> None:
+        return None
+
+
 @pytest.mark.anyio
 async def test_optional_mcp_failure_does_not_block_agent() -> None:
     generator = ScriptedGenerator([ChatMessage.from_assistant("Used local data.")])
@@ -164,6 +178,30 @@ async def test_optional_mcp_failure_does_not_block_agent() -> None:
     assert run.answer == "Used local data."
     assert any(
         "Infrahub is currently unavailable" in (message.text or "")
+        for message in generator.messages_seen[0]
+    )
+
+
+@pytest.mark.anyio
+async def test_optional_suzieq_mcp_failure_falls_back_without_blocking() -> None:
+    generator = ScriptedGenerator([ChatMessage.from_assistant("Used local data.")])
+    service = NetAIService(
+        settings=project_settings,
+        chat_generator=generator,
+        suzieq=UnavailableSuzieQ(),  # type: ignore[arg-type]
+    )
+    try:
+        run = await service.run(
+            messages=[ChatMessage.from_user("Check SuzieQ BGP sessions")],
+            conversation_id="conversation-suzieq-fallback",
+            user_id=7,
+        )
+    finally:
+        await service.close()
+
+    assert run.answer == "Used local data."
+    assert any(
+        "SuzieQ is currently unavailable" in (message.text or "")
         for message in generator.messages_seen[0]
     )
 

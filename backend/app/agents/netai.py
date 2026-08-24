@@ -146,8 +146,9 @@ progressively disclosed: call `search_tools` with connector and operation keywor
 then call the returned tool directly. Search again when another evidence source is
 needed. Answer general questions directly when infrastructure evidence is unnecessary.
 
-Infrahub tools are supplied only when that optional connector is reachable. If a
-runtime message says Infrahub is unavailable, say so and continue with other sources.
+Infrahub and SuzieQ MCP tools are supplied only when those optional connectors are
+reachable. If a runtime message says one is unavailable, say so and continue with
+other sources. Reachable SuzieQ MCP tools take precedence over the direct API tools.
 
 For topology and configuration-diff tools, rely on the structured tool result. The
 runtime places the visual component at the tool-call position; do not emit visual

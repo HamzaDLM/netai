@@ -82,18 +82,25 @@ export MCP_PORT=8030
 uv run mcp-zabbix-standalone
 ```
 
-## Consume Infrahub
+## Consume external MCP connectors
 
-`InfrahubToolProvider` creates Haystack's native `MCPToolset` from
-`MCPClientConfig`. Discovery is lazy, mutating tool names are filtered, failures
-are cached briefly, and failure never prevents startup or unrelated requests.
-The service closes a connected toolset during FastAPI shutdown.
+`InfrahubToolProvider` and `SuzieQToolProvider` create Haystack's native
+`MCPToolset` from `MCPClientConfig`. Discovery is lazy, mutating tool names are
+filtered, failures are cached briefly, and failure never prevents startup or
+unrelated requests. The service closes connected toolsets during FastAPI
+shutdown. When SuzieQ MCP is reachable and exposes read-only tools, it takes
+precedence over the direct SuzieQ API tools for that request; otherwise NetAI
+retains the direct tools as a fallback.
 
 ```bash
 INFRAHUB_MCP_URL=http://127.0.0.1:8001/mcp
 INFRAHUB_MCP_TOKEN=
 INFRAHUB_MCP_TIMEOUT_SECONDS=5
+
+SUZIEQ_MCP_URL=http://127.0.0.1:8002/mcp
+SUZIEQ_MCP_TOKEN=
+SUZIEQ_MCP_TIMEOUT_SECONDS=5
 ```
 
-Use read-only credentials and enforce permissions at the Infrahub/MCP server;
+Use read-only credentials and enforce permissions at each upstream MCP server;
 the local name filter and Agent authorization hook are defense in depth.
