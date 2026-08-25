@@ -22,6 +22,7 @@ from app.agents.netai import create_netai_agent
 from app.core.config import Settings
 from app.infrastructure import InfrastructureClients
 from app.mcp.infrahub import InfrahubToolProvider
+from app.mcp.logs import LogToolProvider
 from app.mcp.mcp_client import (
     MCPClientConfig,
     MCPRequestContext,
@@ -94,6 +95,7 @@ class NetAIService:
         registry: ToolRegistry | None = None,
         infrahub: InfrahubToolProvider | None = None,
         suzieq: SuzieQToolProvider | None = None,
+        logs: LogToolProvider | None = None,
     ) -> None:
         self.settings = settings
         self.chat_generator = chat_generator or create_chat_generator(settings)
@@ -115,6 +117,14 @@ class NetAIService:
                 resource_cache_ttl_seconds=(settings.SUZIEQ_MCP_RESOURCE_TTL_SECONDS),
             )
         )
+        self.logs = logs or LogToolProvider(
+            MCPClientConfig(
+                url=settings.LOG_MCP_URL,
+                token=settings.LOG_MCP_TOKEN or None,
+                timeout=settings.LOG_MCP_TIMEOUT_SECONDS,
+                resource_cache_ttl_seconds=settings.LOG_MCP_RESOURCE_TTL_SECONDS,
+            )
+        )
         self.agent = create_netai_agent(
             chat_generator=self.chat_generator,
             registry=self.registry,
@@ -124,11 +134,19 @@ class NetAIService:
         """Warm the Agent and discover optional MCP capability metadata."""
 
         await self.agent.warm_up_async()
-        await asyncio.gather(self.infrahub.warm_up(), self.suzieq.warm_up())
+        await asyncio.gather(
+            self.infrahub.warm_up(),
+            self.suzieq.warm_up(),
+            self.logs.warm_up(),
+        )
 
     async def close(self) -> None:
         try:
-            await asyncio.gather(self.infrahub.close(), self.suzieq.close())
+            await asyncio.gather(
+                self.infrahub.close(),
+                self.suzieq.close(),
+                self.logs.close(),
+            )
         finally:
             try:
                 await self.clients.close()
@@ -176,6 +194,7 @@ class NetAIService:
         provider_specs: list[tuple[str, OptionalMCPToolProvider, bool]] = [
             ("infrahub", self.infrahub, False),
             ("suzieq", self.suzieq, True),
+            ("syslog", self.logs, False),
         ]
         relevant = [
             spec for spec in provider_specs if spec[1].is_relevant(message_text)

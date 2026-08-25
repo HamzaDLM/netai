@@ -7,13 +7,18 @@ prompt and resource contents are retrieved selectively for relevant requests.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime, time
+from decimal import Decimal
+from enum import Enum
 from time import monotonic
 from typing import Any
+from uuid import UUID
 
 from fastmcp import Client as FastMCPClient
 from fastmcp.client.transports import StreamableHttpTransport
@@ -203,6 +208,37 @@ def _dump_content(content: object) -> str:
     if callable(model_dump):
         return json.dumps(model_dump(mode="json"), default=str)
     return str(content)
+
+
+def _json_compatible(value: object) -> object:
+    """Preserve MCP result data while converting typed models to JSON values."""
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Enum):
+        return _json_compatible(value.value)
+    if isinstance(value, (datetime, date, time)):
+        return value.isoformat()
+    if isinstance(value, (UUID, Decimal)):
+        return str(value)
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return _json_compatible(dataclasses.asdict(value))
+
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return _json_compatible(model_dump(mode="json"))
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return _json_compatible(to_dict())
+    if isinstance(value, Mapping):
+        return {str(key): _json_compatible(item) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [_json_compatible(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return [_json_compatible(item) for item in value]
+    return str(value)
 
 
 class OptionalMCPToolProvider:
@@ -412,10 +448,10 @@ class OptionalMCPToolProvider:
         if result.is_error:
             detail = "\n".join(_dump_content(item) for item in result.content)
             raise RuntimeError(detail or f"MCP tool {name} failed")
-        if result.data is not None:
-            return result.data
         if result.structured_content is not None:
-            return result.structured_content
+            return _json_compatible(result.structured_content)
+        if result.data is not None:
+            return _json_compatible(result.data)
         text_items = [
             item.text
             for item in result.content

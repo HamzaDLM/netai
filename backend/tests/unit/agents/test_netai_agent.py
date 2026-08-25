@@ -169,6 +169,44 @@ class UnavailableSuzieQ:
         return None
 
 
+class AvailableLogProvider:
+    status = "available"
+    status_message = "connected"
+    display_name = "Log intelligence"
+
+    def __init__(self) -> None:
+        async def device_events(hostname: str) -> dict[str, object]:
+            return {"hostname": hostname, "count": 0, "events": []}
+
+        self.toolset = Toolset(
+            [
+                Tool(
+                    name="logs_get_device_events",
+                    description="Return bounded syslog events for a device.",
+                    parameters={
+                        "type": "object",
+                        "properties": {"hostname": {"type": "string"}},
+                        "required": ["hostname"],
+                    },
+                    async_function=device_events,
+                )
+            ]
+        )
+
+    @staticmethod
+    def is_relevant(text: str) -> bool:
+        return "log" in text.casefold() or "syslog" in text.casefold()
+
+    async def get_toolset(self) -> Toolset:
+        return self.toolset
+
+    async def request_context(self, _query: str) -> MCPRequestContext:
+        return MCPRequestContext()
+
+    async def close(self) -> None:
+        return None
+
+
 def test_selected_mcp_context_is_inserted_before_current_user_request() -> None:
     messages = [
         ChatMessage.from_system("Core policy"),
@@ -248,6 +286,52 @@ async def test_optional_suzieq_mcp_failure_falls_back_without_blocking() -> None
         "SuzieQ is currently unavailable" in (message.text or "")
         for message in generator.messages_seen[0]
     )
+
+
+@pytest.mark.anyio
+async def test_log_questions_use_standalone_mcp_tools() -> None:
+    generator = ScriptedGenerator(
+        [
+            ChatMessage.from_assistant(
+                tool_calls=[
+                    ToolCall(
+                        tool_name="search_tools",
+                        arguments={"tool_keywords": "logs device events"},
+                        id="search-logs",
+                    )
+                ]
+            ),
+            ChatMessage.from_assistant(
+                tool_calls=[
+                    ToolCall(
+                        tool_name="logs_get_device_events",
+                        arguments={"hostname": "edge-01"},
+                        id="query-logs",
+                    )
+                ]
+            ),
+            ChatMessage.from_assistant("No recent device log events were found."),
+        ]
+    )
+    service = NetAIService(
+        settings=project_settings,
+        chat_generator=generator,
+        logs=AvailableLogProvider(),  # type: ignore[arg-type]
+    )
+    try:
+        run = await service.run(
+            messages=[ChatMessage.from_user("Show recent logs for edge-01")],
+            conversation_id="conversation-logs",
+            user_id=7,
+        )
+    finally:
+        await service.close()
+
+    assert run.answer == "No recent device log events were found."
+    assert not any(name.startswith("syslog_") for name in service.registry.tool_names)
+    assert "logs_get_device_events" in generator.tools_seen[1]
+    tool_calls = cast(list[dict[str, object]], run.run_map["tool_calls"])
+    assert tool_calls[0]["connector"] == "syslog"
 
 
 @component

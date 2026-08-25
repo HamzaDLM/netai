@@ -7,7 +7,7 @@ from fastmcp import Client as FastMCPClient
 from fastmcp import FastMCP
 from fastmcp.client.client import CallToolResult
 from mcp import types as mcp_types
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 
 from app.mcp.mcp_client import MCPClientConfig, OptionalMCPToolProvider
 
@@ -229,6 +229,59 @@ async def test_tools_only_server_exposes_callable_read_only_tool() -> None:
     result = await toolset.tools[0].invoke_async(device="edge-01")
     assert result == {"name": "inspect_routing", "device": "edge-01"}
     assert client.calls["tools/call"] == 1
+    await provider.close()
+
+
+class DeviceResult(BaseModel):
+    hostname: str
+
+
+class MCPResponse(BaseModel):
+    ok: bool
+    data: list[DeviceResult]
+
+
+class TypedResultMCPClient(FakeMCPClient):
+    def __init__(self, *, include_structured_content: bool) -> None:
+        super().__init__(tools=True)
+        self.include_structured_content = include_structured_content
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, object]
+    ) -> CallToolResult:
+        self.calls["tools/call"] += 1
+        response = MCPResponse(
+            ok=True,
+            data=[DeviceResult(hostname="edge-01")],
+        )
+        return CallToolResult(
+            content=[],
+            structured_content=(
+                response.model_dump(mode="json")
+                if self.include_structured_content
+                else None
+            ),
+            meta=None,
+            data=response,
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("include_structured_content", [True, False])
+async def test_typed_mcp_results_are_returned_as_json_compatible_data(
+    include_structured_content: bool,
+) -> None:
+    client = TypedResultMCPClient(include_structured_content=include_structured_content)
+    provider = make_provider(client)
+
+    toolset = await provider.get_toolset()
+
+    assert toolset is not None
+    result = await toolset.tools[0].invoke_async(device="edge-01")
+    assert result == {
+        "ok": True,
+        "data": [{"hostname": "edge-01"}],
+    }
     await provider.close()
 
 

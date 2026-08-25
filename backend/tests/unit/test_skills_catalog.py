@@ -33,6 +33,9 @@ def test_catalog_is_derived_from_runtime_registry() -> None:
     suzieq_mcp = _entry(catalog, "suzieq_mcp")
     assert suzieq_mcp["source"] == "mcp"
     assert suzieq_mcp["connection_status"] == "not_checked"
+    logs_mcp = _entry(catalog, "syslog")
+    assert logs_mcp["source"] == "mcp"
+    assert logs_mcp["connection_status"] == "not_checked"
 
 
 class FakeInfrahubProvider:
@@ -63,6 +66,20 @@ class FakeSuzieQProvider:
     )
 
 
+class FakeLogProvider:
+    status = "available"
+    status_message = "connected"
+
+    toolset = SimpleNamespace(
+        tools=[
+            SimpleNamespace(
+                name="logs_get_device_events",
+                description="Return bounded device syslog events.",
+            )
+        ]
+    )
+
+
 @pytest.mark.anyio
 async def test_resolved_catalog_uses_lifecycle_mcp_provider() -> None:
     registry = ToolRegistry(project_settings)
@@ -71,6 +88,7 @@ async def test_resolved_catalog_uses_lifecycle_mcp_provider() -> None:
         registry=registry,
         infrahub=FakeInfrahubProvider(),  # type: ignore[arg-type]
         suzieq=FakeSuzieQProvider(),  # type: ignore[arg-type]
+        logs=FakeLogProvider(),  # type: ignore[arg-type]
     )
 
     infrahub = _entry(catalog, "infrahub")
@@ -89,5 +107,14 @@ async def test_resolved_catalog_uses_lifecycle_mcp_provider() -> None:
             "python_name": "suzieq_get_bgp",
             "runtime_name": "suzieq_get_bgp",
             "summary": "Return current BGP session state.",
+        }
+    ]
+    logs_mcp = _entry(catalog, "syslog")
+    assert logs_mcp["connection_status"] == "available"
+    assert logs_mcp["tools"] == [
+        {
+            "python_name": "logs_get_device_events",
+            "runtime_name": "logs_get_device_events",
+            "summary": "Return bounded device syslog events.",
         }
     ]
