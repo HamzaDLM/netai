@@ -23,11 +23,12 @@ This folder deploys NetAI to Ubuntu hosts without Docker.
   - `Qdrant` (built from source, managed by systemd)
 - Installs Python runtime via `uv` (Python 3.13), then runs backend migrations
 - Builds frontend static assets
-- Builds `log_ingestor` release binary (optional)
+- Builds the log ingestion and log MCP release binaries (optional)
 - Configures and starts:
   - `netai-backend` (systemd)
   - `netai-mcp-servers` (systemd, optional; runs all configured MCP HTTP servers in one process)
   - `netai-log-ingestor` (systemd, optional)
+  - `netai-log-mcp` (systemd, optional; read-only ClickHouse query boundary)
   - `nginx` (serves UI + proxies `/api/` to backend)
 
 ## Tower/AWX Usage
@@ -46,10 +47,8 @@ netai_git_repo: https://github.com/<your-org>/<your-repo>.git
 
 netai_backend_env:
   PROJECT_NAME: NetAI
-  CLICKHOUSE_URL: http://127.0.0.1:8123
-  CLICKHOUSE_DB: netops
-  CLICKHOUSE_USER: admin
-  CLICKHOUSE_PASSWORD: "<set-me>"
+  LOG_MCP_URL: http://127.0.0.1:8010/mcp
+  LOG_MCP_TOKEN: "<set-me>"
   GEMINI_MODEL: gemini-2.5-flash
   GEMINI_API_KEY: "<set-me>"
   TOOLS_USE_MOCK_DATA: "false"
@@ -59,6 +58,8 @@ netai_log_ingestor_env:
   KAFKA_BROKERS: 127.0.0.1:9092
   CLICKHOUSE_URL: http://127.0.0.1:8123
   CLICKHOUSE_PASSWORD: "<set-me>"
+  LOG_MCP_BIND: 127.0.0.1:8010
+  LOG_MCP_TOKEN: "<set-me>"
   REDIS_URL: redis://127.0.0.1:6379/
   VENDOR_LOOKUP_URL: ""
 
@@ -76,6 +77,7 @@ Optional overrides:
 netai_server_name: netai.example.com
 netai_backend_port: 8000
 netai_enable_log_ingestor: true
+netai_enable_log_mcp: true
 netai_enable_mcp_servers: true
 netai_ui_env:
   VITE_BASE_URL: /api/v1

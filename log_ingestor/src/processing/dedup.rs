@@ -22,6 +22,16 @@ impl TemplateDeduplicator {
     pub fn len(&self) -> usize {
         self.seen.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.seen.is_empty()
+    }
+}
+
+impl Default for TemplateDeduplicator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

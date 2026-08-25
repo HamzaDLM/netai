@@ -1,10 +1,11 @@
 use anyhow::Result;
 use clickhouse::{Client, Row};
-use serde::Serialize;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 
 pub const EVENTS_TABLE: &str = "syslog_events";
 
-#[derive(Clone, Debug, Serialize, Row)]
+#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, Row)]
 pub struct SyslogEventRow {
     pub event_id: String,
     pub ts_unix: i64,

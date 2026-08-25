@@ -70,16 +70,12 @@ services:
     environment:
       FRONTEND_HOST: http://localhost:5173
       BACKEND_GIT_SHA: ${BACKEND_GIT_SHA:-dev}
-      CLICKHOUSE_URL: http://clickhouse:8123
+      LOG_MCP_URL: http://log_mcp:8010/mcp
+      LOG_MCP_TOKEN: ${LOG_MCP_TOKEN:-}
       SQLALCHEMY_URL: sqlite+aiosqlite:///./data/netai_local.db
     command: >
       sh -c "uv run alembic upgrade head &&
              uv run uvicorn app.main:app --host 0.0.0.0 --port 8000"
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-      kafka:
-        condition: service_started
     ports:
       - "8000:8000"
     tmpfs:
@@ -96,7 +92,6 @@ services:
       KAFKA_TOPIC: syslogs
       KAFKA_GROUP_ID: log-ingestor
       CLICKHOUSE_URL: http://clickhouse:8123
-      QDRANT_URL: http://qdrant:6333
       REDIS_URL: redis://redis:6379/
       VENDOR_LOOKUP_URL: ${VENDOR_LOOKUP_URL:-}
       VENDOR_REFRESH_SECS: ${VENDOR_REFRESH_SECS:-900}
@@ -106,10 +101,30 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
-      qdrant:
-        condition: service_started
       redis:
         condition: service_started
+
+  log_mcp:
+    build:
+      context: ./log_ingestor
+      dockerfile: Dockerfile
+    env_file:
+      - ./log_ingestor/.env.skeleton
+    environment:
+      CLICKHOUSE_URL: http://clickhouse:8123
+      LOG_MCP_BIND: 0.0.0.0:8010
+      LOG_MCP_TOKEN: ${LOG_MCP_TOKEN:-}
+    command: ["./target/release/log_mcp"]
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:8010/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    ports:
+      - "8010:8010"
 
   ui:
     build:

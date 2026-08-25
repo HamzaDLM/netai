@@ -1,8 +1,9 @@
 pub mod config;
-pub mod embedding;
 pub mod kafka;
+pub mod mcp_server;
 pub mod pipeline;
 pub mod processing;
+pub mod query;
 pub mod serde_helpers;
 pub mod storage;
 pub mod types;

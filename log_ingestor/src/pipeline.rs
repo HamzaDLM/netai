@@ -62,13 +62,13 @@ impl Pipeline {
             .await;
         });
 
-        return Self {
+        Self {
             http: Client::new(),
             clickhouse,
             clickhouse_tx,
             vendor_cache: VendorCache::new(config.clone()),
             config,
-        };
+        }
     }
 
     pub async fn ensure_storage(&self) -> Result<()> {
@@ -89,7 +89,7 @@ impl Pipeline {
 
         let parsed = parse_syslog(&log);
         let normalized = normalize_message(&parsed);
-        debug!("normalized result: {}", normalized);
+        debug!("normalized result: {normalized}");
 
         let source_ip = extract_ip(&log.syslog_message);
         let vendor = match self
@@ -184,8 +184,7 @@ async fn flush_with_retry(client: &ClickHouseClient, batch: &mut Vec<SyslogEvent
             Err(err) => {
                 attempts += 1;
                 error!(
-                    "clickhouse batch insert failed (attempt {}), retrying in 1s: {err:#}",
-                    attempts
+                    "clickhouse batch insert failed (attempt {attempts}), retrying in 1s: {err:#}"
                 );
                 time::sleep(Duration::from_secs(1)).await;
             }
@@ -215,17 +214,22 @@ fn should_ignore_message(message: &str, ignored_texts: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{Pipeline, fingerprint_template, should_ignore_message};
-    use crate::{config::Config, storage::clickhouse::SyslogEventRow, types::IncomingSyslog, vendor_cache::VendorCache};
+    use crate::{
+        config::Config, storage::clickhouse::SyslogEventRow, types::IncomingSyslog,
+        vendor_cache::VendorCache,
+    };
     use reqwest::Client;
     use std::sync::Arc;
-    use tokio::{sync::mpsc, time::{Duration, timeout}};
+    use tokio::{
+        sync::mpsc,
+        time::{Duration, timeout},
+    };
     use uuid::Uuid;
 
     fn test_config() -> Arc<Config> {
         let mut config = Config::from_env();
         config.redis_url = None;
         config.vendor_lookup_url = None;
-        config.qdrant_url = "http://definitely-invalid-qdrant.local:6333".to_string();
         Arc::new(config)
     }
 
@@ -274,9 +278,8 @@ mod tests {
         let log = IncomingSyslog {
             syslog_timestamp: 1_712_345_678,
             syslog_hostname: "router-edge-01".to_string(),
-            syslog_message:
-                "%LINK-3-UPDOWN: Interface GigabitEthernet1/0/1, changed state to down"
-                    .to_string(),
+            syslog_message: "%LINK-3-UPDOWN: Interface GigabitEthernet1/0/1, changed state to down"
+                .to_string(),
             vendor: None,
         };
 
@@ -303,7 +306,10 @@ mod tests {
             "Interface <IFACE>/<NUM>/<NUM>, changed state to down"
         );
         assert_eq!(row.template, row.normalized_message);
-        assert_eq!(row.template_fingerprint, fingerprint_template(&row.template));
+        assert_eq!(
+            row.template_fingerprint,
+            fingerprint_template(&row.template)
+        );
     }
 
     #[tokio::test]
@@ -317,34 +323,11 @@ mod tests {
             vendor: None,
         };
 
-        pipeline.process(log).await.expect("ignored message should not fail");
-
-        assert!(timeout(Duration::from_millis(50), rx.recv()).await.is_err());
-    }
-
-    #[tokio::test]
-    async fn process_does_not_touch_qdrant_when_url_is_invalid() {
-        let (pipeline, mut rx) = test_pipeline();
-        let log = IncomingSyslog {
-            syslog_timestamp: 1_700_000_001,
-            syslog_hostname: "sec-fw-01".to_string(),
-            syslog_message: r#"date=2026-04-12 time=10:00:01 devname="FGT-A" type="traffic" srcip=10.1.1.1 dstip=8.8.8.8"#.to_string(),
-            vendor: None,
-        };
-
         pipeline
             .process(log)
             .await
-            .expect("bad qdrant url should not affect active pipeline");
+            .expect("ignored message should not fail");
 
-        let row = timeout(Duration::from_secs(1), rx.recv())
-            .await
-            .expect("receive row before timeout")
-            .expect("row should be queued");
-
-        assert_eq!(pipeline.config.qdrant_url, "http://definitely-invalid-qdrant.local:6333");
-        assert_eq!(row.vendor, "fortinet");
-        assert!(row.normalized_message.contains("srcip=<IP>"));
-        assert!(row.normalized_message.contains("dstip=<IP>"));
+        assert!(timeout(Duration::from_millis(50), rx.recv()).await.is_err());
     }
 }
