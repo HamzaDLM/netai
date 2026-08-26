@@ -157,6 +157,7 @@ def make_provider(
         ),
         connector="example",
         display_name="Example",
+        tool_group_prompt="Use Example as observed routing state.",
         client_factory=lambda _config: client,  # type: ignore[arg-type,return-value]
     )
 
@@ -226,6 +227,10 @@ async def test_tools_only_server_exposes_callable_read_only_tool() -> None:
 
     assert toolset is not None
     assert [tool.name for tool in toolset.tools] == ["inspect_routing"]
+    assert (
+        getattr(toolset.tools[0], "netai_group_prompt", None)
+        == "Use Example as observed routing state."
+    )
     result = await toolset.tools[0].invoke_async(device="edge-01")
     assert result == {"name": "inspect_routing", "device": "edge-01"}
     assert client.calls["tools/call"] == 1

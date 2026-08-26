@@ -1,13 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import ChatAdminStatCard from './ChatAdminStatCard.vue'
-import {
-	AlertTriangle,
-	Clock3,
-	MessageSquare,
-	MessagesSquare,
-	ThumbsDown,
-} from 'lucide-vue-next'
+import { AlertTriangle, Clock3, MessageSquare, MessagesSquare, RefreshCw, ThumbsDown } from 'lucide-vue-next'
+import { toast } from '@/components/ui/toast'
+import chatService from '@/services/chat.service'
+import type { AdminOverview } from '@/types/chat.type'
 
 type OverviewCard = {
 	title: string
@@ -22,43 +19,64 @@ type UsagePoint = {
 	messages: number
 }
 
-const overviewCards: OverviewCard[] = [
+const EMPTY_OVERVIEW: AdminOverview = {
+	window_started_at: '',
+	generated_at: '',
+	conversations: 0,
+	user_messages: 0,
+	tool_calls_total: 0,
+	tool_calls_failed: 0,
+	average_latency_ms: null,
+	feedback_total: 0,
+	negative_feedback: 0,
+}
+
+const overview = ref<AdminOverview>({ ...EMPTY_OVERVIEW })
+const isLoading = ref(true)
+
+function formatLatency(milliseconds: number | null | undefined): string {
+	if (milliseconds == null) return '—'
+	if (milliseconds < 1000) return `${Math.round(milliseconds)}ms`
+	return `${(milliseconds / 1000).toFixed(1)}s`
+}
+
+const overviewCards = computed<OverviewCard[]>(() => [
 	{
 		title: 'Conversations',
-		value: '324',
-		helper: 'this week',
+		value: overview.value.conversations.toLocaleString(),
+		helper: 'last 7 days',
 		icon: MessageSquare,
 		spanClass: 'xl:col-span-4',
 	},
 	{
 		title: 'Messages',
-		value: '4,982',
-		helper: 'user questions this week',
+		value: overview.value.user_messages.toLocaleString(),
+		helper: 'user questions · last 7 days',
 		icon: MessagesSquare,
 		spanClass: 'xl:col-span-4',
 	},
 	{
 		title: 'Failed Toolcalls',
-		value: '30/100',
-		helper: 'this week',
+		value: `${overview.value.tool_calls_failed.toLocaleString()}/${overview.value.tool_calls_total.toLocaleString()}`,
+		helper: 'failed / total · last 7 days',
 		icon: AlertTriangle,
 		spanClass: 'xl:col-span-4',
 	},
 	{
 		title: 'Avg Latency',
-		value: '3.2s',
-		helper: 'weekly average',
+		value: formatLatency(overview.value.average_latency_ms),
+		helper: 'average response · last 7 days',
 		icon: Clock3,
 		spanClass: 'xl:col-span-6',
 	},
 	{
 		title: 'Negative Feedback',
-		value: '2.3%',
-		helper: 'of rated answers',
+		value: overview.value.feedback_total === 0 ? '0%' : `${((overview.value.negative_feedback / overview.value.feedback_total) * 100).toFixed(1)}%`,
+		helper: `${overview.value.negative_feedback.toLocaleString()} of ${overview.value.feedback_total.toLocaleString()} rated answers`,
 		icon: ThumbsDown,
 		spanClass: 'xl:col-span-6',
 	},
-]
+])
 
 const usageSeries: UsagePoint[] = [
 	{ label: 'Mon', messages: 582 },
@@ -70,12 +88,22 @@ const usageSeries: UsagePoint[] = [
 	{ label: 'Sun', messages: 847 },
 ]
 
-const weeklyMessageTotal = computed(() =>
-	usageSeries.reduce((total, point) => total + point.messages, 0).toLocaleString()
-)
-const averageDailyMessages = computed(() =>
-	Math.round(usageSeries.reduce((total, point) => total + point.messages, 0) / usageSeries.length).toLocaleString()
-)
+const weeklyMessageTotal = computed(() => usageSeries.reduce((total, point) => total + point.messages, 0).toLocaleString())
+const averageDailyMessages = computed(() => Math.round(usageSeries.reduce((total, point) => total + point.messages, 0) / usageSeries.length).toLocaleString())
+
+async function loadOverview(): Promise<void> {
+	isLoading.value = true
+	try {
+		const { data } = await chatService.getAdminOverview()
+		overview.value = data
+	} catch {
+		toast({ title: 'Unable to load admin overview', variant: 'destructive' })
+	} finally {
+		isLoading.value = false
+	}
+}
+
+onMounted(loadOverview)
 </script>
 
 <template>
@@ -85,23 +113,17 @@ const averageDailyMessages = computed(() =>
 			<div class="absolute bottom-[-12%] right-[-6%] h-80 w-80 rounded-full bg-emerald-500/8 blur-3xl" />
 		</div>
 
-		<div class="relative px-6 py-4 border-b border-stone-900">
-			<p class="text-xl font-semibold text-stone-100">Overview</p>
-			<p class="mt-1 text-sm text-stone-500">
-				Mock operational summary for the last 7 days. Frontend example data only.
-			</p>
+		<div class="relative flex items-center justify-between gap-4 px-6 py-4 border-b border-stone-900">
+			<div>
+				<p class="text-xl font-semibold text-stone-100">Overview</p>
+				<p class="mt-1 text-sm text-stone-500">Operational summary for the last 7 days.</p>
+			</div>
+			<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-800 px-3 text-sm text-stone-400 transition hover:border-stone-600 hover:text-stone-200 disabled:opacity-40" :disabled="isLoading" @click="loadOverview"><RefreshCw class="h-3.5 w-3.5" :class="isLoading ? 'animate-spin' : ''" />Refresh</button>
 		</div>
 
 		<div class="relative px-8 py-8 space-y-8">
-			<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-12">
-				<ChatAdminStatCard
-					v-for="card in overviewCards"
-					:key="card.title"
-					:class="card.spanClass"
-					:title="card.title"
-					:value="card.value"
-					:helper="card.helper"
-					:icon="card.icon" />
+			<div class="grid gap-4 md:grid-cols-2 xl:grid-cols-12" :class="isLoading ? 'animate-pulse opacity-60' : ''">
+				<ChatAdminStatCard v-for="card in overviewCards" :key="card.title" :class="card.spanClass" :title="card.title" :value="card.value" :helper="card.helper" :icon="card.icon" />
 			</div>
 
 			<div class="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.95fr)]">

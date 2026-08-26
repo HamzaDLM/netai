@@ -125,12 +125,25 @@ class ToolRegistry:
         self._connectors = CONNECTORS
         self._tools_by_connector: dict[str, list[Tool]] = {}
         self._tools_by_name: dict[str, Tool] = {}
+        self._prompts_by_connector: dict[str, str] = {}
 
         for connector in self._connectors:
-            module_name = connector.module
+            connector_module = import_module(connector.module)
+            group_prompt = str(
+                getattr(connector_module, "TOOL_GROUP_PROMPT", "")
+            ).strip()
+            if not group_prompt:
+                raise ValueError(
+                    f"NetAI tool module '{connector.module}' has no TOOL_GROUP_PROMPT"
+                )
+            self._prompts_by_connector[connector.key] = group_prompt
+
+            module = connector_module
             if settings.TOOLS_USE_MOCK_DATA:
-                module_name = _MOCK_MODULES.get(connector.key, module_name)
-            tools = _tools_in(import_module(module_name))
+                mock_module = _MOCK_MODULES.get(connector.key)
+                if mock_module is not None:
+                    module = import_module(mock_module)
+            tools = _tools_in(module)
             for registered_tool in tools:
                 if registered_tool.name in self._tools_by_name:
                     raise ValueError(
@@ -147,6 +160,7 @@ class ToolRegistry:
                     summary = f"[{connector.name}] {summary}"
                 registered_tool.description = summary
                 setattr(registered_tool, "netai_connector", connector.key)
+                setattr(registered_tool, "netai_group_prompt", group_prompt)
                 setattr(
                     registered_tool,
                     "netai_effect",
@@ -215,6 +229,9 @@ class ToolRegistry:
 
     def get(self, name: str) -> Tool | None:
         return self._tools_by_name.get(name)
+
+    def prompt_for_connector(self, connector: str) -> str | None:
+        return self._prompts_by_connector.get(connector)
 
     def connector_for(self, name: str) -> str:
         if name == "search_tools":

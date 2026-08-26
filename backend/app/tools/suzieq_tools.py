@@ -7,6 +7,16 @@ from app.core.config import project_settings
 from app.infrastructure import InfrastructureClients, clients_from_state
 from app.tools import netai_tool
 
+TOOL_GROUP_PROMPT = """
+SuzieQ represents observed network state collected from devices: interfaces,
+neighbors, routes, forwarding tables, and control-plane sessions. Select the
+namespace and hostname as early as possible, then query the smallest relevant table.
+Use LLDP for physical adjacency, routing/BGP/OSPF data for control-plane state, and
+path data for forwarding investigations. A missing row means SuzieQ did not return
+that state; it does not by itself prove the object never existed. Correlate observed
+state with intended topology/configuration and monitoring timestamps when needed.
+""".strip()
+
 SUZIEQ_API_VERSION = "v2"
 
 

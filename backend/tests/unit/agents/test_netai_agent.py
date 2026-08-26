@@ -16,6 +16,7 @@ from app.mcp.mcp_client import (
     MCPRequestContext,
     MCPResourceContext,
 )
+from app.services.chat_agent import build_runtime_prompt_snapshot
 from app.services.netai import NetAIService
 from app.tools.registry import ToolRegistry
 
@@ -106,6 +107,32 @@ async def test_service_uses_native_agent_loop_and_dynamic_tool_discovery() -> No
     }
     assert generator.tools_seen[0] == {"search_tools"}
     assert "datamodel_list_devices" in generator.tools_seen[1]
+    first_prompt = "\n".join(
+        message.text or "" for message in generator.messages_seen[0]
+    )
+    second_prompt = "\n".join(
+        message.text or "" for message in generator.messages_seen[1]
+    )
+    final_prompt = "\n".join(
+        message.text or "" for message in generator.messages_seen[2]
+    )
+    assert "Tool group guidance" not in first_prompt
+    assert second_prompt.count("Tool group guidance [datamodel]") == 1
+    assert "modeled or intended structure" in second_prompt
+    assert final_prompt.count("Tool group guidance [datamodel]") == 1
+    assert "Tool group guidance [zabbix]" not in second_prompt
+    runtime_snapshot = build_runtime_prompt_snapshot(
+        result=run.result,
+        metrics={"used_tokens": 10},
+    )
+    assert "Tool group guidance [datamodel]" in runtime_snapshot.messages[0].text
+    assert any(
+        message.source == "assistant_tool_call"
+        and "datamodel_list_devices" in message.text
+        for message in runtime_snapshot.messages
+    )
+    assert runtime_snapshot.messages[-1].source == "assistant_response"
+    assert runtime_snapshot.messages[-1].text == "Topology inventory retrieved."
     tool_calls = cast(list[dict[str, object]], run.run_map["tool_calls"])
     assert [call["tool_name"] for call in tool_calls] == ["datamodel_list_devices"]
     assert generator.closed is True

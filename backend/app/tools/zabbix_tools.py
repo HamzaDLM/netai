@@ -5,6 +5,16 @@ from typing import Annotated, Any
 from app.core.config import project_settings
 from app.tools import netai_tool
 
+TOOL_GROUP_PROMPT = """
+Zabbix is NetAI's monitoring source for current availability, active problems,
+triggers, events, and time-series metrics. Start with the narrowest host/problem
+lookup that answers the question; resolve host identity before requesting detailed
+metrics or history. Treat trigger severity and timestamps as monitoring evidence,
+not proof of root cause. Correlate material findings with live state, logs, topology,
+or recent changes when the user asks for diagnosis rather than a monitoring summary.
+Avoid broad unfiltered queries when a host, group, severity, or time window is known.
+""".strip()
+
 try:
     from pyzabbix import ZabbixAPI  # type: ignore
 except Exception:  # pragma: no cover - handled at runtime

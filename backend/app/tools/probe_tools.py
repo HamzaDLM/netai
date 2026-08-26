@@ -21,6 +21,16 @@ from haystack.dataclasses import StreamingCallbackT, StreamingChunk
 
 from app.tools import netai_tool
 
+TOOL_GROUP_PROMPT = """
+Network diagnostics provide reachability, path, and latency evidence. In this build,
+ping, traceroute, and latency-chart results are deterministic simulations and never
+send traffic; always label their findings as simulated and never present them as a
+live measurement. Use ping for basic reachability/latency, traceroute for hop-level
+path inspection, and the latency chart for a time-series view. Let the inline visual
+render from the structured result instead of emitting visual syntax or duplicating
+the payload.
+""".strip()
+
 _SAFE_TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,252}$")
 
 

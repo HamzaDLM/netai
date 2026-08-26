@@ -39,6 +39,32 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
                 ],
             },
             "context_metrics": {"used_tokens": 10},
+            "prompt_snapshot": {
+                "messages": [
+                    {
+                        "index": 0,
+                        "role": "system",
+                        "source": "agent_system_prompt",
+                        "text": "NetAI system\n\nTool group guidance [zabbix]",
+                        "estimated_tokens": 10,
+                    },
+                    {
+                        "index": 1,
+                        "role": "user",
+                        "source": "runtime_user",
+                        "text": question,
+                        "estimated_tokens": 4,
+                    },
+                    {
+                        "index": 2,
+                        "role": "assistant",
+                        "source": "assistant_response",
+                        "text": f"answer for {conversation_id}: {question}",
+                        "estimated_tokens": 8,
+                    },
+                ],
+                "metrics": {"used_tokens": 10},
+            },
         }
 
     async def _no_title(
@@ -85,6 +111,22 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     convo_payload = convo_resp.json()
     assert convo_payload["id"] == conversation_id
     assert len(convo_payload["messages"]) == 2
+    user_message = next(
+        message for message in convo_payload["messages"] if message["role"] == "user"
+    )
+    preview_resp = await async_client.post(
+        f"/api/v1/llm/conversation/{conversation_id}/prompt-preview",
+        json={
+            "content": user_message["content"],
+            "include_draft": False,
+            "user_message_id": user_message["id"],
+        },
+    )
+    assert preview_resp.status_code == 200
+    preview = preview_resp.json()
+    assert "Tool group guidance [zabbix]" in preview["messages"][0]["text"]
+    assert preview["messages"][-1]["source"] == "assistant_response"
+    assert "answer for" in preview["messages"][-1]["text"]
 
 
 @pytest.mark.anyio

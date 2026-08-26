@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Iterable
+from dataclasses import asdict, dataclass
 from enum import Enum
 from uuid import uuid4
 
 from haystack.dataclasses import ChatMessage
+from haystack.tools import Tool
 
 from app.prompts import FORMATTING_PROMPT
 from app.services.agent_events import RunObserver
@@ -48,6 +49,7 @@ class AgentPromptSnapshot:
 @dataclass(slots=True)
 class PreparedAgentPrompt:
     messages: list[ChatMessage]
+    message_sources: list[dict[str, int | str | None]]
     context: BuiltContext
     attachment_reference_text: str
     metrics: dict[str, object]
@@ -57,6 +59,84 @@ class PreparedAgentPrompt:
 def _message_role(message: ChatMessage) -> str:
     role = message.role
     return str(role.value if isinstance(role, Enum) else role).lower()
+
+
+def _runtime_message_source(
+    message: ChatMessage, *, is_first: bool, is_last: bool
+) -> str:
+    role = _message_role(message)
+    if message.tool_calls:
+        return "assistant_tool_call"
+    if message.tool_call_results:
+        return "tool_result"
+    if role == "system":
+        return "agent_system_prompt" if is_first else "runtime_system"
+    if role == "assistant" and is_last:
+        return "assistant_response"
+    return f"runtime_{role}"
+
+
+def _runtime_message_text(message: ChatMessage) -> str:
+    sections: list[str] = []
+    if message.text:
+        sections.append(message.text)
+    if message.tool_calls:
+        sections.append(
+            "Tool calls:\n"
+            + json.dumps(
+                [call.to_dict() for call in message.tool_calls],
+                indent=2,
+                sort_keys=True,
+                default=str,
+            )
+        )
+    if message.tool_call_results:
+        sections.append(
+            "Tool results:\n"
+            + json.dumps(
+                [result.to_dict() for result in message.tool_call_results],
+                indent=2,
+                sort_keys=True,
+                default=str,
+            )
+        )
+    return "\n\n".join(sections)
+
+
+def build_runtime_prompt_snapshot(
+    *,
+    result: dict[str, object],
+    metrics: dict[str, object],
+) -> AgentPromptSnapshot:
+    """Capture the completed Agent trace used by the message debug panel."""
+
+    raw_messages = result.get("messages")
+    messages = (
+        [message for message in raw_messages if isinstance(message, ChatMessage)]
+        if isinstance(raw_messages, list)
+        else []
+    )
+    snapshot_messages: list[PromptSnapshotMessage] = []
+    last_index = len(messages) - 1
+    for index, message in enumerate(messages):
+        text = _runtime_message_text(message)
+        snapshot_messages.append(
+            PromptSnapshotMessage(
+                index=index,
+                role=_message_role(message),
+                source=_runtime_message_source(
+                    message,
+                    is_first=index == 0,
+                    is_last=index == last_index,
+                ),
+                text=text,
+                estimated_tokens=max(1, len(text) // 4),
+            )
+        )
+    return AgentPromptSnapshot(
+        messages=snapshot_messages,
+        metrics=dict(metrics),
+    )
 
 
 def _build_skills_prompt(skills: list[SkillInstruction] | None) -> str:
@@ -108,6 +188,8 @@ def _replace_latest_user(
     for index in range(len(messages) - 1, -1, -1):
         if _message_role(messages[index]) == "user":
             messages[index] = ChatMessage.from_user(question)
+            del messages[index + 1 :]
+            del sources[index + 1 :]
             return
     messages.append(ChatMessage.from_user(question))
     sources.append({"source": "current_question"})
@@ -118,12 +200,11 @@ def _source_int(source: dict[str, int | str | None], key: str) -> int | None:
     return value if isinstance(value, int) else None
 
 
-def _tool_context(service: NetAIService) -> str:
-    visible_tools = list(service.registry.searchable)
+def _tool_context(tools: Iterable[Tool]) -> str:
     return "\n\n".join(
         f"name: {tool.name}\ndescription: {tool.description}\n"
         f"parameters: {json.dumps(tool.parameters, sort_keys=True)}"
-        for tool in visible_tools
+        for tool in tools
     )
 
 
@@ -133,6 +214,7 @@ def _context_metrics(
     context: BuiltContext,
     messages: list[ChatMessage],
     attachment_reference_text: str,
+    tool_context: str,
 ) -> dict[str, object]:
     breakdown = {
         "system": {
@@ -143,7 +225,7 @@ def _context_metrics(
         "user": {"tokens": 0},
         "assistant": {"tokens": 0},
         "tools": {
-            "tokens": max(1, len(_tool_context(service)) // 4),
+            "tokens": max(1, len(tool_context) // 4),
         },
         "documents": {"tokens": 0},
     }
@@ -227,15 +309,17 @@ async def prepare_agent_prompt(
         messages.insert(0, ChatMessage.from_system(text))
         sources.insert(0, {"source": source})
 
+    visible_tool_context = _tool_context(service.registry.searchable)
     metrics = _context_metrics(
         service=service,
         context=context,
         messages=messages,
         attachment_reference_text=attachment_text,
+        tool_context=visible_tool_context,
     )
     snapshot_messages = [
         ChatMessage.from_system(service.agent.system_prompt or ""),
-        ChatMessage.from_system(_tool_context(service)),
+        ChatMessage.from_system(visible_tool_context),
         *messages,
     ]
     snapshot_sources: list[dict[str, int | str | None]] = [
@@ -263,6 +347,7 @@ async def prepare_agent_prompt(
     )
     return PreparedAgentPrompt(
         messages=messages,
+        message_sources=sources,
         context=context,
         attachment_reference_text=attachment_text,
         metrics=metrics,
@@ -277,17 +362,78 @@ async def build_agent_prompt_snapshot(
     question: str,
     skills: list[SkillInstruction] | None = None,
     custom_instructions: str | None = None,
+    include_draft_question: bool = True,
 ) -> AgentPromptSnapshot:
-    return (
-        await prepare_agent_prompt(
-            service=service,
-            conversation_id=conversation_id,
-            question=question,
-            skills=skills,
-            custom_instructions=custom_instructions,
-            include_draft_question=True,
+    prepared = await prepare_agent_prompt(
+        service=service,
+        conversation_id=conversation_id,
+        question=question,
+        skills=skills,
+        custom_instructions=custom_instructions,
+        include_draft_question=include_draft_question,
+    )
+    runtime = await service.prepare_run_context(
+        prepared.messages,
+        conversation_id=conversation_id,
+    )
+
+    runtime_sources = [dict(source) for source in prepared.message_sources]
+    if runtime.supplemental_messages:
+        insertion_index = max(len(runtime_sources) - 1, 0)
+        runtime_sources[insertion_index:insertion_index] = [
+            {"source": supplemental.source}
+            for supplemental in runtime.supplemental_messages
+        ]
+
+    visible_tools = list(runtime.tools)
+    visible_tool_context = _tool_context(visible_tools)
+    selectable_tools = runtime.tools.get_selectable_tools()
+    visible_names = {tool.name for tool in visible_tools}
+    searchable_tools = [
+        tool for tool in selectable_tools if tool.name not in visible_names
+    ]
+
+    snapshot_messages = [
+        ChatMessage.from_system(service.agent.system_prompt or ""),
+        ChatMessage.from_system(visible_tool_context),
+    ]
+    snapshot_sources: list[dict[str, int | str | None]] = [
+        {"source": "agent_system_prompt"},
+        {"source": "available_tools"},
+    ]
+    if searchable_tools:
+        snapshot_messages.append(
+            ChatMessage.from_system(_tool_context(searchable_tools))
         )
-    ).snapshot
+        snapshot_sources.append({"source": "searchable_tool_catalog"})
+    snapshot_messages.extend(runtime.messages)
+    snapshot_sources.extend(runtime_sources)
+
+    metrics = _context_metrics(
+        service=service,
+        context=prepared.context,
+        messages=runtime.messages,
+        attachment_reference_text=prepared.attachment_reference_text,
+        tool_context=visible_tool_context,
+    )
+    return AgentPromptSnapshot(
+        messages=[
+            PromptSnapshotMessage(
+                index=index,
+                role=_message_role(message),
+                source=str(snapshot_sources[index].get("source") or "unknown"),
+                text=message.text or "",
+                estimated_tokens=max(1, len(message.text or "") // 4),
+                message_id=_source_int(snapshot_sources[index], "message_id"),
+                summary_id=_source_int(snapshot_sources[index], "summary_id"),
+                up_to_message_id=_source_int(
+                    snapshot_sources[index], "up_to_message_id"
+                ),
+            )
+            for index, message in enumerate(snapshot_messages)
+        ],
+        metrics=metrics,
+    )
 
 
 def _tokenize(text: str) -> list[str]:
@@ -319,11 +465,16 @@ async def run_agent(
         user_id=user_id,
         request_id=request_id,
     )
+    prompt_snapshot = build_runtime_prompt_snapshot(
+        result=run.result,
+        metrics=prepared.metrics,
+    )
     return {
         "answer": run.answer,
         "events": run.observer.events,
         "run_map": run.run_map,
         "context_metrics": prepared.metrics,
+        "prompt_snapshot": asdict(prompt_snapshot),
     }
 
 
@@ -392,4 +543,10 @@ async def run_agent_stream(
         "run_id": observer.run_id,
         "run_map": run.run_map,
         "answer": run.answer,
+        "prompt_snapshot": asdict(
+            build_runtime_prompt_snapshot(
+                result=run.result,
+                metrics=prepared.metrics,
+            )
+        ),
     }

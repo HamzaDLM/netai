@@ -20,6 +20,11 @@ class MessageCreate(BaseModel):
     content: str
 
 
+class PromptPreviewCreate(MessageCreate):
+    include_draft: bool = True
+    user_message_id: int | None = None
+
+
 class PromptSnapshotMessageResponse(BaseModel):
     index: int
     role: str
@@ -199,3 +204,15 @@ class AdminFeedbackItemResponse(BaseModel):
     conversation: AdminFeedbackConversationResponse
     user_message: MessageResponse | None
     assistant_message: MessageResponse
+
+
+class AdminOverviewResponse(BaseModel):
+    window_started_at: datetime
+    generated_at: datetime
+    conversations: int
+    user_messages: int
+    tool_calls_total: int
+    tool_calls_failed: int
+    average_latency_ms: float | None
+    feedback_total: int
+    negative_feedback: int

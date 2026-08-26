@@ -9,6 +9,7 @@ from haystack.components.agents import Agent, State
 from haystack.components.generators.chat.types import ChatGenerator
 from haystack.dataclasses import ChatMessage, ToolCall, ToolCallResult
 from haystack.hooks import hook
+from haystack.tools import Tool
 
 from app.services.agent_events import RunObserver
 from app.tools.registry import ToolRegistry
@@ -68,6 +69,63 @@ async def before_run(state: State) -> None:
             "event": "agent.start",
             "request_id": state.data.get("request_id"),
             "user_id": state.data.get("user_id"),
+        },
+    )
+
+
+@hook
+async def inject_tool_group_prompts(state: State) -> None:
+    """Inject guidance once a searchable tool group becomes visible to the model."""
+
+    context = _hook_context(state)
+    injected_value = context.setdefault("injected_tool_groups", set())
+    injected = injected_value if isinstance(injected_value, set) else set()
+    context["injected_tool_groups"] = injected
+
+    prompts: dict[str, str] = {}
+    tools = state.data.get("tools", [])
+    if isinstance(tools, list):
+        for available_tool in tools:
+            if not isinstance(available_tool, Tool):
+                continue
+            connector = getattr(available_tool, "netai_connector", None)
+            prompt = getattr(available_tool, "netai_group_prompt", None)
+            if (
+                isinstance(connector, str)
+                and connector
+                and connector not in injected
+                and isinstance(prompt, str)
+                and prompt.strip()
+            ):
+                prompts.setdefault(connector, prompt.strip())
+
+    if not prompts:
+        return
+
+    blocks = "\n\n".join(
+        f"Tool group guidance [{connector}]\n\n{prompt}"
+        for connector, prompt in sorted(prompts.items())
+    )
+    messages = list(state.data.get("messages", []))
+    for index, message in enumerate(messages):
+        if message.is_from("system"):
+            messages[index] = ChatMessage.from_system(
+                f"{message.text or ''}\n\n{blocks}".strip(),
+                meta=message.meta,
+                name=message.name,
+            )
+            break
+    else:
+        messages.insert(0, ChatMessage.from_system(blocks))
+    state.set("messages", messages, handler_override=lambda _current, new: new)
+    injected.update(prompts)
+    logger.info(
+        "tool group guidance activated: %s",
+        ", ".join(sorted(prompts)),
+        extra={
+            "event": "agent.tool_group_prompt",
+            "request_id": state.data.get("request_id"),
+            "tool_groups": sorted(prompts),
         },
     )
 
@@ -140,23 +198,20 @@ Own the investigation from the user's question through the final answer. Use the
 minimum evidence needed, explain what you are checking before a potentially slow
 operation, and distinguish observed facts from assumptions. Never invent tool output.
 
-Tools are read-only and grouped across Zabbix, SuzieQ, Bitbucket, ServiceNow,
-topology data, syslog, and network diagnostics. The initial tool catalogue is
-progressively disclosed: call `search_tools` with connector and operation keywords,
-then call the returned tool directly. Search again when another evidence source is
-needed. Answer general questions directly when infrastructure evidence is unnecessary.
+Tools are read-only and progressively disclosed: call `search_tools` with connector
+and operation keywords, then call the returned tool directly. Search again when
+another evidence source is needed. When a tool group is loaded, the runtime supplies
+trusted group-specific guidance as a system message; apply that guidance only to the
+corresponding tools. Answer general questions directly when infrastructure evidence
+is unnecessary.
 
 Infrahub and SuzieQ MCP tools are supplied only when those optional connectors are
 reachable. If a runtime message says one is unavailable, say so and continue with
 other sources. Reachable SuzieQ MCP tools take precedence over the direct API tools.
 
-For topology and configuration-diff tools, rely on the structured tool result. The
-runtime places the visual component at the tool-call position; do not emit visual
-markers, component syntax, or duplicate the raw payload as a code block.
-
-The network_ping, network_traceroute, and network_latency_chart examples produce
-deterministic simulated data and never send traffic. Clearly label their evidence
-as simulated.
+When a tool returns a structured visual result, the runtime places the component at
+the tool-call position. Do not emit visual markers, component syntax, or duplicate
+the raw payload as a code block.
 """.strip()
 
 
@@ -181,6 +236,7 @@ def create_netai_agent(
         tool_streaming_callback_passthrough=True,
         hooks={
             "before_run": [before_run],
+            "before_llm": [inject_tool_group_prompts],
             "before_tool": [authorize_and_observe_tools],
             "after_tool": [observe_tool_results],
             "after_run": [after_run],

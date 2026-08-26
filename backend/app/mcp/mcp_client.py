@@ -214,12 +214,14 @@ class OptionalMCPToolProvider:
         *,
         connector: str,
         display_name: str,
+        tool_group_prompt: str = "",
         retry_after_seconds: float = 30.0,
         client_factory: MCPClientFactory = create_mcp_client,
     ) -> None:
         self.config = config
         self.connector = connector
         self.display_name = display_name
+        self.tool_group_prompt = tool_group_prompt.strip()
         self.retry_after_seconds = retry_after_seconds
         self._client_factory = client_factory
         self._client: FastMCPClient[Any] | None = None
@@ -400,6 +402,7 @@ class OptionalMCPToolProvider:
                 async_function=invoke,
             )
             setattr(tool, "netai_connector", self.connector)
+            setattr(tool, "netai_group_prompt", self.tool_group_prompt)
             setattr(tool, "netai_effect", "read")
             haystack_tools.append(tool)
         return Toolset(haystack_tools)

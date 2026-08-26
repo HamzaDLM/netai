@@ -8,6 +8,15 @@ from app.core.config import project_settings
 from app.infrastructure import clients_from_state
 from app.tools import netai_tool
 
+TOOL_GROUP_PROMPT = """
+Syslog provides timestamped device messages useful for incident evidence and event
+sequencing. Query a specific hostname and use the narrowest useful severity/time
+scope. Treat raw messages as device-emitted evidence, preserve their timestamps and
+severity, and distinguish repeated symptoms from a single event. Logs can reveal
+correlation and ordering but do not automatically establish causality; compare them
+with monitoring events, live network state, and recent configuration changes.
+""".strip()
+
 SYSLOG_HOST_LOG_LIMIT = 40
 
 

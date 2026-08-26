@@ -2,6 +2,16 @@ from typing import Annotated, Any
 
 from app.tools import netai_tool
 
+TOOL_GROUP_PROMPT = """
+The topology model describes NetAI's inventory and modeled relationships between
+devices. Use it for device identity, attributes, links, neighbors, and topology
+visualization; it represents modeled or intended structure rather than live protocol
+state. Resolve the requested scope before building a graph and keep visualizations
+focused on the relevant devices. For topology tools, rely on the structured result
+and let the UI render the topology component; explain important relationships and
+gaps without reproducing the graph payload.
+""".strip()
+
 _FAKE_DEVICES: dict[str, dict[str, Any]] = {
     "par-core-rtr-01": {
         "hostname": "par-core-rtr-01",

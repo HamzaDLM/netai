@@ -28,6 +28,7 @@ import ChatAdminEvalScenarioDialog from './ChatAdminEvalScenarioDialog.vue'
 import ChatAdminEvalEvaluatorDialog from './ChatAdminEvalEvaluatorDialog.vue'
 import type { EvalCheckStatus, EvalEvaluator, EvalRun, EvalRunStatus, EvalScenario, EvalView, NewEvalEvaluator, NewEvalScenario } from './evals.types'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
+import { toast } from '@/components/ui/toast'
 import evalsService from '@/services/evals.service'
 
 const activeView = ref<EvalView>('scenarios')
@@ -39,7 +40,6 @@ const scenarios = ref<EvalScenario[]>([])
 const runs = ref<EvalRun[]>([])
 const selectedScenarioId = ref('')
 const loading = ref(true)
-const errorMessage = ref('')
 const suiteRunning = ref(false)
 const scenarioMutationId = ref('')
 
@@ -114,9 +114,12 @@ function errorText(error: unknown): string {
 	return 'The evaluation request failed.'
 }
 
+function failureToast(title: string, error: unknown): void {
+	toast({ title, description: errorText(error), variant: 'destructive' })
+}
+
 async function loadData() {
 	loading.value = true
-	errorMessage.value = ''
 	try {
 		const [loadedScenarios, loadedEvaluators, loadedRuns] = await Promise.all([
 			evalsService.getScenarios(),
@@ -128,14 +131,13 @@ async function loadData() {
 		runs.value = loadedRuns
 		if (!selectedScenarioId.value || !loadedScenarios.some(item => item.id === selectedScenarioId.value)) selectedScenarioId.value = loadedScenarios[0]?.id ?? ''
 	} catch (error) {
-		errorMessage.value = errorText(error)
+		failureToast('Unable to load evaluations', error)
 	} finally {
 		loading.value = false
 	}
 }
 
 async function createScenario(payload: NewEvalScenario) {
-	errorMessage.value = ''
 	try {
 		const scenario = await evalsService.createScenario(payload)
 		scenarios.value = [scenario, ...scenarios.value]
@@ -144,24 +146,25 @@ async function createScenario(payload: NewEvalScenario) {
 		}
 		selectedScenarioId.value = scenario.id
 		activeView.value = 'scenarios'
+		toast({ title: 'Evaluation scenario created', description: scenario.name })
 	} catch (error) {
-		errorMessage.value = errorText(error)
+		failureToast('Unable to create evaluation scenario', error)
 	}
 }
 
 async function createEvaluator(payload: NewEvalEvaluator) {
-	errorMessage.value = ''
 	try {
 		const evaluator = await evalsService.createEvaluator(payload)
 		evaluators.value = [evaluator, ...evaluators.value]
 		activeView.value = 'evaluators'
+		toast({ title: 'Evaluator created', description: evaluator.name })
 	} catch (error) {
-		errorMessage.value = errorText(error)
+		failureToast('Unable to create evaluator', error)
 	}
 }
 
-async function runScenario(scenario: EvalScenario | null): Promise<void> {
-	if (!scenario?.enabled || scenarioRun(scenario)?.status === 'running') return
+async function runScenario(scenario: EvalScenario | null, notify = true): Promise<EvalRun | null> {
+	if (!scenario?.enabled || scenarioRun(scenario)?.status === 'running') return null
 	const runId = `pending-${scenario.id}-${Date.now()}`
 	const run: EvalRun = {
 		id: runId,
@@ -180,17 +183,25 @@ async function runScenario(scenario: EvalScenario | null): Promise<void> {
 	}
 	runs.value = [run, ...runs.value]
 	scenario.lastRunId = runId
-	errorMessage.value = ''
 	try {
 		const completed = await evalsService.runScenario(scenario.id)
 		runs.value = [completed, ...runs.value.filter(item => item.id !== runId)]
 		scenario.lastRunId = completed.id
+		if (notify) {
+			toast({
+				title: completed.status === 'passed' ? 'Evaluation passed' : 'Evaluation failed',
+				description: `${scenario.name} scored ${completed.score ?? 0}/100.`,
+				variant: completed.status === 'failed' ? 'destructive' : 'default',
+			})
+		}
+		return completed
 	} catch (error) {
 		run.status = 'failed'
 		run.duration = 'Failed'
 		run.error = errorText(error)
 		run.answer = 'The evaluation could not be completed.'
-		errorMessage.value = run.error
+		if (notify) failureToast('Unable to run evaluation scenario', error)
+		return null
 	}
 }
 
@@ -198,7 +209,24 @@ async function runSuite() {
 	if (suiteRunning.value) return
 	suiteRunning.value = true
 	try {
-		for (const scenario of scenarios.value.filter(item => item.enabled && scenarioRun(item)?.status !== 'running')) await runScenario(scenario)
+		const runnable = scenarios.value.filter(item => item.enabled && scenarioRun(item)?.status !== 'running')
+		if (!runnable.length) {
+			toast({ title: 'No runnable evaluation scenarios' })
+			return
+		}
+		const completed: EvalRun[] = []
+		for (const scenario of runnable) {
+			const result = await runScenario(scenario, false)
+			if (result) completed.push(result)
+		}
+		const passed = completed.filter(run => run.status === 'passed').length
+		const failed = completed.filter(run => run.status === 'failed').length
+		const errors = runnable.length - completed.length
+		toast({
+			title: failed || errors ? 'Evaluation suite completed with failures' : 'Evaluation suite passed',
+			description: `${passed} passed, ${failed} failed${errors ? `, ${errors} could not run` : ''}.`,
+			variant: failed || errors ? 'destructive' : 'default',
+		})
 	} finally {
 		suiteRunning.value = false
 	}
@@ -207,13 +235,13 @@ async function runSuite() {
 async function toggleScenario(scenario: EvalScenario): Promise<void> {
 	if (scenarioMutationId.value || scenarioRun(scenario)?.status === 'running') return
 	scenarioMutationId.value = scenario.id
-	errorMessage.value = ''
 	try {
 		const updated = await evalsService.setScenarioEnabled(scenario.id, !scenario.enabled)
 		const index = scenarios.value.findIndex(item => item.id === scenario.id)
 		if (index >= 0) scenarios.value[index] = updated
+		toast({ title: updated.enabled ? 'Evaluation scenario enabled' : 'Evaluation scenario disabled', description: updated.name })
 	} catch (error) {
-		errorMessage.value = errorText(error)
+		failureToast(`Unable to ${scenario.enabled ? 'disable' : 'enable'} evaluation scenario`, error)
 	} finally {
 		scenarioMutationId.value = ''
 	}
@@ -222,7 +250,6 @@ async function toggleScenario(scenario: EvalScenario): Promise<void> {
 async function deleteScenario(scenario: EvalScenario): Promise<void> {
 	if (scenarioMutationId.value || scenarioRun(scenario)?.status === 'running') return
 	scenarioMutationId.value = scenario.id
-	errorMessage.value = ''
 	try {
 		await evalsService.deleteScenario(scenario.id)
 		scenarios.value = scenarios.value.filter(item => item.id !== scenario.id)
@@ -230,8 +257,9 @@ async function deleteScenario(scenario: EvalScenario): Promise<void> {
 			if (scenario.evaluatorIds.includes(evaluator.id)) evaluator.usedBy = Math.max(0, evaluator.usedBy - 1)
 		}
 		selectedScenarioId.value = scenarios.value[0]?.id ?? ''
+		toast({ title: 'Evaluation scenario deleted', description: scenario.name })
 	} catch (error) {
-		errorMessage.value = errorText(error)
+		failureToast('Unable to delete evaluation scenario', error)
 	} finally {
 		scenarioMutationId.value = ''
 	}
@@ -268,8 +296,6 @@ onMounted(loadData)
 				</button>
 			</nav>
 		</div>
-		<div v-if="errorMessage" class="border-b border-red-500/20 bg-red-500/[0.05] px-6 py-3 text-sm text-red-300">{{ errorMessage }}</div>
-
 		<div class="min-h-0 flex-1 overflow-y-auto p-6">
 			<div v-if="loading" class="flex min-h-[420px] items-center justify-center rounded-lg border border-white/7 bg-[#0a0a0a]"><CircleDashed class="h-5 w-5 animate-spin text-red-400" /><span class="ml-3 text-sm text-stone-500">Loading evaluation workspace…</span></div>
 			<template v-else>

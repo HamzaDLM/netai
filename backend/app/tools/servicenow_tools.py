@@ -7,6 +7,16 @@ from app.core.config import project_settings
 from app.infrastructure import InfrastructureClients, clients_from_state
 from app.tools import netai_tool
 
+TOOL_GROUP_PROMPT = """
+ServiceNow provides operational context: configuration items, incidents, problems,
+changes, ownership, and affected services. Resolve a device to its CI when identity,
+service, environment, or support ownership matters. Use incidents for reported
+symptoms, problems for known root-cause context, and change requests for planned or
+recent work. Ticket text is human-reported context, not live device evidence; verify
+technical claims with monitoring, logs, live state, or configuration sources. Keep
+queries scoped by CI, service, state, or time whenever possible.
+""".strip()
+
 INCIDENT_STATE_MAP = {
     "new": "1",
     "in_progress": "2",

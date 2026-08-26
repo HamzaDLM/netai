@@ -204,6 +204,7 @@ class AgentRun(Base):
     # Output
     final_answer: Mapped[str | None] = mapped_column(Text)
     context_metrics: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    prompt_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     error: Mapped[str | None] = mapped_column(Text)
 
     conversation: Mapped["Conversation"] = relationship(back_populates="agent_runs")

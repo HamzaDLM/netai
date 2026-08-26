@@ -184,3 +184,15 @@ export interface AdminFeedbackItem {
 	user_message?: Message | null
 	assistant_message: Message
 }
+
+export interface AdminOverview {
+	window_started_at: string
+	generated_at: string
+	conversations: number
+	user_messages: number
+	tool_calls_total: number
+	tool_calls_failed: number
+	average_latency_ms?: number | null
+	feedback_total: number
+	negative_feedback: number
+}

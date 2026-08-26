@@ -142,15 +142,19 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
 async def test_prompt_preview_returns_prompt_snapshot(
     async_client, monkeypatch
 ) -> None:
+    captured: dict[str, object] = {}
+
     async def _fake_build_agent_prompt_snapshot(
         *,
         conversation_id: str,
         question: str,
         skills: list[dict[str, str]] | None = None,
         custom_instructions: str | None = None,
+        include_draft_question: bool = True,
         **_kwargs: object,
     ):
         _ = conversation_id, skills, custom_instructions
+        captured["include_draft_question"] = include_draft_question
         return AgentPromptSnapshot(
             messages=[
                 PromptSnapshotMessage(
@@ -192,7 +196,7 @@ async def test_prompt_preview_returns_prompt_snapshot(
 
     response = await async_client.post(
         f"/api/v1/llm/conversation/{conversation_id}/prompt-preview",
-        json={"content": "show context"},
+        json={"content": "show context", "include_draft": False},
     )
 
     assert response.status_code == 200
@@ -203,3 +207,4 @@ async def test_prompt_preview_returns_prompt_snapshot(
         "current_question",
     ]
     assert payload["messages"][1]["text"] == "show context"
+    assert captured["include_draft_question"] is False

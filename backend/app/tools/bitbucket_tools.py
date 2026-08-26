@@ -6,6 +6,16 @@ from typing import Annotated, Any
 from app.core.config import project_settings
 from app.tools import netai_tool
 
+TOOL_GROUP_PROMPT = """
+Bitbucket is NetAI's source for version-controlled device configuration and change
+history. Confirm the device-to-file mapping before reading a configuration or diff.
+Use recent commits to establish what changed and when, but do not claim a commit is
+the cause of an incident without temporal and operational evidence. Prefer the
+structured configuration-diff result for changes and let the UI render its visual;
+summarize the operational meaning instead of repeating the raw diff in a code block.
+All repository operations exposed here are read-only.
+""".strip()
+
 
 class BitbucketToolError(RuntimeError):
     """Raised for controlled, user-facing Bitbucket tool failures."""

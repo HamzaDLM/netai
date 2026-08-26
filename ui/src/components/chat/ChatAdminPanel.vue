@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import ChatAdminFeedbacksTab from '@/components/chat/admin/ChatAdminFeedbacksTab.vue'
 import ChatAdminEvalsTab from '@/components/chat/admin/ChatAdminEvalsTab.vue'
 import ChatAdminOverviewTab from '@/components/chat/admin/ChatAdminOverviewTab.vue'
+import ChatAdminPromptsTab from '@/components/chat/admin/ChatAdminPromptsTab.vue'
 import ChatAdminPlaceholderTab from '@/components/chat/admin/ChatAdminPlaceholderTab.vue'
 import ChatAdminSidebar from '@/components/chat/admin/ChatAdminSidebar.vue'
 import ChatAdminSkillsTab from '@/components/chat/admin/ChatAdminSkillsTab.vue'
@@ -46,6 +47,7 @@ onMounted(async () => {
 			coming-soon-label="Connector admin is not wired yet"
 			empty-state-copy="This section is reserved for connector-level admin views once those workflows are designed for the new tab system." />
 		<ChatAdminSkillsTab v-else-if="activeSection === 'skills'" />
+		<ChatAdminPromptsTab v-else-if="activeSection === 'prompts'" />
 		<ChatAdminUsersTab v-else-if="activeSection === 'users'" />
 		<ChatAdminPlaceholderTab
 			v-else-if="activeSection === 'latency'"

@@ -1,6 +1,6 @@
 import { AxiosResponse } from 'axios'
 import API from './axios'
-import { AdminFeedbackItem, ChatAttachment, ChatUserSettings, ContextMetrics, Conversation, ConversationMessages, Message, PromptSnapshot } from '@/types/chat.type'
+import { AdminFeedbackItem, AdminOverview, ChatAttachment, ChatUserSettings, ContextMetrics, Conversation, ConversationMessages, Message, PromptSnapshot } from '@/types/chat.type'
 
 export const agentRuntimeEventTypes = [
 	'run_started',
@@ -59,6 +59,9 @@ class ChatService {
 	getAdminFeedbacks(limit = 100): Promise<AxiosResponse<AdminFeedbackItem[]>> {
 		return API.get(`/llm/admin/feedbacks`, { params: { limit } })
 	}
+	getAdminOverview(): Promise<AxiosResponse<AdminOverview>> {
+		return API.get(`/llm/admin/overview`)
+	}
 	getChatSettings(): Promise<AxiosResponse<ChatUserSettings>> {
 		return API.get(`/llm/settings/chat`)
 	}
@@ -78,7 +81,7 @@ class ChatService {
 	askLLM(conversation_id: string, params: { content: string }): Promise<AxiosResponse<Message>> {
 		return API.post(`/llm/conversation/${conversation_id}/message`, params)
 	}
-	getPromptPreview(conversation_id: string, params: { content: string }): Promise<AxiosResponse<PromptSnapshot>> {
+	getPromptPreview(conversation_id: string, params: { content: string; include_draft: boolean; user_message_id?: number }): Promise<AxiosResponse<PromptSnapshot>> {
 		return API.post(`/llm/conversation/${conversation_id}/prompt-preview`, params)
 	}
 
@@ -145,8 +148,8 @@ class ChatService {
 				return {
 					type: eventName,
 					message_id: Number(payload.message_id),
-					duration_ms:
-						typeof payload.duration_ms === 'number' ? Number(payload.duration_ms) : null,
+				duration_ms:
+					typeof payload.duration_ms === 'number' ? Number(payload.duration_ms) : null,
 				}
 			}
 			return null

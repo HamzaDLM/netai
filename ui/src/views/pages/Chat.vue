@@ -114,11 +114,21 @@ function sourceLabel(source: string): string {
         agent_system_prompt: 'NetAI system',
         orchestrator_system_prompt: 'Orchestrator system (legacy)',
         available_tools: 'Available tools',
+        searchable_tool_catalog: 'Searchable tool catalog',
         current_question: 'Draft question',
         attachments: 'Attachments',
         custom_instructions: 'Custom instructions',
         selected_skills: 'Skills',
         formatting_prompt: 'Formatting',
+        mcp_prompt: 'MCP instructions',
+        mcp_resource: 'MCP resource',
+        connector_status: 'Connector status',
+        runtime_system: 'Runtime system',
+        runtime_user: 'Runtime user message',
+        runtime_assistant: 'Runtime assistant message',
+        assistant_tool_call: 'Assistant tool call',
+        tool_result: 'Tool result',
+        assistant_response: 'Final response',
     }
     return labels[source] ?? source.replace(/_/g, ' ')
 }
@@ -145,7 +155,11 @@ function promptPreviewQuestion(): string {
 
 async function loadPromptPreview(): Promise<void> {
     if (!chatStore.selectedConversation) return
-    const content = promptPreviewQuestion()
+    const draft = chatInputValue.value.trim()
+    const persistedUserMessage = [...chatStore.messages].reverse().find(
+        message => message.role === 'user' && message.content.trim()
+    )
+    const content = draft || persistedUserMessage?.content || promptPreviewQuestion()
     if (!content.trim()) {
         promptPreview.value = null
         promptPreviewError.value = 'Enter a question to preview the prompt stack.'
@@ -155,7 +169,11 @@ async function loadPromptPreview(): Promise<void> {
     isPromptPreviewLoading.value = true
     promptPreviewError.value = null
     try {
-        const result = await chatService.getPromptPreview(chatStore.selectedConversation.id, { content })
+        const result = await chatService.getPromptPreview(chatStore.selectedConversation.id, {
+            content,
+            include_draft: Boolean(draft),
+            ...(draft || !persistedUserMessage ? {} : { user_message_id: persistedUserMessage.id }),
+        })
         promptPreview.value = result.data
     } catch (err) {
         promptPreview.value = null
@@ -1111,9 +1129,9 @@ onBeforeUnmount(() => {
                 <SheetHeader class="border-b border-stone-800 px-6 py-5">
                     <div class="flex items-start justify-between gap-4 pr-8">
                         <div>
-                            <SheetTitle class="text-stone-100">Prompt Stack</SheetTitle>
+                            <SheetTitle class="text-stone-100">Message Debug</SheetTitle>
                             <SheetDescription class="mt-1 text-stone-400">
-                                Current conversation context, runtime prompts, and draft question.
+                                Completed runtime trace, or a pre-run preview when editing a draft.
                             </SheetDescription>
                         </div>
                         <div class="flex items-center gap-2">
