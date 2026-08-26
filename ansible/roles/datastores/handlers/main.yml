@@ -4,6 +4,11 @@
     name: redis-server
     state: restarted
 
+- name: Restart clickhouse
+  ansible.builtin.systemd_service:
+    name: clickhouse-server
+    state: restarted
+
 - name: Restart qdrant
   ansible.builtin.systemd_service:
     name: qdrant

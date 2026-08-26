@@ -44,6 +44,10 @@ cp log_ingestor/.env.skeleton log_ingestor/.env
 - `KAFKA_GROUP_ID` (default: `log-ingestor`)
 
 ### ClickHouse
+
+ClickHouse 19.6 or newer is required because the event table uses a table-level
+TTL. Docker Compose pins ClickHouse 24.8; Ansible installs the current official
+LTS packages rather than Ubuntu's obsolete distribution package.
 - `CLICKHOUSE_URL` (default: `http://localhost:8123`)
 - `CLICKHOUSE_DB` (default: `netops`)
 - `CLICKHOUSE_USER` (default: `admin`)
