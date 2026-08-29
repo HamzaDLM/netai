@@ -16,10 +16,12 @@ from app.api.models.users import UserRole
 from app.api.schemas.evals import (
     EvalEvaluatorCreate,
     EvalEvaluatorResponse,
+    EvalEvaluatorUpdate,
     EvalRunResponse,
     EvalScenarioCreate,
     EvalScenarioResponse,
     EvalScenarioToggle,
+    EvalScenarioUpdate,
 )
 
 router = APIRouter(prefix="/evals", tags=["evals"])
@@ -129,6 +131,29 @@ async def create_scenario(
     return _scenario_response(scenario, {})
 
 
+@router.put("/scenarios/{scenario_id}", response_model=EvalScenarioResponse)
+async def update_scenario(
+    scenario_id: str,
+    payload: EvalScenarioUpdate,
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+) -> EvalScenarioResponse:
+    _require_admin(user.role)
+    scenario = await _scenario_or_404(db, scenario_id)
+    active_ids = {evaluator.id for evaluator in await _active_evaluators(db)}
+    missing_ids = sorted(set(payload.evaluator_ids) - active_ids)
+    if missing_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unknown evaluators: {', '.join(missing_ids)}",
+        )
+    for field, value in payload.model_dump().items():
+        setattr(scenario, field, value)
+    await db.commit()
+    await db.refresh(scenario)
+    return _scenario_response(scenario, await _last_runs_by_scenario(db))
+
+
 @router.patch("/scenarios/{scenario_id}/enabled", response_model=EvalScenarioResponse)
 async def toggle_scenario(
     scenario_id: str,
@@ -228,6 +253,44 @@ async def create_evaluator(
             "threshold": evaluator.threshold,
             "builtin": evaluator.builtin,
             "used_by": 0,
+            "created_at": evaluator.created_at,
+        }
+    )
+
+
+@router.put("/evaluators/{evaluator_id}", response_model=EvalEvaluatorResponse)
+async def update_evaluator(
+    evaluator_id: str,
+    payload: EvalEvaluatorUpdate,
+    db: AsyncSessionDep,
+    user: CheckUserSSODep,
+) -> EvalEvaluatorResponse:
+    _require_admin(user.role)
+    evaluator = await db.get(EvalEvaluator, evaluator_id)
+    if evaluator is None or evaluator.archived:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    for field, value in payload.model_dump().items():
+        setattr(evaluator, field, value)
+    scenarios_result = await db.execute(
+        select(EvalScenario.evaluator_ids).where(EvalScenario.archived.is_(False))
+    )
+    used_by = sum(
+        evaluator.id in evaluator_ids
+        for evaluator_ids in scenarios_result.scalars().all()
+    )
+    await db.commit()
+    await db.refresh(evaluator)
+    return EvalEvaluatorResponse.model_validate(
+        {
+            "id": evaluator.id,
+            "name": evaluator.name,
+            "kind": evaluator.kind,
+            "rule": evaluator.rule,
+            "description": evaluator.description,
+            "criteria": evaluator.criteria,
+            "threshold": evaluator.threshold,
+            "builtin": evaluator.builtin,
+            "used_by": used_by,
             "created_at": evaluator.created_at,
         }
     )

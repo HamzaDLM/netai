@@ -161,6 +161,14 @@ async def test_admin_overview_reports_recent_active_usage(
     assert overview["average_latency_ms"] == pytest.approx(3000)
     assert overview["feedback_total"] == 2
     assert overview["negative_feedback"] == 1
+    assert len(overview["message_volume"]) == 168
+    assert sum(point["count"] for point in overview["message_volume"]) == 1
+    assert any(
+        point["date"] == now.date().isoformat()
+        and point["hour"] == now.hour
+        and point["count"] == 1
+        for point in overview["message_volume"]
+    )
 
 
 @pytest.mark.anyio

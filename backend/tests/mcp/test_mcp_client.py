@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -147,6 +148,20 @@ class FakeMCPClient:
         ]
 
 
+class FailingToolCallClient(FakeMCPClient):
+    async def call_tool(
+        self, name: str, arguments: dict[str, object]
+    ) -> CallToolResult:
+        self.calls["tools/call"] += 1
+        raise ConnectionError("session closed")
+
+
+class FailingToolDiscoveryClient(FakeMCPClient):
+    async def list_tools(self) -> list[mcp_types.Tool]:
+        self.calls["tools/list"] += 1
+        raise ConnectionError("metadata request failed")
+
+
 def make_provider(
     client: FakeMCPClient, *, resource_ttl: float = 60.0
 ) -> OptionalMCPToolProvider:
@@ -259,6 +274,84 @@ async def test_connection_failure_is_cached_and_does_not_raise() -> None:
     assert provider.status == "unavailable"
     assert "unavailable" in provider.status_message
     assert client.closed is True
+
+
+@pytest.mark.anyio
+async def test_tool_call_reconnects_once_after_transport_failure() -> None:
+    failed_client = FailingToolCallClient(tools=True)
+    recovered_client = FakeMCPClient(tools=True)
+    clients = iter((failed_client, recovered_client))
+    provider = OptionalMCPToolProvider(
+        MCPClientConfig(url="http://example.test/mcp"),
+        connector="example",
+        display_name="Example",
+        client_factory=lambda _config: next(clients),  # type: ignore[arg-type,return-value]
+    )
+
+    toolset = await provider.get_toolset()
+    assert toolset is not None
+    result = await toolset.tools[0].invoke_async(device="edge-01")
+
+    assert result == {"name": "inspect_routing", "device": "edge-01"}
+    assert failed_client.calls["tools/call"] == 1
+    assert failed_client.closed is True
+    assert recovered_client.calls["tools/call"] == 1
+    assert provider.status == "available"
+    await provider.close()
+
+
+@pytest.mark.anyio
+async def test_concurrent_transport_failures_share_one_reconnected_client() -> None:
+    failed_client = FailingToolCallClient(tools=True)
+    recovered_client = FakeMCPClient(tools=True)
+    clients = iter((failed_client, recovered_client))
+    provider = OptionalMCPToolProvider(
+        MCPClientConfig(url="http://example.test/mcp"),
+        connector="example",
+        display_name="Example",
+        client_factory=lambda _config: next(clients),  # type: ignore[arg-type,return-value]
+    )
+    toolset = await provider.get_toolset()
+    assert toolset is not None
+
+    results = await asyncio.gather(
+        toolset.tools[0].invoke_async(device="edge-01"),
+        toolset.tools[0].invoke_async(device="edge-02"),
+    )
+
+    assert results == [
+        {"name": "inspect_routing", "device": "edge-01"},
+        {"name": "inspect_routing", "device": "edge-02"},
+    ]
+    assert recovered_client.calls["tools/call"] == 2
+    await provider.close()
+
+
+@pytest.mark.anyio
+async def test_degraded_metadata_discovery_is_retried() -> None:
+    degraded_client = FailingToolDiscoveryClient(tools=True)
+    recovered_client = FakeMCPClient(tools=True)
+    clients = iter((degraded_client, recovered_client))
+    provider = OptionalMCPToolProvider(
+        MCPClientConfig(url="http://example.test/mcp"),
+        connector="example",
+        display_name="Example",
+        retry_after_seconds=0,
+        client_factory=lambda _config: next(clients),  # type: ignore[arg-type,return-value]
+    )
+
+    assert await provider.warm_up() is True
+    assert provider.status == "degraded"
+    assert provider.toolset is not None
+    assert len(provider.toolset.tools) == 0
+
+    toolset = await provider.get_toolset()
+
+    assert toolset is not None
+    assert [tool.name for tool in toolset.tools] == ["inspect_routing"]
+    assert degraded_client.closed is True
+    assert provider.status == "available"
+    await provider.close()
 
 
 @pytest.mark.anyio

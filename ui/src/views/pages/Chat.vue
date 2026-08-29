@@ -859,7 +859,6 @@ onBeforeUnmount(() => {
                     class="absolute top-5 right-5 z-30 gap-2 border-stone-700/80 bg-stone-950/80 text-stone-300 shadow-lg backdrop-blur hover:bg-stone-900 hover:text-stone-100"
                     aria-label="Debug">
                     <Bug class="w-4 h-4" />
-                    <span>Debug</span>
                 </Button>
                 <!-- Question Navbar -->
                 <div v-if="activePage === 'chat' && questionNavItems.length > 1"

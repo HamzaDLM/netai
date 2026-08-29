@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import {
 	Activity,
 	ArrowRight,
-	Ban,
 	Bot,
 	BrainCircuit,
 	Check,
@@ -13,9 +12,11 @@ import {
 	FlaskConical,
 	Gauge,
 	History,
+	LockKeyhole,
+	LockOpen,
+	Pencil,
 	Play,
 	Plus,
-	Power,
 	Search,
 	ShieldCheck,
 	Sparkles,
@@ -26,6 +27,7 @@ import {
 } from 'lucide-vue-next'
 import ChatAdminEvalScenarioDialog from './ChatAdminEvalScenarioDialog.vue'
 import ChatAdminEvalEvaluatorDialog from './ChatAdminEvalEvaluatorDialog.vue'
+import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import type { EvalCheckStatus, EvalEvaluator, EvalRun, EvalRunStatus, EvalScenario, EvalView, NewEvalEvaluator, NewEvalScenario } from './evals.types'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog'
 import { toast } from '@/components/ui/toast'
@@ -35,6 +37,8 @@ const activeView = ref<EvalView>('scenarios')
 const scenarioSearch = ref('')
 const scenarioDialogOpen = ref(false)
 const evaluatorDialogOpen = ref(false)
+const editingScenario = ref<EvalScenario | null>(null)
+const editingEvaluator = ref<EvalEvaluator | null>(null)
 const evaluators = ref<EvalEvaluator[]>([])
 const scenarios = ref<EvalScenario[]>([])
 const runs = ref<EvalRun[]>([])
@@ -89,6 +93,14 @@ function statusIcon(status: EvalRunStatus | EvalCheckStatus) {
 
 function scenarioRun(scenario: EvalScenario): EvalRun | null {
 	return scenario.lastRunId ? runs.value.find(run => run.id === scenario.lastRunId) ?? null : null
+}
+
+function scenarioScoreClass(scenario: EvalScenario): string {
+	const status = scenarioRun(scenario)?.status
+	if (status === 'passed') return 'text-emerald-400'
+	if (status === 'failed') return 'text-red-400'
+	if (status === 'running') return 'text-sky-400'
+	return 'text-stone-700'
 }
 
 function scenarioIsActive(scenarioId: string): boolean {
@@ -160,6 +172,55 @@ async function createEvaluator(payload: NewEvalEvaluator) {
 		toast({ title: 'Evaluator created', description: evaluator.name })
 	} catch (error) {
 		failureToast('Unable to create evaluator', error)
+	}
+}
+
+function openNewScenario(): void {
+	editingScenario.value = null
+	scenarioDialogOpen.value = true
+}
+
+function openScenarioEditor(scenario: EvalScenario): void {
+	editingScenario.value = scenario
+	scenarioDialogOpen.value = true
+}
+
+function openNewEvaluator(): void {
+	editingEvaluator.value = null
+	evaluatorDialogOpen.value = true
+}
+
+function openEvaluatorEditor(evaluator: EvalEvaluator): void {
+	editingEvaluator.value = evaluator
+	evaluatorDialogOpen.value = true
+}
+
+async function updateScenario(scenarioId: string, payload: NewEvalScenario): Promise<void> {
+	try {
+		const previous = scenarios.value.find(item => item.id === scenarioId)
+		const updated = await evalsService.updateScenario(scenarioId, payload)
+		const index = scenarios.value.findIndex(item => item.id === scenarioId)
+		if (index >= 0) scenarios.value[index] = updated
+		if (previous) {
+			for (const evaluator of evaluators.value) {
+				if (previous.evaluatorIds.includes(evaluator.id) && !updated.evaluatorIds.includes(evaluator.id)) evaluator.usedBy = Math.max(0, evaluator.usedBy - 1)
+				if (!previous.evaluatorIds.includes(evaluator.id) && updated.evaluatorIds.includes(evaluator.id)) evaluator.usedBy += 1
+			}
+		}
+		toast({ title: 'Evaluation scenario updated', description: updated.name })
+	} catch (error) {
+		failureToast('Unable to update evaluation scenario', error)
+	}
+}
+
+async function updateEvaluator(evaluatorId: string, payload: NewEvalEvaluator): Promise<void> {
+	try {
+		const updated = await evalsService.updateEvaluator(evaluatorId, payload)
+		const index = evaluators.value.findIndex(item => item.id === evaluatorId)
+		if (index >= 0) evaluators.value[index] = updated
+		toast({ title: 'Evaluator updated', description: updated.name })
+	} catch (error) {
+		failureToast('Unable to update evaluator', error)
 	}
 }
 
@@ -274,7 +335,6 @@ onMounted(loadData)
 			<div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
 				<div>
 					<div class="flex items-center gap-3">
-						<div class="flex h-9 w-9 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/8 text-red-400"><FlaskConical class="h-4 w-4" /></div>
 						<div>
 							<p class="text-xl font-semibold text-stone-100">Agent evaluations</p>
 							<p class="mt-1 text-sm text-stone-500">Create end-to-end use cases and score NetAI's tool trajectory, evidence, safety, and final answer.</p>
@@ -283,7 +343,7 @@ onMounted(loadData)
 				</div>
 				<div class="flex flex-wrap items-center gap-2">
 					<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-800 px-3 text-sm text-stone-300 transition hover:border-stone-600 hover:bg-stone-900 disabled:cursor-not-allowed disabled:opacity-50" :disabled="suiteRunning || loading || !scenarios.length" @click="runSuite"><CircleDashed v-if="suiteRunning" class="h-3.5 w-3.5 animate-spin" /><Play v-else class="h-3.5 w-3.5" /> {{ suiteRunning ? 'Running suite…' : 'Run suite' }}</button>
-					<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md bg-red-600 px-3 text-sm font-medium text-white transition hover:bg-red-500" @click="scenarioDialogOpen = true"><Plus class="h-4 w-4" /> New scenario</button>
+					<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md bg-red-600 px-3 text-sm font-medium text-white transition hover:bg-red-500" @click="openNewScenario"><Plus class="h-4 w-4" /> New scenario</button>
 				</div>
 			</div>
 		</header>
@@ -324,13 +384,12 @@ onMounted(loadData)
 						<label class="flex h-9 items-center gap-2 rounded-md border border-stone-800 bg-black/30 px-3 text-stone-500 focus-within:border-stone-600"><Search class="h-4 w-4" /><input v-model="scenarioSearch" class="min-w-0 flex-1 bg-transparent text-sm text-stone-200 outline-none placeholder:text-stone-700" placeholder="Search scenarios" /></label>
 					</div>
 					<div class="max-h-[760px] overflow-y-auto">
-						<button v-for="scenario in filteredScenarios" :key="scenario.id" type="button" class="block w-full border-b border-white/6 px-4 py-4 text-left transition hover:bg-white/[0.025]" :class="[selectedScenario?.id === scenario.id ? 'bg-white/[0.04]' : '', !scenario.enabled ? 'opacity-50' : '']" @click="selectScenario(scenario.id)">
+						<button v-for="scenario in filteredScenarios" :key="scenario.id" type="button" class="block w-full border-b border-white/6 px-4 py-4 text-left transition hover:bg-white/[0.025]" :class="[selectedScenario?.id === scenario.id ? 'bg-white/[0.04]' : '', !scenario.enabled ? 'opacity-30' : '']" @click="selectScenario(scenario.id)">
 							<div class="flex items-start justify-between gap-3">
 								<div class="flex min-w-0 items-center gap-2"><p class="truncate text-sm font-medium leading-5" :class="selectedScenario?.id === scenario.id ? 'text-stone-100' : 'text-stone-300'">{{ scenario.name }}</p><span v-if="!scenario.enabled" class="rounded border border-stone-700 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-stone-500">Disabled</span></div>
-								<component :is="statusIcon(scenarioRun(scenario)?.status ?? 'not_run')" class="mt-0.5 h-4 w-4 shrink-0" :class="scenarioRun(scenario)?.status === 'passed' ? 'text-emerald-400' : scenarioRun(scenario)?.status === 'failed' ? 'text-red-400' : scenarioRun(scenario)?.status === 'running' ? 'animate-spin text-sky-400' : 'text-stone-700'" />
+								<span class="shrink-0 text-xs font-semibold" :class="scenarioScoreClass(scenario)">{{ scenarioRun(scenario)?.score ?? '—' }}<span v-if="scenarioRun(scenario)?.score !== null && scenarioRun(scenario)?.score !== undefined" class="font-normal opacity-60">/100</span></span>
 							</div>
 							<p class="mt-2 line-clamp-2 text-xs leading-5 text-stone-600">{{ scenario.description }}</p>
-							<div class="mt-3 flex items-center justify-between gap-3"><div class="flex min-w-0 gap-1.5 overflow-hidden"><span v-for="tag in scenario.tags.slice(0, 2)" :key="tag" class="rounded border border-stone-800 px-1.5 py-0.5 text-[10px] text-stone-500">{{ tag }}</span></div><span v-if="scenarioRun(scenario)?.score !== null && scenarioRun(scenario)?.score !== undefined" class="text-xs font-medium text-stone-400">{{ scenarioRun(scenario)?.score }}/100</span><span v-else class="text-[10px] uppercase tracking-wide text-stone-700">Not run</span></div>
 						</button>
 						<div v-if="!filteredScenarios.length" class="p-8 text-center text-sm text-stone-600">No scenarios match your search.</div>
 					</div>
@@ -339,13 +398,13 @@ onMounted(loadData)
 				<main v-if="selectedScenario" class="min-w-0">
 					<div class="flex flex-col gap-4 border-b border-white/7 px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
 						<div>
-							<div class="flex flex-wrap items-center gap-2"><h2 class="text-xl font-semibold tracking-[-0.03em] text-stone-100">{{ selectedScenario.name }}</h2><span class="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]" :class="statusClass(selectedRun?.status ?? 'not_run')">{{ (selectedRun?.status ?? 'not run').replace('_', ' ') }}</span></div>
+							<div class="flex flex-wrap items-center gap-2"><h2 class="text-xl font-semibold tracking-[-0.03em] text-stone-100">{{ selectedScenario.name }}</h2><span class="text-xs text-stone-700">Owned by {{ selectedScenario.owner }}</span><span class="rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]" :class="statusClass(selectedRun?.status ?? 'not_run')">{{ (selectedRun?.status ?? 'not run').replace('_', ' ') }}</span></div>
 							<p class="mt-2 max-w-3xl text-sm leading-6 text-stone-500">{{ selectedScenario.description }}</p>
-							<p class="mt-2 text-xs text-stone-700">Owned by {{ selectedScenario.owner }}</p>
 						</div>
 						<div class="flex shrink-0 flex-wrap items-center gap-2 self-start">
-							<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-800 px-3 text-sm text-stone-400 transition hover:border-stone-600 hover:text-stone-200 disabled:cursor-not-allowed disabled:opacity-40" :disabled="selectedRun?.status === 'running' || scenarioMutationId === selectedScenario.id" @click="toggleScenario(selectedScenario)"><Power class="h-3.5 w-3.5" />{{ selectedScenario.enabled ? 'Disable' : 'Enable' }}</button>
-							<AlertDialog><AlertDialogTrigger as-child><button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-red-500/20 px-3 text-sm text-red-400 transition hover:border-red-500/40 hover:bg-red-500/[0.06] disabled:cursor-not-allowed disabled:opacity-40" :disabled="selectedRun?.status === 'running' || scenarioMutationId === selectedScenario.id"><Trash2 class="h-3.5 w-3.5" />Delete</button></AlertDialogTrigger><AlertDialogContent class="border-stone-800 bg-stone-950 text-stone-200"><AlertDialogHeader><AlertDialogTitle>Delete evaluation scenario?</AlertDialogTitle><AlertDialogDescription class="text-stone-500">“{{ selectedScenario.name }}” will be removed from the active scenario catalogue. Existing run history and evidence will be preserved.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel class="border-stone-800 bg-transparent text-stone-300 hover:bg-stone-900">Cancel</AlertDialogCancel><AlertDialogAction class="bg-red-600 text-white hover:bg-red-500" @click="deleteScenario(selectedScenario)">Delete scenario</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+							<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-stone-800 px-3 text-sm text-stone-400 transition hover:border-stone-600 hover:text-stone-200 disabled:cursor-not-allowed disabled:opacity-40" :disabled="selectedRun?.status === 'running' || scenarioMutationId === selectedScenario.id" @click="openScenarioEditor(selectedScenario)"><Pencil class="h-3.5 w-3.5" /></button>
+							<button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-md border border-stone-800 text-stone-400 transition hover:border-stone-600 hover:text-stone-200 disabled:cursor-not-allowed disabled:opacity-40" :title="selectedScenario.enabled ? 'Disable scenario' : 'Enable scenario'" :aria-label="selectedScenario.enabled ? 'Disable scenario' : 'Enable scenario'" :disabled="selectedRun?.status === 'running' || scenarioMutationId === selectedScenario.id" @click="toggleScenario(selectedScenario)"><LockKeyhole v-if="selectedScenario.enabled" class="h-3.5 w-3.5" /><LockOpen v-else class="h-3.5 w-3.5" /></button>
+							<AlertDialog><AlertDialogTrigger as-child><button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-red-500/20 px-3 text-sm text-red-400 transition hover:border-red-500/40 hover:bg-red-500/[0.06] disabled:cursor-not-allowed disabled:opacity-40" :disabled="selectedRun?.status === 'running' || scenarioMutationId === selectedScenario.id"><Trash2 class="h-3.5 w-3.5" /></button></AlertDialogTrigger><AlertDialogContent class="border-stone-800 bg-stone-950 text-stone-200"><AlertDialogHeader><AlertDialogTitle>Delete evaluation scenario?</AlertDialogTitle><AlertDialogDescription class="text-stone-500">“{{ selectedScenario.name }}” will be removed from the active scenario catalogue. Existing run history and evidence will be preserved.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel class="border-stone-800 bg-transparent text-stone-300 hover:bg-stone-900">Cancel</AlertDialogCancel><AlertDialogAction class="bg-red-600 text-white hover:bg-red-500" @click="deleteScenario(selectedScenario)">Delete scenario</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
 							<button type="button" class="inline-flex h-9 items-center gap-2 rounded-md bg-red-600 px-3 text-sm font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50" :disabled="!selectedScenario.enabled || selectedRun?.status === 'running'" @click="runScenario(selectedScenario)"><Play class="h-3.5 w-3.5" /> {{ !selectedScenario.enabled ? 'Disabled' : selectedRun?.status === 'running' ? 'Running…' : 'Run scenario' }}</button>
 						</div>
 					</div>
@@ -357,40 +416,35 @@ onMounted(loadData)
 						</div>
 
 						<div class="grid gap-4 xl:grid-cols-3">
-							<article class="rounded-lg border border-white/7 p-4"><div class="flex items-center gap-2 text-stone-500"><Wrench class="h-4 w-4" /><p class="text-[10px] font-semibold uppercase tracking-[0.2em]">Required tools</p></div><div class="mt-3 space-y-2"><p v-for="tool in selectedScenario.requiredTools" :key="tool" class="rounded bg-white/[0.025] px-2.5 py-2 font-mono text-xs text-stone-400">{{ tool }}</p><p v-if="!selectedScenario.requiredTools.length" class="text-xs text-stone-700">No exact tool required</p></div></article>
-							<article class="rounded-lg border border-white/7 p-4"><div class="flex items-center gap-2 text-stone-500"><Ban class="h-4 w-4" /><p class="text-[10px] font-semibold uppercase tracking-[0.2em]">Forbidden tools</p></div><div class="mt-3 space-y-2"><p v-for="tool in selectedScenario.forbiddenTools" :key="tool" class="rounded bg-red-500/[0.04] px-2.5 py-2 font-mono text-xs text-red-300/70">{{ tool }}</p><p v-if="!selectedScenario.forbiddenTools.length" class="text-xs text-stone-700">Global read-only policy applies</p></div></article>
+							<article class="rounded-lg border border-white/7 p-4"><div class="flex items-center gap-2 text-stone-500"><Wrench class="h-4 w-4" /><p class="text-[10px] font-semibold uppercase tracking-[0.2em]">Tools</p></div><div class="mt-3 space-y-2"><div v-for="tool in selectedScenario.requiredTools" :key="`required-${tool}`" class="flex items-center justify-between gap-2 rounded bg-white/[0.025] px-2.5 py-2"><p class="min-w-0 truncate font-mono text-xs text-stone-400">{{ tool }}</p><span class="shrink-0 rounded border border-emerald-500/20 bg-emerald-500/[0.05] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-500">Required</span></div><div v-for="tool in selectedScenario.forbiddenTools" :key="`forbidden-${tool}`" class="flex items-center justify-between gap-2 rounded bg-red-500/[0.04] px-2.5 py-2"><p class="min-w-0 truncate font-mono text-xs text-red-300/70">{{ tool }}</p><span class="shrink-0 rounded border border-red-500/20 bg-red-500/[0.05] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-red-400">Forbidden</span></div><p v-if="!selectedScenario.requiredTools.length && !selectedScenario.forbiddenTools.length" class="text-xs text-stone-700">No tool constraints configured</p></div></article>
 							<article class="rounded-lg border border-white/7 p-4"><div class="flex items-center gap-2 text-stone-500"><Check class="h-4 w-4" /><p class="text-[10px] font-semibold uppercase tracking-[0.2em]">Expected facts</p></div><div class="mt-3 space-y-2"><div v-for="fact in selectedScenario.expectedFacts" :key="fact" class="flex gap-2 text-xs leading-5 text-stone-400"><Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-500" /><span>{{ fact }}</span></div><p v-if="!selectedScenario.expectedFacts.length" class="text-xs text-stone-700">No reference facts configured</p></div></article>
+							<article class="rounded-lg border border-white/7 p-4"><p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">Evaluation suite</p><div class="mt-3 flex flex-wrap gap-2"><span v-for="evaluatorId in selectedScenario.evaluatorIds" :key="evaluatorId" class="inline-flex items-center gap-2 rounded-full border border-white/7 bg-white/[0.025] px-3 py-1.5 text-xs text-stone-400"><Bot v-if="evaluators.find(item => item.id === evaluatorId)?.kind === 'llm_judge'" class="h-3.5 w-3.5 text-violet-400" /><ShieldCheck v-else class="h-3.5 w-3.5 text-emerald-500" />{{ evaluatorName(evaluatorId) }}</span></div></article>
 						</div>
 
-						<article class="rounded-lg border border-white/7 p-4"><div class="flex items-center justify-between gap-4"><div><p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">Evaluation suite</p><p class="mt-1 text-xs text-stone-700">Deterministic gates and LLM judges run against the same recorded Agent execution.</p></div><span class="text-xs text-stone-600">{{ selectedScenario.evaluatorIds.length }} checks</span></div><div class="mt-4 flex flex-wrap gap-2"><span v-for="evaluatorId in selectedScenario.evaluatorIds" :key="evaluatorId" class="inline-flex items-center gap-2 rounded-full border border-white/7 bg-white/[0.025] px-3 py-1.5 text-xs text-stone-400"><Bot v-if="evaluators.find(item => item.id === evaluatorId)?.kind === 'llm_judge'" class="h-3.5 w-3.5 text-violet-400" /><ShieldCheck v-else class="h-3.5 w-3.5 text-emerald-500" />{{ evaluatorName(evaluatorId) }}</span></div></article>
-
 						<section v-if="selectedRun" class="space-y-4 border-t border-white/7 pt-6">
-							<div class="flex flex-wrap items-end justify-between gap-4"><div><p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">Latest execution</p><div class="mt-2 flex items-center gap-3"><p class="text-lg font-semibold text-stone-200">{{ selectedRun.id }}</p><span class="text-xs text-stone-600">{{ selectedRun.startedAt }} · {{ selectedRun.duration }} · {{ selectedRun.model }}</span></div></div><div v-if="selectedRun.score !== null" class="text-right"><p class="text-3xl font-semibold tracking-[-0.05em]" :class="selectedRun.status === 'passed' ? 'text-emerald-400' : 'text-red-400'">{{ selectedRun.score }}</p><p class="text-[10px] uppercase tracking-[0.18em] text-stone-600">overall score</p></div></div>
+							<div class="flex flex-wrap items-end justify-between gap-4"><div><p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">Latest execution</p><div class="mt-2 flex items-center gap-3"><p class="text-lg font-semibold text-stone-200">{{ selectedRun.id }}</p><span class="text-xs text-stone-600">{{ selectedRun.startedAt }} · {{ selectedRun.duration }}</span></div></div><div v-if="selectedRun.score !== null" class="text-right"><p class="text-3xl font-semibold tracking-[-0.05em]" :class="selectedRun.status === 'passed' ? 'text-emerald-400' : 'text-red-400'">{{ selectedRun.score }}</p><p class="text-[10px] uppercase tracking-[0.18em] text-stone-600">overall score</p></div></div>
 
 							<div v-if="selectedRun.status === 'running'" class="rounded-lg border border-sky-500/20 bg-sky-500/[0.04] p-5"><div class="flex items-center gap-3"><CircleDashed class="h-5 w-5 animate-spin text-sky-400" /><div><p class="text-sm font-medium text-sky-200">Running the scenario through NetAI</p><p class="mt-1 text-xs text-stone-500">Tool events and evaluator results will appear after the Agent reaches a final answer.</p></div></div><div class="mt-4 h-1 overflow-hidden rounded-full bg-stone-900"><div class="h-full w-2/3 animate-pulse rounded-full bg-sky-500" /></div></div>
 
 							<template v-else>
-								<div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)]">
-									<article class="rounded-lg border border-white/7 bg-black/20 p-4"><p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">Final answer</p><p class="mt-3 text-sm leading-6 text-stone-300">{{ selectedRun.answer }}</p></article>
-									<article class="rounded-lg border border-white/7 p-4"><p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">Run metadata</p><dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 text-xs"><dt class="text-stone-600">Version</dt><dd class="text-right font-mono text-stone-400">{{ selectedRun.version }}</dd><dt class="text-stone-600">Tool calls</dt><dd class="text-right text-stone-400">{{ selectedRun.toolCalls.length }}</dd><dt class="text-stone-600">Evaluators</dt><dd class="text-right text-stone-400">{{ selectedRun.checks.length }}</dd><dt class="text-stone-600">Duration</dt><dd class="text-right text-stone-400">{{ selectedRun.duration }}</dd></dl></article>
-								</div>
+								<article class="rounded-lg border border-white/7 bg-black/20 p-4"><p class="text-[10px] font-semibold uppercase tracking-[0.2em] text-stone-600">Final answer</p><MarkdownRenderer class="mt-3 text-sm leading-6 text-stone-300" :content="selectedRun.answer || 'No final answer was produced.'" /></article>
 
 								<div class="grid gap-4 xl:grid-cols-2">
-									<article class="overflow-hidden rounded-lg border border-white/7"><div class="flex items-center justify-between border-b border-white/7 px-4 py-3"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Tool trajectory</p><span class="text-xs text-stone-700">{{ selectedRun.toolCalls.length }} calls</span></div><div class="divide-y divide-white/6"><div v-for="(call, index) in selectedRun.toolCalls" :key="call.id" class="flex gap-3 p-4"><div class="flex flex-col items-center"><span class="flex h-6 w-6 items-center justify-center rounded-full border text-[10px]" :class="call.status === 'success' ? 'border-emerald-500/25 text-emerald-400' : 'border-red-500/25 text-red-400'">{{ index + 1 }}</span><span v-if="index < selectedRun.toolCalls.length - 1" class="mt-1 h-full w-px bg-stone-800" /></div><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center justify-between gap-2"><p class="font-mono text-xs text-stone-300">{{ call.name }}</p><span class="text-[10px] uppercase tracking-wide" :class="call.expectation === 'required' ? 'text-emerald-500' : call.expectation === 'unexpected' ? 'text-red-400' : 'text-stone-600'">{{ call.expectation }}</span></div><p class="mt-1 text-[11px] text-stone-600">{{ call.connector }} · {{ call.durationMs }}ms</p><p class="mt-2 text-xs leading-5 text-stone-500">{{ call.summary }}</p></div></div><div v-if="!selectedRun.toolCalls.length" class="p-5 text-sm text-stone-600">No tool calls recorded.</div></div></article>
+									<article class="overflow-hidden rounded-lg border border-white/7"><div class="flex items-center justify-between border-b border-white/7 px-4 py-3"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Tool trajectory</p></div><div class="divide-y divide-white/6"><div v-for="(call, index) in selectedRun.toolCalls" :key="call.id" class="flex gap-3 p-4"><div class="flex flex-col items-center"><span class="flex h-6 w-6 items-center justify-center rounded-full border text-[10px]" :class="call.status === 'success' ? 'border-emerald-500/25 text-emerald-400' : 'border-red-500/25 text-red-400'">{{ index + 1 }}</span><span v-if="index < selectedRun.toolCalls.length - 1" class="mt-1 h-full w-px bg-stone-800" /></div><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center justify-between gap-2"><p class="font-mono text-xs text-stone-300">{{ call.name }}</p><span class="text-[10px] uppercase tracking-wide" :class="call.expectation === 'required' ? 'text-emerald-500' : call.expectation === 'unexpected' ? 'text-red-400' : 'text-stone-600'">{{ call.expectation }}</span></div><p class="mt-1 text-[11px] text-stone-600">{{ call.connector }} · {{ call.durationMs }}ms</p><p class="mt-2 text-xs leading-5 text-stone-500">{{ call.summary }}</p></div></div><div v-if="!selectedRun.toolCalls.length" class="p-5 text-sm text-stone-600">No tool calls recorded.</div></div></article>
 
-									<article class="overflow-hidden rounded-lg border border-white/7"><div class="flex items-center justify-between border-b border-white/7 px-4 py-3"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Evaluator results</p><span class="text-xs text-stone-700">hard gates + judges</span></div><div class="divide-y divide-white/6"><div v-for="check in selectedRun.checks" :key="check.id" class="p-4"><div class="flex items-start justify-between gap-4"><div class="flex min-w-0 gap-3"><component :is="statusIcon(check.status)" class="mt-0.5 h-4 w-4 shrink-0" :class="check.status === 'passed' ? 'text-emerald-400' : check.status === 'failed' ? 'text-red-400' : 'text-amber-400'" /><div><div class="flex flex-wrap items-center gap-2"><p class="text-sm font-medium text-stone-300">{{ check.name }}</p><span class="rounded border border-stone-800 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-stone-600">{{ check.kind === 'llm_judge' ? 'LLM judge' : 'Deterministic' }}</span></div><p class="mt-2 text-xs leading-5 text-stone-500">{{ check.detail }}</p></div></div><span class="shrink-0 text-sm font-semibold" :class="check.status === 'passed' ? 'text-emerald-400' : 'text-red-400'">{{ check.score }}</span></div><div class="mt-3 h-1 overflow-hidden rounded-full bg-stone-900"><div class="h-full rounded-full" :class="check.status === 'passed' ? 'bg-emerald-500' : 'bg-red-500'" :style="{ width: `${check.score}%` }" /></div></div><div v-if="!selectedRun.checks.length" class="p-5 text-sm text-stone-600">No evaluator results recorded.</div></div></article>
+									<article class="overflow-hidden rounded-lg border border-white/7"><div class="border-b border-white/7 px-4 py-3"><p class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Evaluator results</p></div><div class="divide-y divide-white/6"><div v-for="check in selectedRun.checks" :key="check.id" class="p-4"><div class="flex items-start justify-between gap-4"><div class="flex min-w-0 gap-3"><component :is="statusIcon(check.status)" class="mt-0.5 h-4 w-4 shrink-0" :class="check.status === 'passed' ? 'text-emerald-400' : check.status === 'failed' ? 'text-red-400' : 'text-amber-400'" /><div><div class="flex flex-wrap items-center gap-2"><p class="text-sm font-medium text-stone-300">{{ check.name }}</p><span class="rounded border border-stone-800 px-1.5 py-0.5 text-[9px] uppercase tracking-wide text-stone-600">{{ check.kind === 'llm_judge' ? 'LLM judge' : 'Deterministic' }}</span></div><p class="mt-2 text-xs leading-5 text-stone-500">{{ check.detail }}</p></div></div><span class="shrink-0 text-sm font-semibold" :class="check.status === 'passed' ? 'text-emerald-400' : 'text-red-400'">{{ check.score }}</span></div><div class="mt-3 h-1 overflow-hidden rounded-full bg-stone-900"><div class="h-full rounded-full" :class="check.status === 'passed' ? 'bg-emerald-500' : 'bg-red-500'" :style="{ width: `${check.score}%` }" /></div></div><div v-if="!selectedRun.checks.length" class="p-5 text-sm text-stone-600">No evaluator results recorded.</div></div></article>
 								</div>
 							</template>
 						</section>
 						<div v-else class="rounded-lg border border-dashed border-stone-800 px-6 py-10 text-center"><FlaskConical class="mx-auto h-6 w-6 text-stone-700" /><p class="mt-3 text-sm text-stone-500">{{ selectedScenario.enabled ? 'This scenario has not been run yet.' : 'This scenario is disabled and excluded from suite runs.' }}</p><button type="button" class="mt-4 text-sm text-red-400 transition hover:text-red-300" @click="selectedScenario.enabled ? runScenario(selectedScenario) : toggleScenario(selectedScenario)">{{ selectedScenario.enabled ? 'Run the first evaluation' : 'Enable scenario' }}</button></div>
 					</div>
 				</main>
-				<div v-else class="flex min-h-[680px] items-center justify-center xl:col-span-2"><div class="text-center"><FlaskConical class="mx-auto h-7 w-7 text-stone-700" /><p class="mt-3 text-sm text-stone-500">No evaluation scenarios yet.</p><button type="button" class="mt-3 text-sm text-red-400 hover:text-red-300" @click="scenarioDialogOpen = true">Create the first scenario</button></div></div>
+				<div v-else class="flex min-h-[680px] items-center justify-center xl:col-span-2"><div class="text-center"><FlaskConical class="mx-auto h-7 w-7 text-stone-700" /><p class="mt-3 text-sm text-stone-500">No evaluation scenarios yet.</p><button type="button" class="mt-3 text-sm text-red-400 hover:text-red-300" @click="openNewScenario">Create the first scenario</button></div></div>
 			</div>
 
 			<div v-else-if="activeView === 'runs'" class="overflow-hidden rounded-lg border border-white/7 bg-[#0a0a0a]">
-				<div class="flex flex-col gap-3 border-b border-white/7 px-5 py-4 md:flex-row md:items-center md:justify-between"><div><p class="text-base font-semibold text-stone-200">Evaluation history</p><p class="mt-1 text-xs text-stone-600">Compare architecture versions, models, and scenario outcomes.</p></div><span class="text-xs text-stone-600">{{ runs.length }} runs</span></div>
-				<div class="overflow-x-auto"><table class="w-full min-w-[900px] text-left"><thead class="border-b border-white/7 bg-black/20 text-[10px] uppercase tracking-[0.18em] text-stone-600"><tr><th class="px-5 py-3 font-medium">Run</th><th class="px-5 py-3 font-medium">Scenario</th><th class="px-5 py-3 font-medium">Status</th><th class="px-5 py-3 font-medium">Score</th><th class="px-5 py-3 font-medium">Model / version</th><th class="px-5 py-3 font-medium">Duration</th><th class="px-5 py-3" /></tr></thead><tbody class="divide-y divide-white/6"><tr v-for="run in runs" :key="run.id" class="transition hover:bg-white/[0.02]"><td class="px-5 py-4"><p class="font-mono text-xs text-stone-300">{{ run.id }}</p><p class="mt-1 text-[11px] text-stone-700">{{ run.startedAt }}</p></td><td class="px-5 py-4 text-sm text-stone-300">{{ run.scenarioName }}</td><td class="px-5 py-4"><span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide" :class="statusClass(run.status)"><component :is="statusIcon(run.status)" class="h-3 w-3" :class="run.status === 'running' ? 'animate-spin' : ''" />{{ run.status }}</span></td><td class="px-5 py-4 text-sm font-semibold" :class="run.status === 'failed' ? 'text-red-400' : 'text-stone-300'">{{ run.score ?? '—' }}</td><td class="px-5 py-4"><p class="text-xs text-stone-400">{{ run.model }}</p><p class="mt-1 font-mono text-[10px] text-stone-700">{{ run.version }}</p></td><td class="px-5 py-4 text-xs text-stone-500">{{ run.duration }}</td><td class="px-5 py-4 text-right"><button type="button" class="inline-flex items-center gap-1 text-xs text-stone-500 transition hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-800" :disabled="!scenarioIsActive(run.scenarioId)" @click="inspectRun(run)">{{ scenarioIsActive(run.scenarioId) ? 'Inspect' : 'Archived' }} <ChevronRight v-if="scenarioIsActive(run.scenarioId)" class="h-3.5 w-3.5" /></button></td></tr></tbody></table></div>
+				<div class="flex flex-col gap-3 border-b border-white/7 px-5 py-4 md:flex-row md:items-center md:justify-between"><div><p class="text-base font-semibold text-stone-200">Evaluation history</p><p class="mt-1 text-xs text-stone-600">Compare architecture versions and scenario outcomes.</p></div><span class="text-xs text-stone-600">{{ runs.length }} runs</span></div>
+				<div class="overflow-x-auto"><table class="w-full min-w-[820px] text-left"><thead class="border-b border-white/7 bg-black/20 text-[10px] uppercase tracking-[0.18em] text-stone-600"><tr><th class="px-5 py-3 font-medium">Run</th><th class="px-5 py-3 font-medium">Scenario</th><th class="px-5 py-3 font-medium">Status</th><th class="px-5 py-3 font-medium">Score</th><th class="px-5 py-3 font-medium">Version</th><th class="px-5 py-3 font-medium">Duration</th><th class="px-5 py-3" /></tr></thead><tbody class="divide-y divide-white/6"><tr v-for="run in runs" :key="run.id" class="transition hover:bg-white/[0.02]"><td class="px-5 py-4"><p class="font-mono text-xs text-stone-300">{{ run.id }}</p><p class="mt-1 text-[11px] text-stone-700">{{ run.startedAt }}</p></td><td class="px-5 py-4 text-sm text-stone-300">{{ run.scenarioName }}</td><td class="px-5 py-4"><span class="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide" :class="statusClass(run.status)"><component :is="statusIcon(run.status)" class="h-3 w-3" :class="run.status === 'running' ? 'animate-spin' : ''" />{{ run.status }}</span></td><td class="px-5 py-4 text-sm font-semibold" :class="run.status === 'failed' ? 'text-red-400' : 'text-stone-300'">{{ run.score ?? '—' }}</td><td class="px-5 py-4 font-mono text-[10px] text-stone-600">{{ run.version }}</td><td class="px-5 py-4 text-xs text-stone-500">{{ run.duration }}</td><td class="px-5 py-4 text-right"><button type="button" class="inline-flex items-center gap-1 text-xs text-stone-500 transition hover:text-stone-200 disabled:cursor-not-allowed disabled:text-stone-800" :disabled="!scenarioIsActive(run.scenarioId)" @click="inspectRun(run)">{{ scenarioIsActive(run.scenarioId) ? 'Inspect' : 'Archived' }} <ChevronRight v-if="scenarioIsActive(run.scenarioId)" class="h-3.5 w-3.5" /></button></td></tr></tbody></table></div>
 			</div>
 
 			<div v-else class="grid gap-4 lg:grid-cols-2">
@@ -398,14 +452,14 @@ onMounted(loadData)
 					<div class="flex items-start justify-between gap-4"><div class="flex items-start gap-3"><div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border" :class="evaluator.kind === 'llm_judge' ? 'border-violet-500/20 bg-violet-500/[0.06] text-violet-400' : 'border-emerald-500/20 bg-emerald-500/[0.06] text-emerald-400'"><Bot v-if="evaluator.kind === 'llm_judge'" class="h-4 w-4" /><ShieldCheck v-else class="h-4 w-4" /></div><div><p class="text-base font-semibold text-stone-200">{{ evaluator.name }}</p><p class="mt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-stone-600">{{ evaluator.kind === 'llm_judge' ? 'LLM as evaluator' : 'Deterministic gate' }}</p></div></div><span class="rounded-full border border-stone-800 px-2.5 py-1 text-xs text-stone-500">≥ {{ evaluator.threshold }}</span></div>
 					<p class="mt-5 text-sm leading-6 text-stone-500">{{ evaluator.description }}</p>
 					<div class="mt-5 rounded-md border border-white/6 bg-black/20 p-3"><p class="text-[10px] font-semibold uppercase tracking-[0.18em] text-stone-700">Criteria</p><p class="mt-2 text-xs leading-5 text-stone-500">{{ evaluator.criteria }}</p></div>
-					<div class="mt-4 flex items-center justify-between text-xs text-stone-700"><span>Used by {{ evaluator.usedBy }} scenarios</span><button type="button" class="inline-flex items-center gap-1 text-stone-500 transition hover:text-stone-300">Configure <ArrowRight class="h-3.5 w-3.5" /></button></div>
+					<div class="mt-4 flex items-center justify-between text-xs text-stone-700"><span>Used by {{ evaluator.usedBy }} scenarios</span><button type="button" class="inline-flex items-center gap-1 text-stone-500 transition hover:text-stone-300" @click="openEvaluatorEditor(evaluator)">Configure <ArrowRight class="h-3.5 w-3.5" /></button></div>
 				</article>
-				<button type="button" class="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-stone-800 text-stone-600 transition hover:border-stone-700 hover:bg-white/[0.015] hover:text-stone-400" @click="evaluatorDialogOpen = true"><Plus class="h-6 w-6" /><span class="mt-3 text-sm">Add evaluator</span><span class="mt-1 text-xs text-stone-700">Deterministic rule or LLM judge</span></button>
+				<button type="button" class="flex min-h-56 flex-col items-center justify-center rounded-lg border border-dashed border-stone-800 text-stone-600 transition hover:border-stone-700 hover:bg-white/[0.015] hover:text-stone-400" @click="openNewEvaluator"><Plus class="h-6 w-6" /><span class="mt-3 text-sm">Add evaluator</span><span class="mt-1 text-xs text-stone-700">Deterministic rule or LLM judge</span></button>
 			</div>
 			</template>
 		</div>
 
-		<ChatAdminEvalScenarioDialog v-model:open="scenarioDialogOpen" :evaluators="evaluators" @create="createScenario" />
-		<ChatAdminEvalEvaluatorDialog v-model:open="evaluatorDialogOpen" @create="createEvaluator" />
+		<ChatAdminEvalScenarioDialog v-model:open="scenarioDialogOpen" :evaluators="evaluators" :scenario="editingScenario" @create="createScenario" @update="updateScenario" />
+		<ChatAdminEvalEvaluatorDialog v-model:open="evaluatorDialogOpen" :evaluator="editingEvaluator" @create="createEvaluator" @update="updateEvaluator" />
 	</section>
 </template>

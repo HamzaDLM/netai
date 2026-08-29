@@ -36,13 +36,15 @@ export type StreamEvent =
 	| { type: 'assistant_token'; token: string }
 	| ({ type: 'context_metrics' } & ContextMetrics)
 	| AgentRuntimeStreamEvent
-	| { type: 'done'; message_id: number; duration_ms?: number | null }
+	| { type: 'run_accepted'; run_id: number; user_message_id: number; assistant_message_id: number }
+	| { type: 'done'; message_id: number; run_id: number; duration_ms?: number | null; status: 'completed' | 'failed' }
 
 export type StreamHandlers = {
 	onToken?: (token: string) => void
 	onContextMetrics?: (payload: ContextMetrics) => void
 	onAgentEvent?: (event: AgentRuntimeStreamEvent) => void
-	onDone?: (payload: { messageId: number; durationMs?: number | null }) => void
+	onAccepted?: (payload: { runId: number; userMessageId: number; assistantMessageId: number }) => void
+	onDone?: (payload: { messageId: number; runId: number; durationMs?: number | null; status: 'completed' | 'failed' }) => void
 }
 
 class ChatService {
@@ -141,6 +143,14 @@ class ChatService {
 
 			if (eventName === 'assistant_token') return { type: eventName, token: String(payload.token ?? '') }
 			if (eventName === 'context_metrics') return { ...payload, type: eventName } as StreamEvent
+			if (eventName === 'run_accepted') {
+				return {
+					type: eventName,
+					run_id: Number(payload.run_id),
+					user_message_id: Number(payload.user_message_id),
+					assistant_message_id: Number(payload.assistant_message_id),
+				}
+			}
 			if (isAgentRuntimeEventType(eventName)) {
 				return { ...payload, type: eventName } as AgentRuntimeStreamEvent
 			}
@@ -148,8 +158,9 @@ class ChatService {
 				return {
 					type: eventName,
 					message_id: Number(payload.message_id),
-				duration_ms:
-					typeof payload.duration_ms === 'number' ? Number(payload.duration_ms) : null,
+					run_id: Number(payload.run_id),
+					duration_ms: typeof payload.duration_ms === 'number' ? Number(payload.duration_ms) : null,
+					status: payload.status === 'failed' ? 'failed' : 'completed',
 				}
 			}
 			return null
@@ -159,15 +170,25 @@ class ChatService {
 			if (parsed.type === 'assistant_token') handlers.onToken?.(parsed.token)
 			if (parsed.type === 'context_metrics') handlers.onContextMetrics?.(parsed)
 			if (isAgentRuntimeEventType(parsed.type)) handlers.onAgentEvent?.(parsed as AgentRuntimeStreamEvent)
+			if (parsed.type === 'run_accepted') {
+				handlers.onAccepted?.({
+					runId: parsed.run_id,
+					userMessageId: parsed.user_message_id,
+					assistantMessageId: parsed.assistant_message_id,
+				})
+			}
 			if (parsed.type === 'done') {
 				handlers.onDone?.({
 					messageId: parsed.message_id,
+					runId: parsed.run_id,
 					durationMs: parsed.duration_ms ?? null,
+					status: parsed.status,
 				})
 			}
 		}
 
 		let streamDone = false
+		let receivedDone = false
 		while (!streamDone) {
 			const { done, value } = await reader.read()
 			streamDone = done
@@ -179,10 +200,14 @@ class ChatService {
 				const rawEvent = buffer.slice(0, separatorIndex)
 				buffer = buffer.slice(separatorIndex + 2)
 				const parsed = parseEvent(rawEvent)
-				if (parsed) dispatchEvent(parsed)
+				if (parsed) {
+					dispatchEvent(parsed)
+					if (parsed.type === 'done') receivedDone = true
+				}
 				separatorIndex = buffer.indexOf('\n\n')
 			}
 		}
+		if (!receivedDone) throw new Error('Streaming connection closed before the agent run finished')
 	}
 
 	submitFeedback(

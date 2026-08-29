@@ -7,6 +7,7 @@ import json
 from collections.abc import AsyncIterator, Iterable
 from dataclasses import asdict, dataclass
 from enum import Enum
+from time import perf_counter
 from uuid import uuid4
 
 from haystack.dataclasses import ChatMessage
@@ -269,6 +270,7 @@ async def prepare_agent_prompt(
         conversation_id=conversation_id,
         generate=service.generate,
         context_window=service.settings.LLM_CONTEXT_WINDOW,
+        keep_recent=service.settings.CHAT_CONTEXT_RECENT_MESSAGES,
     )
     attachments = await load_active_attachments_for_prompt(
         conversation_id=conversation_id
@@ -503,6 +505,7 @@ async def run_agent_stream(
     )
     await observer.emit("run_started")
     await observer.emit("context_metrics", prepared.metrics)
+    started_at = perf_counter()
     run_task = asyncio.create_task(
         service.run(
             messages=prepared.messages,
@@ -524,10 +527,32 @@ async def run_agent_stream(
                 streamed_text.append(str(event.get("token") or ""))
             yield event
         run = await run_task
+    except asyncio.CancelledError:
+        run_task.cancel()
+        await asyncio.gather(run_task, return_exceptions=True)
+        raise
     except Exception as exc:
         await observer.emit("run_error", {"error": str(exc)})
         while not queue.empty():
             yield queue.get_nowait()
+        yield {
+            "type": "run_map",
+            "run_id": observer.run_id,
+            "run_map": {
+                "agent": {
+                    "agent_name": "netai",
+                    "status": "failed",
+                    "duration_ms": max(
+                        0, int(round((perf_counter() - started_at) * 1000))
+                    ),
+                    "error": str(exc),
+                },
+                "tool_calls": [
+                    execution.as_dict() for execution in observer.tool_executions
+                ],
+            },
+            "prompt_snapshot": asdict(prepared.snapshot),
+        }
         raise
 
     emitted_text = "".join(streamed_text).strip()

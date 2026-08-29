@@ -18,6 +18,9 @@ async def test_admin_can_create_and_list_eval_scenarios(
     assert evaluators_response.status_code == 200
     evaluator_ids = {item["id"] for item in evaluators_response.json()}
     assert {"tool-trajectory", "completion-safety"} <= evaluator_ids
+    initial_scenarios = (await async_client.get("/api/v1/evals/scenarios")).json()
+    initial_scenario_ids = {item["id"] for item in initial_scenarios}
+    assert "sanity-zabbix-active-problems" in initial_scenario_ids
 
     create_response = await async_client.post(
         "/api/v1/evals/scenarios",
@@ -39,9 +42,30 @@ async def test_admin_can_create_and_list_eval_scenarios(
     assert created["enabled"] is True
     assert created["last_run_id"] is None
 
+    update_response = await async_client.put(
+        f"/api/v1/evals/scenarios/{created['id']}",
+        json={
+            "name": "Updated BGP investigation",
+            "description": "Updated purpose.",
+            "prompt": "Why is edge-1 still missing its route?",
+            "fixture": "Peer remains down.",
+            "tags": ["BGP", "regression"],
+            "required_tools": ["zabbix_get_problems"],
+            "forbidden_tools": [],
+            "expected_facts": ["The peer remains down"],
+            "evaluator_ids": ["tool-trajectory", "completion-safety"],
+        },
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["name"] == "Updated BGP investigation"
+    assert update_response.json()["enabled"] is True
+
     list_response = await async_client.get("/api/v1/evals/scenarios")
     assert list_response.status_code == 200
-    assert [item["id"] for item in list_response.json()] == [created["id"]]
+    assert {item["id"] for item in list_response.json()} == {
+        *initial_scenario_ids,
+        created["id"],
+    }
 
     disable_response = await async_client.patch(
         f"/api/v1/evals/scenarios/{created['id']}/enabled",
@@ -54,7 +78,39 @@ async def test_admin_can_create_and_list_eval_scenarios(
         f"/api/v1/evals/scenarios/{created['id']}"
     )
     assert delete_response.status_code == 204
-    assert (await async_client.get("/api/v1/evals/scenarios")).json() == []
+    remaining = (await async_client.get("/api/v1/evals/scenarios")).json()
+    assert {item["id"] for item in remaining} == initial_scenario_ids
+
+
+@pytest.mark.anyio
+async def test_admin_can_configure_builtin_evaluator(
+    async_client: AsyncClient,
+    test_db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    await init_db(test_db_session_factory)
+
+    response = await async_client.put(
+        "/api/v1/evals/evaluators/answer-correctness",
+        json={
+            "name": "Strict answer correctness",
+            "kind": "llm_judge",
+            "rule": "llm_judge",
+            "description": "Updated evaluator description.",
+            "criteria": "Score only claims supported by technically valid evidence.",
+            "threshold": 92,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "Strict answer correctness"
+    assert response.json()["threshold"] == 92
+    assert response.json()["builtin"] is True
+
+    await init_db(test_db_session_factory)
+    evaluators = (await async_client.get("/api/v1/evals/evaluators")).json()
+    updated = next(item for item in evaluators if item["id"] == "answer-correctness")
+    assert updated["name"] == "Strict answer correctness"
+    assert updated["threshold"] == 92
 
 
 @pytest.mark.anyio

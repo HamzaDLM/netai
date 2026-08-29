@@ -8,9 +8,14 @@ const glyphs: Record<string, string[]> = {
 }
 
 const letters = 'NETAI'.split('')
-const columns = letters.length * 5 + letters.length - 1
-const pixels = Array.from({ length: 7 }, (_, row) =>
+const pixelScale = 2
+const logicalColumns = letters.length * 5 + letters.length - 1
+const logicalPixels = Array.from({ length: 7 }, (_, row) =>
 	letters.flatMap((letter, letterIndex) => [...(glyphs[letter]?.[row] ?? '00000').split('').map(value => value === '1'), ...(letterIndex < letters.length - 1 ? [false] : [])])
+)
+const columns = logicalColumns * pixelScale
+const pixels = logicalPixels.flatMap(row =>
+	Array.from({ length: pixelScale }, () => row.flatMap(active => Array.from({ length: pixelScale }, () => active)))
 )
 
 function pixelAnimation(row: number, column: number, active: boolean) {
@@ -21,7 +26,7 @@ function pixelAnimation(row: number, column: number, active: boolean) {
 	}
 	const disorder = ((row * 11 + column * 7) % 9) * 0.03
 	return {
-		animationDelay: `${column * 0.025 + disorder}s`,
+		animationDelay: `${column * (0.025 / pixelScale) + disorder}s`,
 		animationDuration: `${0.82 + ((row * 3 + column) % 5) * 0.04}s`,
 	}
 }
@@ -30,19 +35,21 @@ function pixelAnimation(row: number, column: number, active: boolean) {
 <template>
 	<div class="pixel-concept relative grid min-h-[100dvh] w-full content-center place-items-center gap-[clamp(1.35rem,3vw,2.2rem)] overflow-hidden bg-[#070707]">
 		<div class="ambient-grid absolute inset-0 opacity-0 motion-reduce:animate-none motion-reduce:opacity-100" aria-hidden="true" />
-		<div class="relative z-10 grid w-[min(88vw,58rem)] gap-[clamp(2px,0.6vw,8px)]" :style="{ gridTemplateColumns: `repeat(${columns}, 1fr)` }" role="img" aria-label="NetAI">
+		<div class="relative z-10 grid w-[min(44vw,29rem)] gap-[clamp(0.5px,0.15vw,2px)]" :style="{ gridTemplateColumns: `repeat(${columns}, 1fr)` }" role="img" aria-label="NetAI">
 			<template v-for="(row, rowIndex) in pixels" :key="rowIndex">
 				<span
 					v-for="(active, columnIndex) in row"
 					:key="`${rowIndex}-${columnIndex}`"
-					class="pixel aspect-square rounded-sm bg-[#121212] opacity-0 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_1.5%)] motion-reduce:animate-none motion-reduce:opacity-100"
+					class="pixel aspect-square rounded-[1px] bg-[#121212] opacity-0 shadow-[inset_0_0_0_1px_rgb(255_255_255_/_1.5%)] motion-reduce:animate-none motion-reduce:opacity-100"
 					:class="{ active }"
 					:style="pixelAnimation(rowIndex, columnIndex, active)"
 				/>
 			</template>
 		</div>
-		<p class="motto relative z-10 m-0 uppercase flex translate-y-[5px] items-center gap-2 font-semibold text-3xl animate-pulse text-stone-600 opacity-0 motion-reduce:translate-y-0 motion-reduce:animate-none motion-reduce:opacity-100">
-			Your network infrastructure assistant
+		<p class="motto relative z-10 m-0 flex translate-y-1 items-center gap-3 text-center text-[clamp(0.625rem,1.1vw,0.75rem)] font-medium uppercase tracking-[0.24em] text-stone-500 opacity-0 motion-reduce:translate-y-0 motion-reduce:animate-none motion-reduce:opacity-100">
+			<span class="h-px w-6 bg-gradient-to-r from-transparent to-red-900/70 sm:w-10" aria-hidden="true" />
+			<span>Your network infrastructure assistant</span>
+			<span class="h-px w-6 bg-gradient-to-l from-transparent to-red-900/70 sm:w-10" aria-hidden="true" />
 		</p>
 	</div>
 </template>
@@ -72,7 +79,7 @@ function pixelAnimation(row: number, column: number, active: boolean) {
 }
 
 .motto {
-	animation: motto-arrival 0.55s 2.1s ease forwards;
+	animation: motto-arrival 0.35s 1.1s ease forwards;
 }
 
 @keyframes pixel-reconstruct {

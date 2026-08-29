@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -170,6 +171,13 @@ class AgentRun(Base):
 
     __table_args__ = (
         Index("ix_agent_run_conversation_depth", "conversation_id", "depth"),
+        Index(
+            "ux_agent_run_one_active_root_per_conversation",
+            "conversation_id",
+            unique=True,
+            sqlite_where=text("status = 'running' AND parent_run_id IS NULL"),
+            postgresql_where=text("status = 'running' AND parent_run_id IS NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

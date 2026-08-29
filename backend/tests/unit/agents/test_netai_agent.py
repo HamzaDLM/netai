@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
 from typing import cast
 
@@ -9,13 +10,18 @@ from haystack.components.agents import State
 from haystack.dataclasses import ChatMessage, ToolCall
 from haystack.tools import Tool, Toolset
 
-from app.agents.netai import ToolAuthorizationError, authorize_and_observe_tools
+from app.agents.netai import (
+    ToolAuthorizationError,
+    authorize_and_observe_tools,
+    build_system_prompt,
+)
 from app.core.config import project_settings
 from app.mcp.mcp_client import (
     MCPPromptContext,
     MCPRequestContext,
     MCPResourceContext,
 )
+from app.services.agent_events import RunObserver
 from app.services.chat_agent import build_runtime_prompt_snapshot
 from app.services.netai import NetAIService
 from app.tools.registry import ToolRegistry
@@ -84,6 +90,17 @@ def _dynamic_tool_script() -> list[ChatMessage]:
     ]
 
 
+def test_system_prompt_explicitly_allows_general_purpose_coding() -> None:
+    prompt = " ".join(build_system_prompt().split())
+
+    assert (
+        "Software development and general-purpose coding are fully within scope"
+        in prompt
+    )
+    assert "whether or not" in prompt
+    assert "Do not reject or narrow a coding request" in prompt
+
+
 @pytest.mark.anyio
 async def test_service_uses_native_agent_loop_and_dynamic_tool_discovery() -> None:
     generator = ScriptedGenerator(_dynamic_tool_script())
@@ -138,6 +155,64 @@ async def test_service_uses_native_agent_loop_and_dynamic_tool_discovery() -> No
     assert generator.closed is True
     assert service.clients.http.is_closed is True
     assert service.clients.insecure_http.is_closed is True
+
+
+@pytest.mark.parametrize(
+    "non_actionable_reply",
+    [
+        ChatMessage.from_assistant(),
+        ChatMessage.from_assistant(reasoning="Internal reasoning without an action."),
+    ],
+    ids=["contentless", "reasoning-only"],
+)
+@pytest.mark.anyio
+async def test_agent_recovers_from_non_actionable_model_turn(
+    non_actionable_reply: ChatMessage,
+) -> None:
+    replies = _dynamic_tool_script()
+    generator = ScriptedGenerator([replies[0], non_actionable_reply, *replies[1:]])
+    service = NetAIService(settings=project_settings, chat_generator=generator)
+    try:
+        run = await service.run(
+            messages=[ChatMessage.from_user("List topology devices")],
+            conversation_id="conversation-empty-model-turn",
+            user_id=7,
+            request_id="request-empty-model-turn",
+        )
+    finally:
+        await service.close()
+
+    assert run.answer == "Topology inventory retrieved."
+    assert run.result["step_count"] == 4
+    assert generator.calls == 4
+    assert all(len(message) > 0 for message in generator.messages_seen[2])
+    assert "datamodel_list_devices" in generator.tools_seen[2]
+    assert generator.messages_seen[2][-1].meta.get("netai_internal_kind") == (
+        "empty_turn_recovery"
+    )
+
+
+@pytest.mark.anyio
+async def test_final_synthesis_excludes_non_actionable_agent_turns() -> None:
+    generator = ScriptedGenerator([ChatMessage.from_assistant("Final synthesis.")])
+    service = NetAIService(settings=project_settings, chat_generator=generator)
+    result: dict[str, object] = {
+        "messages": [
+            ChatMessage.from_system("System instructions"),
+            ChatMessage.from_user("Investigate the request"),
+            ChatMessage.from_assistant(reasoning="Reasoning without an answer."),
+        ]
+    }
+    try:
+        answer = await service._ensure_final_answer(
+            result,
+            RunObserver(run_id="run-finalize", conversation_id="conversation-finalize"),
+        )
+    finally:
+        await service.close()
+
+    assert answer == "Final synthesis."
+    assert all(message.text for message in generator.messages_seen[0])
 
 
 @pytest.mark.anyio
@@ -301,6 +376,34 @@ class FailingGenerator:
         raise RuntimeError("provider unavailable")
 
 
+@component
+class SlowGenerator:
+    def warm_up(self) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+    @component.output_types(replies=list[ChatMessage])
+    def run(
+        self,
+        messages: list[ChatMessage],
+        tools: Toolset | list[Tool] | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        raise AssertionError("sync path invoked")
+
+    @component.output_types(replies=list[ChatMessage])
+    async def run_async(
+        self,
+        messages: list[ChatMessage],
+        tools: Toolset | list[Tool] | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        await asyncio.sleep(1)
+        return {"replies": [ChatMessage.from_assistant("too late")]}
+
+
 @pytest.mark.anyio
 async def test_agent_provider_error_propagates_to_application_boundary() -> None:
     service = NetAIService(settings=project_settings, chat_generator=FailingGenerator())
@@ -309,6 +412,33 @@ async def test_agent_provider_error_propagates_to_application_boundary() -> None
             await service.run(
                 messages=[ChatMessage.from_user("hello")],
                 conversation_id="conversation-test",
+                user_id=7,
+            )
+    finally:
+        await service.close()
+
+
+def test_connector_routing_uses_only_latest_user_request() -> None:
+    messages = [
+        ChatMessage.from_user("Inspect SuzieQ routing state"),
+        ChatMessage.from_assistant("The previous investigation is complete."),
+        ChatMessage.from_user("What is the maintenance procedure?"),
+    ]
+
+    assert NetAIService._routing_text(messages) == (
+        "What is the maintenance procedure?"
+    )
+
+
+@pytest.mark.anyio
+async def test_entire_agent_run_honors_configured_timeout() -> None:
+    settings = project_settings.model_copy(update={"AGENT_RUN_TIMEOUT_SECONDS": 0.01})
+    service = NetAIService(settings=settings, chat_generator=SlowGenerator())
+    try:
+        with pytest.raises(TimeoutError):
+            await service.run(
+                messages=[ChatMessage.from_user("hello")],
+                conversation_id="conversation-timeout",
                 user_id=7,
             )
     finally:

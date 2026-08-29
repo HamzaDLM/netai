@@ -3,38 +3,27 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import select
 
-import app.api.endpoints.chat as chat_endpoints
+import app.services.chat_runs as chat_runs
 from app.api.models.chat import Feedback
 
 
-async def _fake_run_agent(
+async def _fake_run_agent_stream(
     *, conversation_id: str, question: str, skills=None, **_kwargs: object
-) -> dict:
-    return {
+):
+    yield {"type": "context_metrics", "used_tokens": 5}
+    yield {"type": "token", "token": f"answer for {conversation_id}: {question}"}
+    yield {
+        "type": "run_map",
         "answer": f"answer for {conversation_id}: {question}",
-        "events": [],
         "run_map": {},
-        "context_metrics": {"used_tokens": 5},
     }
-
-
-async def _no_title(
-    *,
-    service: object,
-    conversation_id: str,
-    user_question: str,
-    assistant_content: str,
-) -> None:
-    _ = service
-    return None
 
 
 @pytest.mark.anyio
 async def test_submit_feedback_persists_row(
     async_client, test_db_session_factory, monkeypatch
 ) -> None:
-    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", _fake_run_agent_stream)
 
     create_resp = await async_client.post(
         "/api/v1/llm/conversation", json={"title": "Feedback test"}
@@ -89,8 +78,7 @@ async def test_submit_feedback_persists_row(
 
 @pytest.mark.anyio
 async def test_submit_feedback_rejects_user_message(async_client, monkeypatch) -> None:
-    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", _fake_run_agent_stream)
 
     create_resp = await async_client.post(
         "/api/v1/llm/conversation", json={"title": "Feedback test"}
@@ -123,8 +111,7 @@ async def test_submit_feedback_rejects_user_message(async_client, monkeypatch) -
 async def test_submit_feedback_accepts_multiple_feedback_types(
     async_client, test_db_session_factory, monkeypatch
 ) -> None:
-    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", _fake_run_agent_stream)
 
     create_resp = await async_client.post(
         "/api/v1/llm/conversation", json={"title": "Feedback multi-type test"}
@@ -171,13 +158,22 @@ async def test_submit_feedback_accepts_multiple_feedback_types(
     assert assistant_message is not None
     assert len(assistant_message["feedback"]) == 2
 
+    admin_resp = await async_client.get("/api/v1/llm/admin/feedbacks")
+    assert admin_resp.status_code == 200
+    admin_rows = admin_resp.json()
+    assert len(admin_rows) == 1
+    assert admin_rows[0]["assistant_message"]["id"] == assistant_message_id
+    assert admin_rows[0]["feedback"]["feedback_types"] == [
+        "wrong_diagnosis",
+        "irrelevant_specialist",
+    ]
+
 
 @pytest.mark.anyio
 async def test_admin_feedbacks_returns_reviewable_conversation_context(
     async_client, monkeypatch
 ) -> None:
-    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", _fake_run_agent_stream)
 
     included_create_resp = await async_client.post(
         "/api/v1/llm/conversation", json={"title": "Included feedback"}
@@ -220,6 +216,7 @@ async def test_admin_feedbacks_returns_reviewable_conversation_context(
     row = rows[0]
     assert row["feedback"]["rating"] == "bad"
     assert row["feedback"]["feedback_type"] == "wrong_diagnosis"
+    assert row["feedback"]["feedback_types"] == ["wrong_diagnosis"]
     assert row["conversation"]["id"] == included_conversation_id
     assert row["user_message"]["content"] == "why is bgp down"
     assert row["assistant_message"]["id"] == included_assistant_id

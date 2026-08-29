@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 import app.api.endpoints.chat as chat_endpoints
+import app.services.chat_runs as chat_runs
 from app.services.chat_agent import AgentPromptSnapshot, PromptSnapshotMessage
 
 
@@ -89,18 +90,7 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
             },
         }
 
-    async def _no_title(
-        *,
-        service: object,
-        conversation_id: str,
-        user_question: str,
-        assistant_content: str,
-    ) -> None:
-        _ = service
-        return None
-
-    monkeypatch.setattr(chat_endpoints, "run_agent_stream", _fake_run_agent_stream)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", _fake_run_agent_stream)
 
     create_resp = await async_client.post(
         "/api/v1/llm/conversation", json={"title": "Streaming"}
@@ -117,6 +107,7 @@ async def test_chat_stream_emits_sse_and_persists_assistant_message(
         async for chunk in response.aiter_text():
             body += chunk
 
+    assert "event: run_accepted" in body
     assert "event: assistant_token" in body
     assert "event: artifact_snapshot" in body
     assert "event: artifact_delta" in body

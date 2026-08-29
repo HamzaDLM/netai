@@ -9,21 +9,18 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
-from haystack.dataclasses import ChatMessage
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import (
     AsyncSessionDep,
+    ChatRunCoordinatorDep,
     CheckUserSSODep,
     NetAIServiceDep,
     RequestIDDep,
 )
 from app.api.models.chat import (
-    AgentEvent,
     AgentRun,
-    AgentRunStatus,
-    AgentType,
     Conversation,
     ConversationAttachment,
     Feedback,
@@ -38,6 +35,8 @@ from app.api.models.users import UserRole
 from app.api.schemas.chat import (
     AdminFeedbackConversationResponse,
     AdminFeedbackItemResponse,
+    AdminFeedbackResponse,
+    AdminMessageVolumePoint,
     AdminOverviewResponse,
     ChatUserSettingsResponse,
     ChatUserSettingsUpdate,
@@ -54,14 +53,11 @@ from app.api.schemas.chat import (
     PromptSnapshotResponse,
 )
 from app.core.config import project_settings
-from app.db.session import SessionLocal
-from app.prompts import TITLE_GENERATION_PROMPT
+from app.core.security import User
 from app.services.chat_agent import (
     AgentPromptSnapshot,
     PromptSnapshotMessage,
     build_agent_prompt_snapshot,
-    run_agent,
-    run_agent_stream,
 )
 from app.services.chat_attachments import (
     get_active_attachment_count,
@@ -69,69 +65,18 @@ from app.services.chat_attachments import (
     list_active_attachments,
     parse_attachment_payload,
 )
+from app.services.chat_runs import (
+    ActiveConversationRunError,
+    ChatRunCoordinator,
+    ChatRunRequest,
+    StartedChatRun,
+    sse_event,
+)
 from app.services.netai import NetAIService
 
 router = APIRouter(prefix="/llm", tags=["chat"])
 logger = logging.getLogger(__name__)
 _SKILL_COMMAND_RE = re.compile(r"/([a-z0-9][a-z0-9-]{0,79})(?=$|\s)", re.IGNORECASE)
-_ARTIFACT_EVENT_TYPES = {
-    "artifact_snapshot",
-    "artifact_delta",
-}
-_TOOL_LIFECYCLE_EVENT_TYPES = {
-    "tool_started",
-    "tool_completed",
-    "tool_failed",
-}
-_DURABLE_AGENT_EVENT_TYPES = _ARTIFACT_EVENT_TYPES | _TOOL_LIFECYCLE_EVENT_TYPES
-_STREAMED_AGENT_EVENT_TYPES = _DURABLE_AGENT_EVENT_TYPES | {
-    "run_started",
-    "run_finished",
-    "run_error",
-}
-_EVENT_ENVELOPE_KEYS = {
-    "type",
-    "event_id",
-    "event_sequence",
-    "run_id",
-    "conversation_id",
-    "emitted_at",
-}
-
-
-def _event_actor(event: dict[str, Any]) -> tuple[str | None, str | None]:
-    event_type = str(event.get("type", "")).strip()
-    if not event_type:
-        return None, None
-    if event_type in _TOOL_LIFECYCLE_EVENT_TYPES:
-        return "tool", str(event.get("tool_name") or "unknown_tool")
-    if event_type in _ARTIFACT_EVENT_TYPES:
-        artifact = event.get("artifact")
-        artifact_kind = artifact.get("kind") if isinstance(artifact, dict) else None
-        return "tool", str(event.get("kind") or artifact_kind or "artifact")
-    return "system", event_type
-
-
-def _agent_event_payload(event: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: value for key, value in event.items() if key not in _EVENT_ENVELOPE_KEYS
-    }
-
-
-def _agent_event_correlation_id(event: dict[str, Any]) -> str | None:
-    for key in ("artifact_id", "tool_call_id"):
-        value = event.get(key)
-        if isinstance(value, str) and value:
-            return value
-    artifact = event.get("artifact")
-    if isinstance(artifact, dict):
-        value = artifact.get("id")
-        if isinstance(value, str) and value:
-            return value
-    event_id = event.get("event_id")
-    if isinstance(event_id, str) and event_id:
-        return event_id
-    return None
 
 
 def _completed_run_debug_snapshot(
@@ -196,46 +141,6 @@ def _completed_run_debug_snapshot(
             )
         )
     return snapshot
-
-
-def _as_tool_status(value: Any) -> ToolCallStatus:
-    lowered = str(value or "success").strip().lower()
-    if lowered in {"success", "completed", "ok"}:
-        return ToolCallStatus.success
-    if lowered in {"timeout", "timed_out"}:
-        return ToolCallStatus.timeout
-    if lowered in {"blocked", "requires_approval"}:
-        return ToolCallStatus.blocked
-    if lowered in {"error", "failed", "failure"}:
-        return ToolCallStatus.error
-    if lowered == "running":
-        return ToolCallStatus.running
-    return ToolCallStatus.success
-
-
-def _as_run_status(value: Any) -> AgentRunStatus:
-    lowered = str(value or "completed").strip().lower()
-    if lowered in {"completed", "success", "ok"}:
-        return AgentRunStatus.completed
-    if lowered in {"error", "failed", "failure", "timeout", "blocked"}:
-        return AgentRunStatus.failed
-    return AgentRunStatus.completed
-
-
-def _coerce_json_dict(value: Any) -> dict[str, Any]:
-    if isinstance(value, dict):
-        return value
-    if value is None:
-        return {}
-    return {"value": value}
-
-
-def _derive_times(duration_ms: Any) -> tuple[datetime, datetime]:
-    ended_at = datetime.now(timezone.utc)
-    if isinstance(duration_ms, int) and duration_ms > 0:
-        started_at = ended_at - timedelta(milliseconds=duration_ms)
-        return started_at, ended_at
-    return ended_at, ended_at
 
 
 def _normalize_custom_instructions(value: str | None) -> str | None:
@@ -369,117 +274,44 @@ async def _load_requested_skills(
     )
 
 
-async def _persist_run_graph(
+async def _start_durable_chat_run(
     *,
+    coordinator: ChatRunCoordinator,
+    conversation_id: str,
+    content: str,
     db: AsyncSessionDep,
-    conversation_id: str,
-    user_message_id: int,
-    assistant_message_id: int,
-    assistant_content: str,
-    context_metrics: dict[str, Any] | None,
-    prompt_snapshot: dict[str, Any] | None,
-    run_map: dict[str, Any] | None,
-) -> AgentRun:
-    agent_map = run_map.get("agent") if isinstance(run_map, dict) else {}
-    if not isinstance(agent_map, dict):
-        agent_map = {}
-    tool_calls = run_map.get("tool_calls") if isinstance(run_map, dict) else []
-    if not isinstance(tool_calls, list):
-        tool_calls = []
-
-    agent_status = _as_run_status(agent_map.get("status"))
-    started_at, ended_at = _derive_times(agent_map.get("duration_ms"))
-    agent_run = AgentRun(
-        conversation_id=conversation_id,
-        user_message_id=user_message_id,
-        assistant_message_id=assistant_message_id,
-        parent_run_id=None,
-        agent_type=AgentType.orchestrator,
-        agent_name=str(agent_map.get("agent_name") or "netai"),
-        depth=0,
-        status=agent_status,
-        started_at=started_at,
-        ended_at=ended_at,
-        duration_ms=agent_map.get("duration_ms")
-        if isinstance(agent_map.get("duration_ms"), int)
-        else None,
-        final_answer=assistant_content,
-        context_metrics=context_metrics,
-        prompt_snapshot=prompt_snapshot,
-        error=str(agent_map.get("error"))
-        if agent_status == AgentRunStatus.failed and agent_map.get("error") is not None
-        else None,
+    user: User,
+    request_id: str,
+) -> StartedChatRun:
+    await _get_active_conversation(db, conversation_id)
+    user_record = await _get_or_create_user_record(db, user)
+    requested_skills, question_for_agent = await _load_requested_skills(
+        db=db,
+        user_id=user.id,
+        content=content,
     )
-    db.add(agent_run)
-    await db.flush()
+    custom_instructions = user_record.custom_instructions
+    await db.commit()
 
-    for tool_call in tool_calls:
-        if not isinstance(tool_call, dict):
-            continue
-        output = _coerce_json_dict(tool_call.get("output"))
-        db.add(
-            ToolCall(
-                run_id=agent_run.id,
+    try:
+        return await coordinator.start(
+            ChatRunRequest(
                 conversation_id=conversation_id,
-                tool_name=str(tool_call.get("tool_name") or "unknown_tool"),
-                input_params=_coerce_json_dict(tool_call.get("input_params")),
-                output=output,
-                latency_ms=tool_call.get("latency_ms")
-                if isinstance(tool_call.get("latency_ms"), int)
-                else None,
-                status=_as_tool_status(tool_call.get("status")),
-                error_type=str(tool_call.get("error_type"))
-                if tool_call.get("error_type") is not None
-                else None,
-                error_message=str(tool_call.get("error_message"))
-                if tool_call.get("error_message") is not None
-                else None,
+                raw_question=content,
+                agent_question=question_for_agent,
+                user_id=user.id,
+                request_id=request_id,
+                skills=requested_skills or None,
+                custom_instructions=custom_instructions,
             )
         )
-
-    return agent_run
-
-
-async def _generate_title_if_missing(
-    service: NetAIService,
-    conversation_id: str,
-    user_question: str,
-    assistant_content: str,
-) -> None:
-    async with SessionLocal() as title_db:
-        stmt = select(Conversation).where(
-            Conversation.id == conversation_id,
-            Conversation.archived.is_(False),
-        )
-        result = await title_db.execute(stmt)
-        conversation = result.scalar_one_or_none()
-        if not conversation or conversation.title:
-            return
-
-        try:
-            llm_result = await service.generate(
-                [
-                    ChatMessage.from_system(TITLE_GENERATION_PROMPT),
-                    ChatMessage.from_user(
-                        f"user question: {user_question} \n LLM assistant answer: {assistant_content}"
-                    ),
-                ]
-            )
-            replies = llm_result.get("replies")
-            first_reply = replies[0] if isinstance(replies, list) and replies else None
-            title = (
-                (first_reply.text or "").strip()
-                if isinstance(first_reply, ChatMessage)
-                else ""
-            )
-            if not title:
-                return
-            conversation.title = title
-            await title_db.commit()
-            await title_db.refresh(conversation)
-        except Exception as exc:
-            await title_db.rollback()
-            logger.warning("Conversation title generation failed: %s", exc)
+    except ActiveConversationRunError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "conversation_run_active", "run_id": exc.run_id},
+        ) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND) from exc
 
 
 async def _get_active_attachment(
@@ -630,18 +462,45 @@ async def list_admin_feedbacks(
 
     bounded_limit = min(max(limit, 1), 250)
     has_comment = Feedback.comment.is_not(None) & (func.trim(Feedback.comment) != "")
-    stmt = (
-        select(Feedback)
+    reviewable_feedback = or_(
+        Feedback.rating == "bad",
+        Feedback.feedback_type.is_not(None),
+        has_comment,
+    )
+    submissions_stmt = (
+        select(
+            Feedback.message_id,
+            Feedback.user_id,
+            func.max(Feedback.updated_at).label("last_updated_at"),
+        )
         .join(Feedback.message)
         .join(Message.conversation)
         .where(
             Message.archived.is_(False),
             Conversation.archived.is_(False),
+            reviewable_feedback,
+        )
+        .group_by(Feedback.message_id, Feedback.user_id)
+        .order_by(func.max(Feedback.updated_at).desc())
+        .limit(bounded_limit)
+    )
+    submission_rows = (await db.execute(submissions_stmt)).all()
+    if not submission_rows:
+        return []
+
+    submission_keys = [(row.message_id, row.user_id) for row in submission_rows]
+    stmt = (
+        select(Feedback)
+        .where(
             or_(
-                Feedback.rating == "bad",
-                Feedback.feedback_type.is_not(None),
-                has_comment,
-            ),
+                *(
+                    and_(
+                        Feedback.message_id == message_id,
+                        Feedback.user_id == user_id,
+                    )
+                    for message_id, user_id in submission_keys
+                )
+            )
         )
         .options(
             selectinload(Feedback.message).selectinload(Message.conversation),
@@ -667,14 +526,22 @@ async def list_admin_feedbacks(
             .selectinload(AgentRun.events),
             selectinload(Feedback.message).selectinload(Message.feedback),
         )
-        .order_by(Feedback.updated_at.desc())
-        .limit(bounded_limit)
+        .order_by(Feedback.id.asc())
     )
     result = await db.execute(stmt)
     feedback_rows = result.scalars().all()
+    feedback_by_submission: dict[tuple[int, int], list[Feedback]] = {}
+    for feedback in feedback_rows:
+        feedback_by_submission.setdefault(
+            (feedback.message_id, feedback.user_id), []
+        ).append(feedback)
 
     items: list[AdminFeedbackItemResponse] = []
-    for feedback in feedback_rows:
+    for submission_key in submission_keys:
+        submission_feedback = feedback_by_submission.get(submission_key, [])
+        if not submission_feedback:
+            continue
+        feedback = submission_feedback[0]
         assistant_message = feedback.message
         user_message = None
         for run in assistant_message.agent_runs or []:
@@ -696,7 +563,14 @@ async def list_admin_feedbacks(
         )
         items.append(
             AdminFeedbackItemResponse(
-                feedback=FeedbackResponse.model_validate(feedback),
+                feedback=AdminFeedbackResponse(
+                    **FeedbackResponse.model_validate(feedback).model_dump(),
+                    feedback_types=[
+                        row.feedback_type
+                        for row in submission_feedback
+                        if row.feedback_type is not None
+                    ],
+                ),
                 conversation=AdminFeedbackConversationResponse.model_validate(
                     assistant_message.conversation
                 ),
@@ -806,6 +680,32 @@ async def get_admin_overview(
         )
     )
     row = result.one()
+    volume_result = await db.execute(
+        select(Message.created_at)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(
+            active_conversation,
+            active_message,
+            Message.role == MessageRole.user,
+            Message.created_at >= window_started_at,
+        )
+    )
+    volume_counts: dict[tuple[str, int], int] = {}
+    for created_at in volume_result.scalars().all():
+        key = (created_at.date().isoformat(), created_at.hour)
+        volume_counts[key] = volume_counts.get(key, 0) + 1
+    first_day = generated_at.date() - timedelta(days=6)
+    message_volume = [
+        AdminMessageVolumePoint(
+            date=(first_day + timedelta(days=day_offset)).isoformat(),
+            hour=hour,
+            count=volume_counts.get(
+                ((first_day + timedelta(days=day_offset)).isoformat(), hour), 0
+            ),
+        )
+        for day_offset in range(7)
+        for hour in range(24)
+    ]
     average_latency = row.average_latency_ms
     return AdminOverviewResponse(
         window_started_at=window_started_at,
@@ -819,6 +719,7 @@ async def get_admin_overview(
         ),
         feedback_total=int(row.feedback_total or 0),
         negative_feedback=int(row.negative_feedback or 0),
+        message_volume=message_volume,
     )
 
 
@@ -925,88 +826,22 @@ async def ask_llm(
     payload: MessageCreate,
     db: AsyncSessionDep,
     user: CheckUserSSODep,
-    service: NetAIServiceDep,
+    coordinator: ChatRunCoordinatorDep,
     request_id: RequestIDDep,
 ):
-    await _get_active_conversation(db, conversation_id)
-    user_record = await _get_or_create_user_record(db, user)
-    custom_instructions = user_record.custom_instructions
-    requested_skills, question_for_agent = await _load_requested_skills(
-        db=db,
-        user_id=user.id,
+    started = await _start_durable_chat_run(
+        coordinator=coordinator,
+        conversation_id=conversation_id,
         content=payload.content,
-    )
-
-    user_message = Message(
-        conversation_id=conversation_id,
-        role="user",
-        content=payload.content,
-    )
-    db.add(user_message)
-    await db.flush()
-    user_message_id = user_message.id
-    await db.commit()
-
-    run_agent_kwargs: dict[str, Any] = {
-        "service": service,
-        "conversation_id": conversation_id,
-        "question": question_for_agent,
-        "user_id": user.id,
-        "request_id": request_id,
-        "skills": requested_skills or None,
-    }
-    if custom_instructions:
-        run_agent_kwargs["custom_instructions"] = custom_instructions
-    agent_result = await run_agent(**run_agent_kwargs)
-
-    assistant_content = str(agent_result.get("answer") or "")
-    context_metrics_value = agent_result.get("context_metrics")
-    context_metrics = (
-        context_metrics_value if isinstance(context_metrics_value, dict) else None
-    )
-    run_map_value = agent_result.get("run_map")
-    run_map = run_map_value if isinstance(run_map_value, dict) else None
-    prompt_snapshot_value = agent_result.get("prompt_snapshot")
-    prompt_snapshot = (
-        prompt_snapshot_value if isinstance(prompt_snapshot_value, dict) else None
-    )
-    assistant_message = Message(
-        conversation_id=conversation_id,
-        role="assistant",
-        content=assistant_content,
-        token_input=(
-            int(context_metrics.get("used_tokens", 0))
-            if context_metrics is not None
-            else None
-        ),
-    )
-    db.add(assistant_message)
-    await db.flush()
-    assistant_message_id = assistant_message.id
-
-    await _persist_run_graph(
         db=db,
-        conversation_id=conversation_id,
-        user_message_id=user_message_id,
-        assistant_message_id=assistant_message_id,
-        assistant_content=assistant_content,
-        context_metrics=context_metrics,
-        prompt_snapshot=prompt_snapshot,
-        run_map=run_map,
+        user=user,
+        request_id=request_id,
     )
-
-    await db.commit()
-
-    await _generate_title_if_missing(
-        service=service,
-        conversation_id=conversation_id,
-        user_question=payload.content,
-        assistant_content=assistant_content,
-    )
+    await asyncio.shield(started.task)
 
     hydrated_stmt = (
         select(Message)
-        .where(Message.id == assistant_message_id)
+        .where(Message.id == started.assistant_message_id)
         .options(*_message_load_options())
     )
     hydrated_result = await db.execute(hydrated_stmt)
@@ -1089,154 +924,29 @@ async def ask_llm_stream(
     payload: MessageCreate,
     db: AsyncSessionDep,
     user: CheckUserSSODep,
-    service: NetAIServiceDep,
+    coordinator: ChatRunCoordinatorDep,
     request_id: RequestIDDep,
 ):
-    await _get_active_conversation(db, conversation_id)
-    user_record = await _get_or_create_user_record(db, user)
-    custom_instructions = user_record.custom_instructions
-    requested_skills, question_for_agent = await _load_requested_skills(
-        db=db,
-        user_id=user.id,
-        content=payload.content,
-    )
-
-    user_message = Message(
+    started = await _start_durable_chat_run(
+        coordinator=coordinator,
         conversation_id=conversation_id,
-        role="user",
         content=payload.content,
+        db=db,
+        user=user,
+        request_id=request_id,
     )
-    db.add(user_message)
-    await db.flush()
-    user_message_id = user_message.id
-    await db.commit()
 
     async def event_generator() -> AsyncIterator[str]:
-        assistant_tokens: list[str] = []
-        assistant_char_count = 0
-        context_metrics: dict[str, Any] | None = None
-        run_map: dict[str, Any] | None = None
-        prompt_snapshot: dict[str, Any] | None = None
-        final_answer: str | None = None
-        durable_events: list[dict[str, Any]] = []
-        run_agent_stream_kwargs: dict[str, Any] = {
-            "service": service,
-            "conversation_id": conversation_id,
-            "question": question_for_agent,
-            "user_id": user.id,
-            "request_id": request_id,
-            "skills": requested_skills or None,
-        }
-        if custom_instructions:
-            run_agent_stream_kwargs["custom_instructions"] = custom_instructions
-
-        async for event in run_agent_stream(**run_agent_stream_kwargs):
-            event_type = str(event.get("type") or "")
-            if event_type == "token":
-                token = str(event.get("token") or "")
-                assistant_tokens.append(token)
-                assistant_char_count += len(token)
-                yield f"event: assistant_token\ndata: {json.dumps({'token': token})}\n\n"
-                continue
-            if event_type == "context_metrics":
-                context_metrics = event
-                yield f"event: context_metrics\ndata: {json.dumps(event)}\n\n"
-                continue
-            if event_type == "run_map":
-                maybe_map = event.get("run_map")
-                if isinstance(maybe_map, dict):
-                    run_map = maybe_map
-                maybe_snapshot = event.get("prompt_snapshot")
-                if isinstance(maybe_snapshot, dict):
-                    prompt_snapshot = maybe_snapshot
-                answer_value = event.get("answer")
-                if isinstance(answer_value, str) and answer_value:
-                    final_answer = answer_value
-                continue
-
-            if event_type in _STREAMED_AGENT_EVENT_TYPES:
-                client_event = {
-                    **event,
-                    "assistant_offset": assistant_char_count,
-                }
-                if event_type in _DURABLE_AGENT_EVENT_TYPES:
-                    durable_events.append(client_event)
-                yield f"event: {event_type}\ndata: {json.dumps(client_event)}\n\n"
-
-        assistant_content = "".join(assistant_tokens).strip()
-        if not assistant_content and isinstance(final_answer, str):
-            assistant_content = final_answer
-
-        assistant_message = Message(
-            conversation_id=conversation_id,
-            role="assistant",
-            content=assistant_content,
-            token_input=(
-                int(context_metrics.get("used_tokens", 0))
-                if isinstance(context_metrics, dict)
-                else None
-            ),
+        yield sse_event(
+            {
+                "type": "run_accepted",
+                "run_id": started.run_id,
+                "user_message_id": started.user_message_id,
+                "assistant_message_id": started.assistant_message_id,
+            }
         )
-        db.add(assistant_message)
-        await db.flush()
-        assistant_message_id = assistant_message.id
-
-        agent_run = await _persist_run_graph(
-            db=db,
-            conversation_id=conversation_id,
-            user_message_id=user_message_id,
-            assistant_message_id=assistant_message_id,
-            assistant_content=assistant_content,
-            context_metrics=context_metrics
-            if isinstance(context_metrics, dict)
-            else None,
-            prompt_snapshot=prompt_snapshot,
-            run_map=run_map,
-        )
-
-        for event in durable_events:
-            event_sequence = event.get("event_sequence")
-            if not isinstance(event_sequence, int):
-                continue
-            actor_type, actor_name = _event_actor(event)
-            db.add(
-                AgentEvent(
-                    run_id=agent_run.id,
-                    event_sequence=event_sequence,
-                    event_type=str(event.get("type") or "unknown"),
-                    actor_type=actor_type,
-                    actor_name=actor_name,
-                    correlation_id=_agent_event_correlation_id(event),
-                    payload=_agent_event_payload(event),
-                )
-            )
-
-        await db.commit()
-        agent_duration_ms = None
-        if isinstance(run_map, dict):
-            agent = run_map.get("agent")
-            if isinstance(agent, dict) and isinstance(agent.get("duration_ms"), int):
-                agent_duration_ms = agent.get("duration_ms")
-
-        yield (
-            "event: done\ndata: "
-            + json.dumps(
-                {
-                    "message_id": assistant_message_id,
-                    "duration_ms": agent_duration_ms,
-                }
-            )
-            + "\n\n"
-        )
-
-        asyncio.create_task(
-            _generate_title_if_missing(
-                service=service,
-                conversation_id=conversation_id,
-                user_question=payload.content,
-                assistant_content=assistant_content,
-            )
-        )
+        async for event in started.subscription.events():
+            yield sse_event(event)
 
     return StreamingResponse(
         event_generator(),

@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { RefreshCw } from 'lucide-vue-next'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { formatDatetime } from '@/lib/utils'
-import type { AdminFeedbackItem } from '@/types/chat.type'
+import type { AdminFeedbackItem, FeedbackType } from '@/types/chat.type'
 import { connectorForTool } from '@/features/execution/execution.normalize'
 import type { DisplayToolCall, RunWithPersistedTools } from './types'
 
@@ -48,6 +48,11 @@ function formatFeedbackType(value?: string | null): string {
 	return value
 		.replace(/[_-]+/g, ' ')
 		.replace(/\b\w/g, char => char.toUpperCase())
+}
+
+function feedbackTypes(item: AdminFeedbackItem): FeedbackType[] {
+	if (item.feedback.feedback_types?.length) return item.feedback.feedback_types
+	return item.feedback.feedback_type ? [item.feedback.feedback_type] : []
 }
 
 function truncate(value: string | undefined | null, maxLength = 110): string {
@@ -109,9 +114,14 @@ function toThinkingCodeBlock(value: unknown): string {
 					</div>
 					<p class="mt-2 text-xs text-stone-500">{{ formatDatetime(item.feedback.updated_at || item.feedback.created_at) }}</p>
 					<p class="mt-3 text-sm leading-5 text-stone-400">{{ truncate(item.user_message?.content) }}</p>
-					<p v-if="item.feedback.feedback_type" class="mt-3 text-xs uppercase tracking-[0.18em] text-stone-500">
-						{{ formatFeedbackType(item.feedback.feedback_type) }}
-					</p>
+					<div v-if="feedbackTypes(item).length" class="mt-3 flex flex-wrap gap-1.5">
+						<span
+							v-for="feedbackType in feedbackTypes(item)"
+							:key="feedbackType"
+							class="rounded-full border border-stone-800 px-2 py-0.5 text-[10px] uppercase tracking-wide text-stone-500">
+							{{ formatFeedbackType(feedbackType) }}
+						</span>
+					</div>
 				</button>
 			</div>
 
@@ -122,7 +132,13 @@ function toThinkingCodeBlock(value: unknown): string {
 						<span class="rounded-full border px-2.5 py-1 uppercase tracking-wide" :class="selectedItem.feedback.rating === 'bad' ? 'border-red-700/60 text-red-300' : 'border-emerald-700/50 text-emerald-300'">
 							{{ selectedItem.feedback.rating }}
 						</span>
-						<span class="rounded-full border border-stone-800 px-2.5 py-1 text-stone-400">{{ formatFeedbackType(selectedItem.feedback.feedback_type) }}</span>
+						<span
+							v-for="feedbackType in feedbackTypes(selectedItem)"
+							:key="feedbackType"
+							class="rounded-full border border-stone-800 px-2.5 py-1 text-stone-400">
+							{{ formatFeedbackType(feedbackType) }}
+						</span>
+						<span v-if="feedbackTypes(selectedItem).length === 0" class="rounded-full border border-stone-800 px-2.5 py-1 text-stone-500">No type</span>
 						<span class="text-stone-600">{{ formatDatetime(selectedItem.feedback.updated_at || selectedItem.feedback.created_at) }}</span>
 					</div>
 

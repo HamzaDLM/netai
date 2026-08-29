@@ -146,7 +146,22 @@ class EvalsService {
 			description: payload.description,
 			prompt: payload.prompt,
 			fixture: payload.fixture,
-			tags: ['Draft'],
+			tags: payload.tags,
+			required_tools: payload.requiredTools,
+			forbidden_tools: payload.forbiddenTools,
+			expected_facts: payload.expectedFacts,
+			evaluator_ids: payload.evaluatorIds,
+		})
+		return normalizeScenario(data)
+	}
+
+	async updateScenario(scenarioId: string, payload: NewEvalScenario): Promise<EvalScenario> {
+		const { data } = await API.put<ApiScenario>(`/evals/scenarios/${scenarioId}`, {
+			name: payload.name,
+			description: payload.description,
+			prompt: payload.prompt,
+			fixture: payload.fixture,
+			tags: payload.tags,
 			required_tools: payload.requiredTools,
 			forbidden_tools: payload.forbiddenTools,
 			expected_facts: payload.expectedFacts,
@@ -157,6 +172,11 @@ class EvalsService {
 
 	async createEvaluator(payload: NewEvalEvaluator): Promise<EvalEvaluator> {
 		const { data } = await API.post<ApiEvaluator>('/evals/evaluators', payload)
+		return normalizeEvaluator(data)
+	}
+
+	async updateEvaluator(evaluatorId: string, payload: NewEvalEvaluator): Promise<EvalEvaluator> {
+		const { data } = await API.put<ApiEvaluator>(`/evals/evaluators/${evaluatorId}`, payload)
 		return normalizeEvaluator(data)
 	}
 

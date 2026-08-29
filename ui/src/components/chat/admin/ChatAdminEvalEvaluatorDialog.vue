@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import { Bot, BrainCircuit, ShieldCheck } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import type { EvalEvaluatorKind, NewEvalEvaluator } from './evals.types'
+import type { EvalEvaluator, EvalEvaluatorKind, NewEvalEvaluator } from './evals.types'
 
-defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean; evaluator?: EvalEvaluator | null }>()
 
 const emit = defineEmits<{
 	(event: 'update:open', open: boolean): void
 	(event: 'create', evaluator: NewEvalEvaluator): void
+	(event: 'update', evaluatorId: string, evaluator: NewEvalEvaluator): void
 }>()
 
 const form = reactive({
@@ -31,16 +32,36 @@ function resetForm() {
 	form.threshold = 85
 }
 
-function createEvaluator() {
+function populateForm() {
+	const evaluator = props.evaluator
+	if (!evaluator) {
+		resetForm()
+		return
+	}
+	form.name = evaluator.name
+	form.kind = evaluator.kind
+	form.rule = evaluator.rule
+	form.description = evaluator.description
+	form.criteria = evaluator.criteria
+	form.threshold = evaluator.threshold
+}
+
+watch(() => [props.open, props.evaluator] as const, ([open]) => {
+	if (open) populateForm()
+})
+
+function submitEvaluator() {
 	if (!canCreate.value) return
-	emit('create', {
+	const payload: NewEvalEvaluator = {
 		name: form.name.trim(),
 		kind: form.kind,
 		rule: form.rule,
 		description: form.description.trim(),
 		criteria: form.criteria.trim(),
 		threshold: Number(form.threshold),
-	})
+	}
+	if (props.evaluator) emit('update', props.evaluator.id, payload)
+	else emit('create', payload)
 	resetForm()
 	emit('update:open', false)
 }
@@ -52,11 +73,11 @@ function createEvaluator() {
 			<DialogHeader class="border-b border-white/7 px-7 py-6">
 				<div class="flex items-center gap-3">
 					<div class="flex h-10 w-10 items-center justify-center rounded-lg border border-violet-500/20 bg-violet-500/[0.06] text-violet-400"><BrainCircuit class="h-5 w-5" /></div>
-					<div><DialogTitle class="text-xl text-stone-100">Create evaluator</DialogTitle><DialogDescription class="mt-1 text-stone-500">Add a deterministic architecture gate or a structured LLM judge.</DialogDescription></div>
+					<div><DialogTitle class="text-xl text-stone-100">{{ evaluator ? 'Configure evaluator' : 'Create evaluator' }}</DialogTitle><DialogDescription class="mt-1 text-stone-500">{{ evaluator ? 'Update its rubric, implementation, and pass threshold.' : 'Add a deterministic architecture gate or a structured LLM judge.' }}</DialogDescription></div>
 				</div>
 			</DialogHeader>
 
-			<form class="space-y-6 px-7 py-6" @submit.prevent="createEvaluator">
+			<form class="space-y-6 px-7 py-6" @submit.prevent="submitEvaluator">
 				<label class="block space-y-2"><span class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Evaluator name</span><input v-model="form.name" class="h-10 w-full rounded-md border border-stone-800 bg-black/30 px-3 text-sm text-stone-200 outline-none transition placeholder:text-stone-700 focus:border-stone-600" placeholder="Evidence completeness" /></label>
 
 				<div>
@@ -74,7 +95,7 @@ function createEvaluator() {
 
 				<label class="block space-y-2"><span class="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.18em] text-stone-500"><span>Pass threshold</span><span class="text-stone-300">{{ form.threshold }}/100</span></span><input v-model.number="form.threshold" type="range" min="0" max="100" step="1" class="w-full accent-red-500" /></label>
 
-				<div class="flex justify-end gap-3 border-t border-white/7 pt-5"><button type="button" class="rounded-md border border-stone-800 px-4 py-2 text-sm text-stone-400 transition hover:bg-stone-900" @click="emit('update:open', false)">Cancel</button><button type="submit" :disabled="!canCreate" class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40">Create evaluator</button></div>
+				<div class="flex justify-end gap-3 border-t border-white/7 pt-5"><button type="button" class="rounded-md border border-stone-800 px-4 py-2 text-sm text-stone-400 transition hover:bg-stone-900" @click="emit('update:open', false)">Cancel</button><button type="submit" :disabled="!canCreate" class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40">{{ evaluator ? 'Save changes' : 'Create evaluator' }}</button></div>
 			</form>
 		</DialogContent>
 	</Dialog>

@@ -85,13 +85,6 @@ const activeMessage = computed(() => {
 		<div class="relative grid gap-3 pt-3 pl-8 text-xs">
 			<div class="absolute bottom-1 left-[10px] top-1 w-px bg-stone-700/70" />
 
-			<div v-if="activity.groups.length === 0" class="relative flex items-center gap-2 text-stone-400">
-				<LoaderCircle v-if="active" class="h-4 w-4 animate-spin" />
-				<Check v-else-if="activity.status === 'completed'" class="h-4 w-4" />
-				<CircleX v-else class="h-4 w-4 text-red-400" />
-				<span>{{ active ? 'NetAI is deciding which evidence is needed.' : 'NetAI answered without calling infrastructure tools.' }}</span>
-			</div>
-
 			<section v-for="group in activity.groups" :key="group.connector.key" class="relative grid gap-2">
 				<p class="flex items-center gap-2 text-stone-400">
 					<Wrench class="h-4 w-4" />

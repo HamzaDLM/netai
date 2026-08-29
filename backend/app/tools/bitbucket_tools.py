@@ -64,6 +64,7 @@ def _run_git(
             check=True,
             text=True,
             capture_output=True,
+            timeout=project_settings.BITBUCKET_GIT_TIMEOUT_SECONDS,
         )
     except FileNotFoundError as exc:
         raise BitbucketToolError("git_not_installed") from exc
@@ -72,6 +73,8 @@ def _run_git(
         stdout = (exc.stdout or "").strip()
         details = stderr or stdout or "git_command_failed"
         raise BitbucketToolError(f"git_failed:{details}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise BitbucketToolError("git_timeout") from exc
 
     return result.stdout.strip()
 

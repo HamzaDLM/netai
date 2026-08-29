@@ -179,7 +179,7 @@ export interface AdminFeedbackConversation {
 }
 
 export interface AdminFeedbackItem {
-	feedback: Feedback
+	feedback: Feedback & { feedback_types: FeedbackType[] }
 	conversation: AdminFeedbackConversation
 	user_message?: Message | null
 	assistant_message: Message
@@ -195,4 +195,5 @@ export interface AdminOverview {
 	average_latency_ms?: number | null
 	feedback_total: number
 	negative_feedback: number
+	message_volume: Array<{ date: string; hour: number; count: number }>
 }

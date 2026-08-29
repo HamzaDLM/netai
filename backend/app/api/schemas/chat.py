@@ -71,6 +71,10 @@ class FeedbackResponse(ORMBaseModel):
     updated_at: datetime
 
 
+class AdminFeedbackResponse(FeedbackResponse):
+    feedback_types: list[FeedbackType] = []
+
+
 class ToolCallResponse(ORMBaseModel):
     id: int
     run_id: int
@@ -200,10 +204,16 @@ class AdminFeedbackConversationResponse(ORMBaseModel):
 
 
 class AdminFeedbackItemResponse(BaseModel):
-    feedback: FeedbackResponse
+    feedback: AdminFeedbackResponse
     conversation: AdminFeedbackConversationResponse
     user_message: MessageResponse | None
     assistant_message: MessageResponse
+
+
+class AdminMessageVolumePoint(BaseModel):
+    date: str
+    hour: int
+    count: int
 
 
 class AdminOverviewResponse(BaseModel):
@@ -216,3 +226,4 @@ class AdminOverviewResponse(BaseModel):
     average_latency_ms: float | None
     feedback_total: int
     negative_feedback: int
+    message_volume: list[AdminMessageVolumePoint]

@@ -65,6 +65,10 @@ class EvalScenarioCreate(BaseModel):
         return _clean_list(values)
 
 
+class EvalScenarioUpdate(EvalScenarioCreate):
+    pass
+
+
 class EvalScenarioResponse(ORMBaseModel):
     id: str
     name: str
@@ -84,6 +88,10 @@ class EvalScenarioResponse(ORMBaseModel):
 
 class EvalScenarioToggle(BaseModel):
     enabled: bool
+
+
+class EvalEvaluatorUpdate(EvalEvaluatorCreate):
+    pass
 
 
 class EvalToolCallResponse(BaseModel):

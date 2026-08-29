@@ -1,22 +1,25 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
-import { BrainCircuit, Check, ShieldCheck, Wrench } from 'lucide-vue-next'
+import { computed, reactive, watch } from 'vue'
+import { Check, ShieldCheck, Wrench } from 'lucide-vue-next'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import type { EvalEvaluator, NewEvalScenario } from './evals.types'
+import type { EvalEvaluator, EvalScenario, NewEvalScenario } from './evals.types'
 
-defineProps<{
+const props = defineProps<{
 	open: boolean
 	evaluators: EvalEvaluator[]
+	scenario?: EvalScenario | null
 }>()
 
 const emit = defineEmits<{
 	(event: 'update:open', open: boolean): void
 	(event: 'create', scenario: NewEvalScenario): void
+	(event: 'update', scenarioId: string, scenario: NewEvalScenario): void
 }>()
 
 const form = reactive({
 	name: '',
 	description: '',
+	tags: 'Draft',
 	prompt: '',
 	fixture: '',
 	requiredTools: '',
@@ -41,6 +44,7 @@ function toggleEvaluator(id: string) {
 function resetForm() {
 	form.name = ''
 	form.description = ''
+	form.tags = 'Draft'
 	form.prompt = ''
 	form.fixture = ''
 	form.requiredTools = ''
@@ -49,18 +53,42 @@ function resetForm() {
 	form.evaluatorIds = ['tool-trajectory', 'answer-groundedness', 'completion-safety']
 }
 
-function createScenario() {
+function populateForm() {
+	const scenario = props.scenario
+	if (!scenario) {
+		resetForm()
+		return
+	}
+	form.name = scenario.name
+	form.description = scenario.description
+	form.tags = scenario.tags.join(', ')
+	form.prompt = scenario.prompt
+	form.fixture = scenario.fixture
+	form.requiredTools = scenario.requiredTools.join('\n')
+	form.forbiddenTools = scenario.forbiddenTools.join('\n')
+	form.expectedFacts = scenario.expectedFacts.join('\n')
+	form.evaluatorIds = [...scenario.evaluatorIds]
+}
+
+watch(() => [props.open, props.scenario] as const, ([open]) => {
+	if (open) populateForm()
+})
+
+function submitScenario() {
 	if (!canCreate.value) return
-	emit('create', {
+	const payload: NewEvalScenario = {
 		name: form.name.trim(),
 		description: form.description.trim(),
+		tags: lines(form.tags),
 		prompt: form.prompt.trim(),
 		fixture: form.fixture.trim(),
 		requiredTools: lines(form.requiredTools),
 		forbiddenTools: lines(form.forbiddenTools),
 		expectedFacts: lines(form.expectedFacts),
 		evaluatorIds: [...form.evaluatorIds],
-	})
+	}
+	if (props.scenario) emit('update', props.scenario.id, payload)
+	else emit('create', payload)
 	resetForm()
 	emit('update:open', false)
 }
@@ -71,24 +99,21 @@ function createScenario() {
 		<DialogContent class="max-h-[90vh] max-w-4xl overflow-y-auto border-stone-800 bg-stone-950 p-0 text-stone-200">
 			<DialogHeader class="border-b border-white/7 px-7 py-6">
 				<div class="flex items-center gap-3">
-					<div class="flex h-10 w-10 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/8 text-red-400">
-						<BrainCircuit class="h-5 w-5" />
-					</div>
 					<div>
-						<DialogTitle class="text-xl text-stone-100">Create evaluation scenario</DialogTitle>
-						<DialogDescription class="mt-1 text-stone-500">Define the use case, simulated infrastructure state, expected tool behavior, and scoring suite.</DialogDescription>
+						<DialogTitle class="text-xl text-stone-100">{{ scenario ? 'Edit evaluation scenario' : 'Create evaluation scenario' }}</DialogTitle>
+						<DialogDescription class="mt-1 text-stone-500">Define the use case, evaluator reference state, expected tool behavior, and scoring suite.</DialogDescription>
 					</div>
 				</div>
 			</DialogHeader>
 
-			<form class="space-y-7 px-7 py-6" @submit.prevent="createScenario">
+			<form class="space-y-7 px-7 py-6" @submit.prevent="submitScenario">
 				<div class="grid gap-5 md:grid-cols-2">
 					<label class="space-y-2">
 						<span class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Scenario name</span>
 						<input v-model="form.name" class="h-10 w-full rounded-md border border-stone-800 bg-black/30 px-3 text-sm text-stone-200 outline-none transition placeholder:text-stone-700 focus:border-stone-600" placeholder="OSPF adjacency regression" />
 					</label>
 					<label class="space-y-2">
-						<span class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Fixture / environment state</span>
+						<span class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Expectation</span>
 						<input v-model="form.fixture" class="h-10 w-full rounded-md border border-stone-800 bg-black/30 px-3 text-sm text-stone-200 outline-none transition placeholder:text-stone-700 focus:border-stone-600" placeholder="OSPF neighbor down · interface up" />
 					</label>
 				</div>
@@ -96,6 +121,11 @@ function createScenario() {
 				<label class="block space-y-2">
 					<span class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Purpose</span>
 					<textarea v-model="form.description" rows="2" class="w-full resize-none rounded-md border border-stone-800 bg-black/30 px-3 py-2 text-sm leading-6 text-stone-200 outline-none transition placeholder:text-stone-700 focus:border-stone-600" placeholder="What architecture behavior should this scenario protect?" />
+				</label>
+
+				<label class="block space-y-2">
+					<span class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500">Tags</span>
+					<input v-model="form.tags" class="h-10 w-full rounded-md border border-stone-800 bg-black/30 px-3 text-sm text-stone-200 outline-none transition placeholder:text-stone-700 focus:border-stone-600" placeholder="sanity, bgp, regression" />
 				</label>
 
 				<label class="block space-y-2">
@@ -144,7 +174,7 @@ function createScenario() {
 
 				<div class="flex justify-end gap-3 border-t border-white/7 pt-5">
 					<button type="button" class="rounded-md border border-stone-800 px-4 py-2 text-sm text-stone-400 transition hover:bg-stone-900" @click="emit('update:open', false)">Cancel</button>
-					<button type="submit" :disabled="!canCreate" class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40">Create scenario</button>
+					<button type="submit" :disabled="!canCreate" class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40">{{ scenario ? 'Save changes' : 'Create scenario' }}</button>
 				</div>
 			</form>
 		</DialogContent>

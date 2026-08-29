@@ -70,6 +70,7 @@ export type EvalEvaluator = {
 export type NewEvalScenario = {
 	name: string
 	description: string
+	tags: string[]
 	prompt: string
 	fixture: string
 	requiredTools: string[]
@@ -77,6 +78,8 @@ export type NewEvalScenario = {
 	expectedFacts: string[]
 	evaluatorIds: string[]
 }
+
+export type EvalScenarioUpdate = NewEvalScenario
 
 export type NewEvalEvaluator = {
 	name: string
@@ -86,3 +89,5 @@ export type NewEvalEvaluator = {
 	criteria: string
 	threshold: number
 }
+
+export type EvalEvaluatorUpdate = NewEvalEvaluator

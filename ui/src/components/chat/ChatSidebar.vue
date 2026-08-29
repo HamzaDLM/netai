@@ -256,7 +256,7 @@ onBeforeUnmount(() => {
                     <Button v-if="props.collapsed" @click="handleChatClick" variant="link"
                         class="flex" size="default" title="New conversation"
                         aria-label="New conversation">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="p-1 text-black bg-red-600 rounded-full hover:bg-red-600/80 w-7 h-7" viewBox="0 0 24 24">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="p-1 text-white bg-red-600 rounded-full hover:bg-red-600/80 w-7 h-7" viewBox="0 0 24 24">
                             <path fill="currentColor" d="M11 13H5v-2h6V5h2v6h6v2h-6v6h-2z" />
                         </svg>
                     </Button>

@@ -18,6 +18,7 @@ from app.core.config import project_settings
 from app.db.base_class import Base
 from app.db.session import get_async_session
 from app.main import app
+from app.services.chat_runs import ChatRunCoordinator
 from app.services.netai import NetAIService
 
 
@@ -56,11 +57,18 @@ async def test_app(
 
     app.dependency_overrides[get_async_session] = _override_get_async_session
     service = NetAIService(settings=project_settings)
+    coordinator = ChatRunCoordinator(
+        service=service,
+        session_factory=test_db_session_factory,
+    )
     app.state.netai_service = service
+    app.state.chat_run_coordinator = coordinator
     try:
         yield app
     finally:
+        await coordinator.close()
         await service.close()
+        del app.state.chat_run_coordinator
         del app.state.netai_service
         app.dependency_overrides.clear()
 

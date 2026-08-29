@@ -17,6 +17,7 @@ from app.tools.registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 READ_ONLY_EFFECTS = {"read_only", "simulated_active_probe", "internal"}
+EMPTY_TURN_RECOVERY_KIND = "empty_turn_recovery"
 
 
 class ToolAuthorizationError(PermissionError):
@@ -69,6 +70,69 @@ async def before_run(state: State) -> None:
             "event": "agent.start",
             "request_id": state.data.get("request_id"),
             "user_id": state.data.get("user_id"),
+        },
+    )
+
+
+def is_actionable_message(message: ChatMessage) -> bool:
+    """Return whether a message contains content useful to the next model turn."""
+
+    if (message.text or "").strip():
+        return True
+    if message.tool_calls or message.tool_call_results:
+        return True
+    if not message.is_from("assistant"):
+        return bool(message.images or message.files)
+    return False
+
+
+def messages_for_llm(messages: Iterable[ChatMessage]) -> list[ChatMessage]:
+    """Remove invalid model turns and stale internal recovery instructions."""
+
+    return [
+        message
+        for message in messages
+        if is_actionable_message(message)
+        and message.meta.get("netai_internal_kind") != EMPTY_TURN_RECOVERY_KIND
+    ]
+
+
+@hook
+async def recover_non_actionable_assistant_turns(state: State) -> None:
+    """Prompt the model to continue after it returned no answer or tool call."""
+
+    messages = list(state.data.get("messages", []))
+    non_actionable_count = sum(
+        not is_actionable_message(message) for message in messages
+    )
+    stale_recovery_count = sum(
+        message.meta.get("netai_internal_kind") == EMPTY_TURN_RECOVERY_KIND
+        for message in messages
+    )
+    if non_actionable_count == 0 and stale_recovery_count == 0:
+        return
+
+    filtered = messages_for_llm(messages)
+    if non_actionable_count:
+        filtered.append(
+            ChatMessage.from_user(
+                "Your previous turn contained no answer and no tool call. Continue the "
+                "current request now: invoke an available tool when evidence is still "
+                "needed, otherwise provide the final answer.",
+                meta={"netai_internal_kind": EMPTY_TURN_RECOVERY_KIND},
+            )
+        )
+    state.set("messages", filtered, handler_override=lambda _current, new: new)
+    if non_actionable_count == 0:
+        return
+
+    logger.warning(
+        "recovered from %s non-actionable chat message(s) before llm invocation",
+        non_actionable_count,
+        extra={
+            "event": "agent.non_actionable_messages_recovered",
+            "request_id": state.data.get("request_id"),
+            "removed_count": non_actionable_count,
         },
     )
 
@@ -198,6 +262,14 @@ Own the investigation from the user's question through the final answer. Use the
 minimum evidence needed, explain what you are checking before a potentially slow
 operation, and distinguish observed facts from assumptions. Never invent tool output.
 
+Software development and general-purpose coding are fully within scope, whether or
+not the request has an obvious connection to network infrastructure. Help directly
+with implementation, debugging, architecture, APIs, scripts, automation,
+infrastructure as code, tests, code review, security, observability, deployment, and
+other programming topics. Do not reject or narrow a coding request merely because
+its relationship to network engineering is unclear. Use infrastructure tools only
+when they provide evidence the request actually needs.
+
 Tools are read-only and progressively disclosed: call `search_tools` with connector
 and operation keywords, then call the returned tool directly. Search again when
 another evidence source is needed. When a tool group is loaded, the runtime supplies
@@ -236,7 +308,10 @@ def create_netai_agent(
         tool_streaming_callback_passthrough=True,
         hooks={
             "before_run": [before_run],
-            "before_llm": [inject_tool_group_prompts],
+            "before_llm": [
+                recover_non_actionable_assistant_turns,
+                inject_tool_group_prompts,
+            ],
             "before_tool": [authorize_and_observe_tools],
             "after_tool": [observe_tool_results],
             "after_run": [after_run],

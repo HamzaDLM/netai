@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-import app.api.endpoints.chat as chat_endpoints
+import app.services.chat_runs as chat_runs
 
 
 @pytest.mark.anyio
@@ -35,11 +35,7 @@ async def test_stream_agent_tool_calls_are_persisted(async_client, monkeypatch) 
             },
         }
 
-    async def no_title(**_kwargs: object) -> None:
-        return None
-
-    monkeypatch.setattr(chat_endpoints, "run_agent_stream", fake_stream)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", fake_stream)
 
     create_response = await async_client.post(
         "/api/v1/llm/conversation", json={"title": "Evidence"}

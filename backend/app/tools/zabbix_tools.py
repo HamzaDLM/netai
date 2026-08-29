@@ -12,6 +12,10 @@ lookup that answers the question; resolve host identity before requesting detail
 metrics or history. Treat trigger severity and timestamps as monitoring evidence,
 not proof of root cause. Correlate material findings with live state, logs, topology,
 or recent changes when the user asks for diagnosis rather than a monitoring summary.
+For a host-level diagnosis that requests several evidence categories such as status,
+problems, interfaces, and metrics, prefer zabbix_diagnose_host over several narrow
+lookups or a metrics-only answer. Do not conclude until every category explicitly
+requested by the user is covered or identified as unavailable.
 Avoid broad unfiltered queries when a host, group, severity, or time window is known.
 """.strip()
 

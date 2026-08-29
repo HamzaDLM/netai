@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import PixelMatrixSplash from '@/components/splash/PixelMatrixSplash.vue'
 import router from '@/router'
 
-const SPLASH_DURATION_MS = 3200
+const SPLASH_DURATION_MS = 2000
 let redirectTimer: number | null = null
 
 onMounted(() => {

@@ -14,11 +14,6 @@ type OverviewCard = {
 	spanClass: string
 }
 
-type UsagePoint = {
-	label: string
-	messages: number
-}
-
 const EMPTY_OVERVIEW: AdminOverview = {
 	window_started_at: '',
 	generated_at: '',
@@ -29,6 +24,7 @@ const EMPTY_OVERVIEW: AdminOverview = {
 	average_latency_ms: null,
 	feedback_total: 0,
 	negative_feedback: 0,
+	message_volume: [],
 }
 
 const overview = ref<AdminOverview>({ ...EMPTY_OVERVIEW })
@@ -78,18 +74,38 @@ const overviewCards = computed<OverviewCard[]>(() => [
 	},
 ])
 
-const usageSeries: UsagePoint[] = [
-	{ label: 'Mon', messages: 582 },
-	{ label: 'Tue', messages: 701 },
-	{ label: 'Wed', messages: 668 },
-	{ label: 'Thu', messages: 742 },
-	{ label: 'Fri', messages: 809 },
-	{ label: 'Sat', messages: 633 },
-	{ label: 'Sun', messages: 847 },
-]
+const weeklyMessageTotal = computed(() => overview.value.user_messages.toLocaleString())
+const averageDailyMessages = computed(() => Math.round(overview.value.user_messages / 7).toLocaleString())
+const heatmapDays = computed(() => {
+	const grouped = new Map<string, Array<{ hour: number; count: number }>>()
+	for (const point of overview.value.message_volume) {
+		const cells = grouped.get(point.date) ?? []
+		cells.push({ hour: point.hour, count: point.count })
+		grouped.set(point.date, cells)
+	}
+	return [...grouped.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([date, cells]) => ({
+		date,
+		label: new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(new Date(`${date}T12:00:00`)),
+		cells: cells.sort((left, right) => left.hour - right.hour),
+	}))
+})
+const maxHourlyMessages = computed(() => Math.max(0, ...overview.value.message_volume.map(point => point.count)))
+const HEATMAP_CLASSES = [
+	'border-stone-800/70 bg-stone-900/70',
+	'border-red-500/20 bg-red-500/15',
+	'border-red-500/40 bg-red-500/30',
+	'border-red-500/60 bg-red-500/50',
+	'border-red-500/80 bg-red-500/75',
+] as const
 
-const weeklyMessageTotal = computed(() => usageSeries.reduce((total, point) => total + point.messages, 0).toLocaleString())
-const averageDailyMessages = computed(() => Math.round(usageSeries.reduce((total, point) => total + point.messages, 0) / usageSeries.length).toLocaleString())
+function heatmapClass(count: number): string {
+	if (!count || !maxHourlyMessages.value) return HEATMAP_CLASSES[0]
+	const ratio = count / maxHourlyMessages.value
+	if (ratio <= 0.25) return HEATMAP_CLASSES[1]
+	if (ratio <= 0.5) return HEATMAP_CLASSES[2]
+	if (ratio <= 0.75) return HEATMAP_CLASSES[3]
+	return HEATMAP_CLASSES[4]
+}
 
 async function loadOverview(): Promise<void> {
 	isLoading.value = true
@@ -142,6 +158,21 @@ onMounted(loadOverview)
 								<p class="text-stone-500">Daily average</p>
 								<p class="mt-1 text-lg font-semibold text-stone-100">{{ averageDailyMessages }}</p>
 							</div>
+						</div>
+					</div>
+					<div class="mt-6 overflow-x-auto pb-2">
+						<div class="min-w-[720px]">
+							<div class="mb-2 grid grid-cols-[42px_repeat(24,minmax(0,1fr))] gap-1 text-[9px] text-stone-700">
+								<span />
+								<span v-for="hour in 24" :key="hour" class="text-center">{{ [1, 7, 13, 19, 24].includes(hour) ? String(hour - 1).padStart(2, '0') : '' }}</span>
+							</div>
+							<div class="space-y-1">
+								<div v-for="day in heatmapDays" :key="day.date" class="grid grid-cols-[42px_repeat(24,minmax(0,1fr))] gap-1">
+									<span class="self-center text-[10px] font-medium text-stone-600">{{ day.label }}</span>
+									<div v-for="cell in day.cells" :key="cell.hour" class="aspect-square rounded-[3px] border transition hover:ring-1 hover:ring-stone-500" :class="heatmapClass(cell.count)" :title="`${day.date} ${String(cell.hour).padStart(2, '0')}:00 · ${cell.count} message${cell.count === 1 ? '' : 's'}`" />
+								</div>
+							</div>
+							<div class="mt-4 flex items-center justify-end gap-1.5 text-[10px] text-stone-600"><span>Less</span><span v-for="level in HEATMAP_CLASSES" :key="level" class="h-3 w-3 rounded-[3px] border" :class="level" /><span>More</span></div>
 						</div>
 					</div>
 				</article>

@@ -6,15 +6,12 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from haystack.dataclasses import ChatMessage
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.models.chat import ConversationSummary, Message, MessageRole
 from app.db.session import SessionLocal
 from app.prompts import SUMMARIZING_PROMPT
-
-RECENT_MESSAGE_WINDOW = 10
-COMPACTION_THRESHOLD_RATIO = 0.8
 
 GenerateChat = Callable[[list[ChatMessage]], Awaitable[dict[str, object]]]
 
@@ -79,6 +76,7 @@ async def _history(
                 Message.conversation_id == conversation_id,
                 Message.archived.is_(False),
                 Message.role != MessageRole.system,
+                func.length(func.trim(Message.content)) > 0,
             )
             .order_by(Message.id.asc())
         )
@@ -102,7 +100,7 @@ async def compact_conversation_context(
     *,
     conversation_id: str,
     generate: GenerateChat,
-    keep_recent: int = RECENT_MESSAGE_WINDOW,
+    keep_recent: int,
     session_factory: async_sessionmaker[AsyncSession] = SessionLocal,
 ) -> bool:
     latest_summary, _ = await _history(
@@ -117,6 +115,7 @@ async def compact_conversation_context(
                 Message.conversation_id == conversation_id,
                 Message.archived.is_(False),
                 Message.role != MessageRole.system,
+                func.length(func.trim(Message.content)) > 0,
             )
             .order_by(Message.id.asc())
         )
@@ -179,6 +178,7 @@ def _materialize(
     recent_messages: list[Message],
     *,
     keep_recent: int,
+    truncate: bool = True,
 ) -> tuple[list[ChatMessage], list[dict[str, int | str | None]]]:
     messages: list[ChatMessage] = []
     sources: list[dict[str, int | str | None]] = []
@@ -197,7 +197,11 @@ def _materialize(
             }
         )
 
-    tail = recent_messages[-keep_recent:] if keep_recent > 0 else recent_messages
+    tail = (
+        recent_messages[-keep_recent:]
+        if truncate and keep_recent > 0
+        else recent_messages
+    )
     messages.extend(_to_chat_message(message) for message in tail)
     sources.extend(
         {
@@ -217,20 +221,16 @@ async def build_conversation_context(
     conversation_id: str,
     generate: GenerateChat,
     context_window: int,
-    keep_recent: int = RECENT_MESSAGE_WINDOW,
+    keep_recent: int,
     session_factory: async_sessionmaker[AsyncSession] = SessionLocal,
 ) -> BuiltContext:
     latest_summary, recent_messages = await _history(
         conversation_id=conversation_id,
         session_factory=session_factory,
     )
-    messages, sources = _materialize(
-        latest_summary, recent_messages, keep_recent=keep_recent
-    )
-    estimated_tokens = estimate_tokens(messages)
     compacted = False
-
-    if estimated_tokens > int(context_window * COMPACTION_THRESHOLD_RATIO):
+    needs_compaction = len(recent_messages) > keep_recent
+    if needs_compaction:
         compacted = await compact_conversation_context(
             conversation_id=conversation_id,
             generate=generate,
@@ -242,10 +242,15 @@ async def build_conversation_context(
                 conversation_id=conversation_id,
                 session_factory=session_factory,
             )
-            messages, sources = _materialize(
-                latest_summary, recent_messages, keep_recent=keep_recent
-            )
-            estimated_tokens = estimate_tokens(messages)
+    # Never silently discard unsummarized history. If compaction failed, retain all
+    # active messages and let the provider surface any context-window error.
+    messages, sources = _materialize(
+        latest_summary,
+        recent_messages,
+        keep_recent=keep_recent,
+        truncate=not needs_compaction or compacted,
+    )
+    estimated_tokens = estimate_tokens(messages)
 
     used_percent = (
         int(round((estimated_tokens / context_window) * 100))

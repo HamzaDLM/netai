@@ -18,7 +18,7 @@ from haystack_integrations.components.generators.google_genai import (
     GoogleGenAIChatGenerator,
 )
 
-from app.agents.netai import create_netai_agent
+from app.agents.netai import create_netai_agent, messages_for_llm
 from app.core.config import Settings
 from app.infrastructure import InfrastructureClients
 from app.mcp.infrahub import InfrahubToolProvider
@@ -197,8 +197,13 @@ class NetAIService:
         return None
 
     @staticmethod
-    def _message_text(messages: list[ChatMessage]) -> str:
-        return "\n".join(message.text or "" for message in messages)
+    def _routing_text(messages: list[ChatMessage]) -> str:
+        """Route connectors from the current request, not stale conversation text."""
+
+        for message in reversed(messages):
+            if message.is_from("user"):
+                return message.text or ""
+        return ""
 
     async def _tools_for_run(
         self,
@@ -206,7 +211,7 @@ class NetAIService:
         observer: RunObserver,
     ) -> tuple[SearchableToolset, str | None, set[str], MCPRequestContext]:
         allowed_names = self.registry.tool_names | {"search_tools"}
-        message_text = self._message_text(messages)
+        message_text = self._routing_text(messages)
         provider_specs: list[tuple[str, OptionalMCPToolProvider, bool]] = [
             ("infrahub", self.infrahub, False),
             ("suzieq", self.suzieq, True),
@@ -431,7 +436,7 @@ class NetAIService:
         if answer:
             return answer
 
-        messages = self._result_messages(result)
+        messages = messages_for_llm(self._result_messages(result))
         logger.warning(
             "agent ended without a final assistant answer; requesting final synthesis",
             extra={
@@ -500,11 +505,6 @@ class NetAIService:
             run_id=f"run_{uuid4().hex}",
             conversation_id=conversation_id,
         )
-        prepared_context = await self.prepare_run_context(
-            messages,
-            conversation_id=conversation_id,
-            observer=run_observer,
-        )
 
         async def handle_chunk(chunk: StreamingChunk) -> None:
             custom_event = chunk.meta.get("netai_event")
@@ -524,25 +524,31 @@ class NetAIService:
                 await run_observer.emit("token", {"token": chunk.content})
 
         started_at = perf_counter()
-        result = await self.agent.run_async(
-            messages=prepared_context.messages,
-            streaming_callback=handle_chunk if stream else None,
-            tools=prepared_context.tools,
-            hook_context={
-                "observer": run_observer,
-                "registry": self.registry,
-                "allowed_tool_names": prepared_context.allowed_tool_names,
-                "clients": self.clients,
-                "injected_tool_groups": set(),
-            },
-            request_id=resolved_request_id,
-            user_id=user_id,
-        )
-        answer = await self._ensure_final_answer(
-            result,
-            run_observer,
-            streaming_callback=handle_chunk if stream else None,
-        )
+        async with asyncio.timeout(self.settings.AGENT_RUN_TIMEOUT_SECONDS):
+            prepared_context = await self.prepare_run_context(
+                messages,
+                conversation_id=conversation_id,
+                observer=run_observer,
+            )
+            result = await self.agent.run_async(
+                messages=prepared_context.messages,
+                streaming_callback=handle_chunk if stream else None,
+                tools=prepared_context.tools,
+                hook_context={
+                    "observer": run_observer,
+                    "registry": self.registry,
+                    "allowed_tool_names": prepared_context.allowed_tool_names,
+                    "clients": self.clients,
+                    "injected_tool_groups": set(),
+                },
+                request_id=resolved_request_id,
+                user_id=user_id,
+            )
+            answer = await self._ensure_final_answer(
+                result,
+                run_observer,
+                streaming_callback=handle_chunk if stream else None,
+            )
         duration_ms = max(0, int(round((perf_counter() - started_at) * 1000)))
         return NetAIRun(
             answer=answer,

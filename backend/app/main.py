@@ -16,8 +16,9 @@ from app.api.router import api_router
 from app.core.config import project_settings
 from app.core.logging import configure_logging
 from app.db.init_db import init_db
-from app.db.session import close_engine
+from app.db.session import SessionLocal, close_engine
 from app.observability import configure_tracing
+from app.services.chat_runs import ChatRunCoordinator
 from app.services.evals import EvalService
 from app.services.netai import NetAIService
 
@@ -34,11 +35,18 @@ async def lifespan(application: FastAPI):
     tracer_provider = configure_tracing(project_settings)
     netai_service: NetAIService | None = None
     eval_service: EvalService | None = None
+    chat_run_coordinator: ChatRunCoordinator | None = None
     try:
         await init_db()
         netai_service = NetAIService(settings=project_settings)
         application.state.netai_service = netai_service
         await netai_service.warm_up()
+        chat_run_coordinator = ChatRunCoordinator(
+            service=netai_service,
+            session_factory=SessionLocal,
+        )
+        application.state.chat_run_coordinator = chat_run_coordinator
+        await chat_run_coordinator.recover_interrupted_runs()
         eval_service = EvalService(
             settings=project_settings, netai_service=netai_service
         )
@@ -47,22 +55,29 @@ async def lifespan(application: FastAPI):
         yield
     finally:
         try:
-            if eval_service is not None:
+            if chat_run_coordinator is not None:
                 try:
-                    await eval_service.close()
+                    await chat_run_coordinator.close()
                 finally:
-                    delattr(application.state, "eval_service")
+                    delattr(application.state, "chat_run_coordinator")
         finally:
             try:
-                if netai_service is not None:
+                if eval_service is not None:
                     try:
-                        await netai_service.close()
+                        await eval_service.close()
                     finally:
-                        delattr(application.state, "netai_service")
+                        delattr(application.state, "eval_service")
             finally:
-                await close_engine()
-                if tracer_provider is not None:
-                    tracer_provider.shutdown()
+                try:
+                    if netai_service is not None:
+                        try:
+                            await netai_service.close()
+                        finally:
+                            delattr(application.state, "netai_service")
+                finally:
+                    await close_engine()
+                    if tracer_provider is not None:
+                        tracer_provider.shutdown()
 
 
 app = FastAPI(

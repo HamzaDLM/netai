@@ -2,24 +2,27 @@ from __future__ import annotations
 
 import pytest
 
-import app.api.endpoints.chat as chat_endpoints
+import app.services.chat_runs as chat_runs
 
 
 @pytest.mark.anyio
 async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
     async_client, monkeypatch
 ) -> None:
-    async def _fake_run_agent(
+    async def _fake_run_agent_stream(
         *,
         conversation_id: str,
         question: str,
         skills: list[dict[str, str]] | None = None,
         **_kwargs: object,
-    ) -> dict:
+    ):
         _ = skills
-        return {
-            "answer": f"answer for {conversation_id}: {question}",
-            "events": [],
+        answer = f"answer for {conversation_id}: {question}"
+        yield {"type": "context_metrics", "used_tokens": 10}
+        yield {"type": "token", "token": answer}
+        yield {
+            "type": "run_map",
+            "answer": answer,
             "run_map": {
                 "agent": {
                     "agent_name": "netai",
@@ -38,7 +41,6 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
                     }
                 ],
             },
-            "context_metrics": {"used_tokens": 10},
             "prompt_snapshot": {
                 "messages": [
                     {
@@ -59,7 +61,7 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
                         "index": 2,
                         "role": "assistant",
                         "source": "assistant_response",
-                        "text": f"answer for {conversation_id}: {question}",
+                        "text": answer,
                         "estimated_tokens": 8,
                     },
                 ],
@@ -67,18 +69,7 @@ async def test_chat_lifecycle_sync_persists_messages_and_tool_evidence(
             },
         }
 
-    async def _no_title(
-        *,
-        service: object,
-        conversation_id: str,
-        user_question: str,
-        assistant_content: str,
-    ) -> None:
-        _ = service
-        return None
-
-    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", _fake_run_agent_stream)
 
     create_resp = await async_client.post(
         "/api/v1/llm/conversation", json={"title": "Ops"}
@@ -135,19 +126,21 @@ async def test_chat_skill_commands_only_apply_explicitly_selected_skills(
 ) -> None:
     captured: dict[str, object] = {}
 
-    async def _fake_run_agent(
+    async def _fake_run_agent_stream(
         *,
         conversation_id: str,
         question: str,
         skills: list[dict[str, str]] | None = None,
         **_kwargs: object,
-    ) -> dict:
+    ):
         captured["conversation_id"] = conversation_id
         captured["question"] = question
         captured["skills"] = skills
-        return {
+        yield {"type": "context_metrics", "used_tokens": 3}
+        yield {"type": "token", "token": "ok"}
+        yield {
+            "type": "run_map",
             "answer": "ok",
-            "events": [],
             "run_map": {
                 "agent": {
                     "agent_name": "netai",
@@ -156,21 +149,9 @@ async def test_chat_skill_commands_only_apply_explicitly_selected_skills(
                 },
                 "tool_calls": [],
             },
-            "context_metrics": {"used_tokens": 3},
         }
 
-    async def _no_title(
-        *,
-        service: object,
-        conversation_id: str,
-        user_question: str,
-        assistant_content: str,
-    ) -> None:
-        _ = service
-        return None
-
-    monkeypatch.setattr(chat_endpoints, "run_agent", _fake_run_agent)
-    monkeypatch.setattr(chat_endpoints, "_generate_title_if_missing", _no_title)
+    monkeypatch.setattr(chat_runs, "run_agent_stream", _fake_run_agent_stream)
 
     skill_resp = await async_client.post(
         "/api/v1/skills",

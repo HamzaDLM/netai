@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str | None = None
 
     LLM_CONTEXT_WINDOW: int = 100_000
+    CHAT_CONTEXT_RECENT_MESSAGES: int = Field(default=10, ge=1)
+    AGENT_RUN_TIMEOUT_SECONDS: float = Field(default=300.0, gt=0)
     CHAT_ATTACHMENT_MAX_COUNT: int = 5
     CHAT_ATTACHMENT_MAX_BYTES: int = 262_144
     CHAT_ATTACHMENT_MAX_CHARS: int = 20_000
@@ -83,6 +85,7 @@ class Settings(BaseSettings):
 
     BITBUCKET_CLONE_DIR: str = ""
     BITBUCKET_URL: str = ""
+    BITBUCKET_GIT_TIMEOUT_SECONDS: float = Field(default=60.0, gt=0)
 
     ZABBIX_API_URL: str = ""
     ZABBIX_API_TOKEN: str = ""

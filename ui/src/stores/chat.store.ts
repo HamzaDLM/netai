@@ -7,6 +7,7 @@ import { toast } from '@/components/ui/toast'
 let localIdCounter = 1000
 const supportedAttachmentExtensions = new Set(['conf', 'cfg', 'csv', 'ini', 'json', 'log', 'md', 'txt', 'yaml', 'yml'])
 const titleRefreshTimers = new Map<string, ReturnType<typeof setTimeout>[]>()
+const runRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 function nextId(): number {
 	localIdCounter += 1
@@ -170,6 +171,57 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		titleRefreshTimers.set(conversationId, timers)
 	}
 
+	function runningAssistantId(conversation: ConversationMessages | null): number | null {
+		if (!conversation) return null
+		for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+			const message = conversation.messages[index]
+			if (message.role === 'assistant' && message.agent_runs.some(run => run.status === 'running')) return message.id
+		}
+		return null
+	}
+
+	function syncSelectedRunState(): boolean {
+		const assistantId = runningAssistantId(selectedConversation.value)
+		isStreamingResponse.value = assistantId !== null
+		streamingAssistantMessageId.value = assistantId
+		return assistantId !== null
+	}
+
+	function clearRunRefresh(conversationId: string): void {
+		const timer = runRefreshTimers.get(conversationId)
+		if (timer) clearTimeout(timer)
+		runRefreshTimers.delete(conversationId)
+	}
+
+	function scheduleRunRefresh(conversationId: string): void {
+		clearRunRefresh(conversationId)
+		const refresh = async () => {
+			try {
+				const result = await chatService.getConversation(conversationId)
+				const normalized = normalizeConversationMessages(result.data)
+				const isRunning = runningAssistantId(normalized) !== null
+				if (selectedConversation.value?.id === conversationId) {
+					const previousRunningAssistantId = runningAssistantId(selectedConversation.value)
+					selectedConversation.value = normalized
+					contextWindow.value = extractLatestContextMetrics(normalized)
+					syncSelectedRunState()
+					const finishedAssistant = normalized.messages.find(message => message.id === previousRunningAssistantId)
+					if (!isRunning && finishedAssistant?.agent_runs.some(run => run.status === 'failed')) {
+						toast({ title: 'Something went wrong', variant: 'destructive' })
+					}
+				}
+				if (isRunning) {
+					runRefreshTimers.set(conversationId, setTimeout(refresh, 1000))
+				} else {
+					clearRunRefresh(conversationId)
+				}
+			} catch {
+				runRefreshTimers.set(conversationId, setTimeout(refresh, 2000))
+			}
+		}
+		runRefreshTimers.set(conversationId, setTimeout(refresh, 500))
+	}
+
 	async function loadConversations(options: LoadConversationsOptions = {}): Promise<void> {
 		const nextSearchQuery = options.searchQuery ?? conversationSearchQuery.value
 		const normalizedSearchQuery = nextSearchQuery.trim()
@@ -220,6 +272,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			const result = await chatService.getConversation(conversationId)
 			selectedConversation.value = normalizeConversationMessages(result.data)
 			contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
+			if (syncSelectedRunState()) scheduleRunRefresh(conversationId)
 			await loadAttachments(conversationId)
 		} catch (err) {
 			errorMessage.value = 'Failed to load conversation'
@@ -232,6 +285,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	function setSelectedConversation(conversation: ConversationMessages | null): void {
 		selectedConversation.value = conversation ? normalizeConversationMessages(conversation) : null
 		contextWindow.value = extractLatestContextMetrics(selectedConversation.value)
+		if (syncSelectedRunState() && conversation) scheduleRunRefresh(conversation.id)
 		if (!conversation) attachments.value = []
 	}
 
@@ -273,6 +327,7 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	async function deleteConversation(conversation_id: string): Promise<void> {
 		try {
 			await chatService.deleteConversation(conversation_id)
+			clearRunRefresh(conversation_id)
 			conversations.value = conversations.value.filter(convo => convo.id !== conversation_id)
 		} catch (err) {
 			errorMessage.value = 'Failed to archive conversation'
@@ -363,10 +418,12 @@ export const useChatStore = defineStore('chat', function chatStore() {
 		if (!selectedConversation.value) return
 		if (!userQuestion.trim()) return
 		const conversationId = selectedConversation.value.id
+		const persistedMessageIds = new Set(selectedConversation.value.messages.map(message => message.id))
 		const hadPlaceholderTitle = !selectedConversation.value.title?.trim()
 		let assistantDraft: Message | null = null
 		try {
-			addUserMessage(userQuestion)
+			const userDraft = createMessage('user', userQuestion)
+			addMessage(userDraft)
 			assistantDraft = createMessage('assistant', '')
 			addMessage(assistantDraft)
 			let trackedAssistantId = assistantDraft.id
@@ -489,6 +546,18 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				conversationId,
 				{ content: userQuestion },
 				{
+					onAccepted: ({ runId, userMessageId, assistantMessageId }) => {
+						userDraft.id = userMessageId
+						const assistant = getAssistantMessage()
+						if (!assistant) return
+						assistant.id = assistantMessageId
+						trackedAssistantId = assistantMessageId
+						streamingAssistantMessageId.value = assistantMessageId
+						const run = ensureDraftRun(assistant)
+						run.id = runId
+						run.user_message_id = userMessageId
+						run.assistant_message_id = assistantMessageId
+					},
 					onToken: token => {
 						pendingTokenText += token
 						ensureFlushLoop()
@@ -498,13 +567,14 @@ export const useChatStore = defineStore('chat', function chatStore() {
 						if (!assistant) return
 						pushAgentRuntimeEvent(assistant, event)
 					},
-					onDone: ({ messageId, durationMs }) => {
+					onDone: ({ messageId, runId, durationMs, status }) => {
 						const assistant = getAssistantMessage()
 						if (!assistant) return
 						assistant.id = messageId
 						for (const run of assistant.agent_runs) {
+							if (run.id !== runId) continue
 							run.assistant_message_id = messageId
-							if (run.status === 'running') run.status = 'completed'
+							run.status = status
 							if (!run.ended_at) run.ended_at = new Date().toISOString()
 							if (typeof durationMs === 'number' && Number.isFinite(durationMs)) {
 								run.duration_ms = durationMs
@@ -540,6 +610,29 @@ export const useChatStore = defineStore('chat', function chatStore() {
 				scheduleConversationTitleRefresh(conversationId)
 			}
 		} catch (err) {
+			try {
+				const refreshed = await chatService.getConversation(conversationId)
+				const normalized = normalizeConversationMessages(refreshed.data)
+				if (selectedConversation.value?.id === conversationId) {
+					selectedConversation.value = normalized
+					contextWindow.value = extractLatestContextMetrics(normalized)
+				}
+				const recoveredAssistant = normalized.messages.find(message => message.role === 'assistant' && !persistedMessageIds.has(message.id))
+				if (recoveredAssistant) {
+					syncSelectedRunState()
+					if (recoveredAssistant.agent_runs.some(run => run.status === 'running')) {
+						scheduleRunRefresh(conversationId)
+						toast({ title: 'Connection lost; the investigation is continuing in the background' })
+					} else if (recoveredAssistant.agent_runs.some(run => run.status === 'failed')) {
+						toast({ title: 'Something went wrong', variant: 'destructive' })
+					} else {
+						toast({ title: 'Connection lost; the saved response was restored' })
+					}
+					return
+				}
+			} catch {
+				// Fall through to the local failure state when durable state is unreachable.
+			}
 			const failedAt = new Date().toISOString()
 			const failureReason = err instanceof Error && err.message ? err.message : 'Agent request failed'
 			if (assistantDraft) {
@@ -568,8 +661,10 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			errorMessage.value = 'Something went wrong'
 			toast({ title: errorMessage.value, variant: 'destructive' })
 		} finally {
-			isStreamingResponse.value = false
-			streamingAssistantMessageId.value = null
+			if (runningAssistantId(selectedConversation.value) === null) {
+				isStreamingResponse.value = false
+				streamingAssistantMessageId.value = null
+			}
 		}
 	}
 
@@ -604,9 +699,12 @@ export const useChatStore = defineStore('chat', function chatStore() {
 	}
 
 	function clearSelectedConversation(): void {
+		if (selectedConversation.value) clearRunRefresh(selectedConversation.value.id)
 		selectedConversation.value = null
 		contextWindow.value = null
 		attachments.value = []
+		isStreamingResponse.value = false
+		streamingAssistantMessageId.value = null
 	}
 
 	function resetChatState(): void {
@@ -614,6 +712,8 @@ export const useChatStore = defineStore('chat', function chatStore() {
 			for (const timer of timers) clearTimeout(timer)
 		}
 		titleRefreshTimers.clear()
+		for (const timer of runRefreshTimers.values()) clearTimeout(timer)
+		runRefreshTimers.clear()
 		conversations.value = []
 		selectedConversation.value = null
 		conversationSearchQuery.value = ''

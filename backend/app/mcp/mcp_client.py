@@ -10,13 +10,16 @@ import asyncio
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
+import anyio
+import httpx
 from fastmcp import Client as FastMCPClient
 from fastmcp.client.transports import StreamableHttpTransport
+from fastmcp.exceptions import ClientError
 from haystack.tools import Tool, Toolset
 from mcp import types as mcp_types
 
@@ -148,6 +151,7 @@ class _ResourceCacheEntry:
 
 
 MCPClientFactory = Callable[[MCPClientConfig], FastMCPClient[Any]]
+MCPClientOperation = Callable[[FastMCPClient[Any]], Awaitable[Any]]
 
 
 def create_mcp_client(config: MCPClientConfig) -> FastMCPClient[Any]:
@@ -233,6 +237,7 @@ class OptionalMCPToolProvider:
         self._resource_cache: dict[str, _ResourceCacheEntry] = {}
         self._lock = asyncio.Lock()
         self._last_attempt_at = float("-inf")
+        self._discovery_degraded = False
         self._status = "not_checked"
         self.status_message = f"{display_name} MCP has not been checked."
 
@@ -259,18 +264,30 @@ class OptionalMCPToolProvider:
     async def warm_up(self, *, force: bool = False) -> bool:
         """Connect once and cache advertised capability metadata for this session."""
 
-        if self._client is not None:
-            return True
         now = monotonic()
+        if self._client is not None and not force:
+            if (
+                not self._discovery_degraded
+                or now - self._last_attempt_at < self.retry_after_seconds
+            ):
+                return True
         if not force and now - self._last_attempt_at < self.retry_after_seconds:
             return False
 
         async with self._lock:
-            if self._client is not None:
-                return True
             now = monotonic()
+            if self._client is not None and not force:
+                if (
+                    not self._discovery_degraded
+                    or now - self._last_attempt_at < self.retry_after_seconds
+                ):
+                    return True
             if not force and now - self._last_attempt_at < self.retry_after_seconds:
                 return False
+            previous_client = self._client
+            if previous_client is not None:
+                self._client = None
+                await self._close_client(previous_client)
             self._last_attempt_at = now
             client = self._client_factory(self.config)
             try:
@@ -283,29 +300,65 @@ class OptionalMCPToolProvider:
                 supports_prompts = advertised.prompts is not None
                 supports_resources = advertised.resources is not None
 
-                tools = await self._discover_tools(client) if supports_tools else []
-                prompts = (
-                    await self._discover_prompts(client) if supports_prompts else []
-                )
-                resources = (
-                    await self._discover_resources(client) if supports_resources else []
-                )
+                discovery_failures: list[str] = []
+                tools: list[mcp_types.Tool] = []
+                prompts: list[MCPPromptMetadata] = []
+                resources: list[MCPResourceMetadata] = []
+                if supports_tools:
+                    try:
+                        tools = await self._discover_tools(client)
+                    except Exception:
+                        discovery_failures.append("tools")
+                        logger.warning(
+                            "%s MCP tools/list failed",
+                            self.display_name,
+                            exc_info=True,
+                        )
+                if supports_prompts:
+                    try:
+                        prompts = await self._discover_prompts(client)
+                    except Exception:
+                        discovery_failures.append("prompts")
+                        logger.warning(
+                            "%s MCP prompts/list failed",
+                            self.display_name,
+                            exc_info=True,
+                        )
+                if supports_resources:
+                    try:
+                        resources = await self._discover_resources(client)
+                    except Exception:
+                        discovery_failures.append("resources")
+                        logger.warning(
+                            "%s MCP resources/list failed",
+                            self.display_name,
+                            exc_info=True,
+                        )
 
                 self._client = client
                 self._toolset = self._build_toolset(tools)
                 self._prompt_metadata = tuple(prompts)
                 self._resource_metadata = tuple(resources)
+                self._prompt_cache.clear()
+                self._resource_cache.clear()
                 self._capabilities = MCPCapabilities(
                     tools=supports_tools,
                     prompts=supports_prompts,
                     resources=supports_resources,
                 )
-                self.status_message = (
-                    f"{self.display_name} MCP is available "
-                    f"({len(self._toolset.tools)} tools, {len(prompts)} prompts, "
-                    f"{len(resources)} resources)."
+                self._discovery_degraded = bool(discovery_failures)
+                state = "degraded" if discovery_failures else "available"
+                failure_note = (
+                    f" Discovery failed for: {', '.join(discovery_failures)}."
+                    if discovery_failures
+                    else ""
                 )
-                self._status = "available"
+                self.status_message = (
+                    f"{self.display_name} MCP is {state} "
+                    f"({len(self._toolset.tools)} tools, {len(prompts)} prompts, "
+                    f"{len(resources)} resources).{failure_note}"
+                )
+                self._status = state
                 logger.info(
                     "%s MCP metadata discovered: %d tools, %d prompts, %d resources",
                     self.display_name,
@@ -325,6 +378,7 @@ class OptionalMCPToolProvider:
                     f"{self.display_name} MCP is unavailable ({type(exc).__name__})."
                 )
                 self._status = "unavailable"
+                self._discovery_degraded = False
                 logger.warning(
                     "%s MCP startup failed: %s",
                     self.display_name,
@@ -333,23 +387,13 @@ class OptionalMCPToolProvider:
                 return False
 
     async def _discover_tools(self, client: FastMCPClient[Any]) -> list[mcp_types.Tool]:
-        try:
-            tools = await client.list_tools()
-        except Exception:
-            logger.warning("%s MCP tools/list failed", self.display_name, exc_info=True)
-            return []
+        tools = await client.list_tools()
         return [tool for tool in tools if _is_read_only_tool(tool.name)]
 
     async def _discover_prompts(
         self, client: FastMCPClient[Any]
     ) -> list[MCPPromptMetadata]:
-        try:
-            prompts = await client.list_prompts()
-        except Exception:
-            logger.warning(
-                "%s MCP prompts/list failed", self.display_name, exc_info=True
-            )
-            return []
+        prompts = await client.list_prompts()
         return [
             MCPPromptMetadata(
                 name=prompt.name,
@@ -367,13 +411,7 @@ class OptionalMCPToolProvider:
     async def _discover_resources(
         self, client: FastMCPClient[Any]
     ) -> list[MCPResourceMetadata]:
-        try:
-            resources = await client.list_resources()
-        except Exception:
-            logger.warning(
-                "%s MCP resources/list failed", self.display_name, exc_info=True
-            )
-            return []
+        resources = await client.list_resources()
         return [
             MCPResourceMetadata(
                 uri=str(resource.uri),
@@ -408,10 +446,9 @@ class OptionalMCPToolProvider:
         return Toolset(haystack_tools)
 
     async def _call_tool(self, name: str, arguments: dict[str, object]) -> object:
-        client = self._client
-        if client is None:
-            raise RuntimeError(f"{self.display_name} MCP is not connected")
-        result = await client.call_tool(name, arguments)
+        result = await self._run_with_reconnect(
+            lambda client: client.call_tool(name, arguments)
+        )
         if result.is_error:
             detail = "\n".join(_dump_content(item) for item in result.content)
             raise RuntimeError(detail or f"MCP tool {name} failed")
@@ -427,6 +464,68 @@ class OptionalMCPToolProvider:
         if text_items:
             return "\n".join(text_items)
         return [_dump_content(item) for item in result.content]
+
+    @staticmethod
+    def _is_transport_failure(exc: BaseException) -> bool:
+        return isinstance(
+            exc,
+            (
+                ClientError,
+                ConnectionError,
+                TimeoutError,
+                OSError,
+                httpx.TransportError,
+                anyio.BrokenResourceError,
+                anyio.ClosedResourceError,
+                anyio.EndOfStream,
+            ),
+        )
+
+    async def _close_client(self, client: FastMCPClient[Any]) -> None:
+        try:
+            await client.__aexit__(None, None, None)
+        except Exception:
+            logger.debug("failed to close MCP client", exc_info=True)
+
+    async def _recover_client(
+        self, failed_client: FastMCPClient[Any]
+    ) -> FastMCPClient[Any] | None:
+        async with self._lock:
+            current = self._client
+            if current is not None and current is not failed_client:
+                return current
+            if current is failed_client:
+                self._client = None
+                self._last_attempt_at = float("-inf")
+                self._status = "degraded"
+                self.status_message = (
+                    f"{self.display_name} MCP connection was lost; reconnecting."
+                )
+                await self._close_client(failed_client)
+        if not await self.warm_up():
+            return None
+        return self._client
+
+    async def _run_with_reconnect(self, operation: MCPClientOperation) -> Any:
+        client = self._client
+        if client is None and not await self.warm_up():
+            raise RuntimeError(f"{self.display_name} MCP is not connected")
+        client = self._client
+        if client is None:
+            raise RuntimeError(f"{self.display_name} MCP is not connected")
+        try:
+            return await operation(client)
+        except Exception as exc:
+            if not self._is_transport_failure(exc):
+                raise
+            logger.warning(
+                "%s MCP transport failed; reconnecting once",
+                self.display_name,
+            )
+            recovered = await self._recover_client(client)
+            if recovered is None:
+                raise
+            return await operation(recovered)
 
     async def get_toolset(self, *, force: bool = False) -> Toolset | None:
         if await self.warm_up(force=force):
@@ -521,10 +620,9 @@ class OptionalMCPToolProvider:
         cached = self._prompt_cache.get(prompt.name)
         if cached is not None:
             return cached
-        client = self._client
-        if client is None:
-            raise RuntimeError(f"{self.display_name} MCP is not connected")
-        result = await client.get_prompt(prompt.name)
+        result = await self._run_with_reconnect(
+            lambda client: client.get_prompt(prompt.name)
+        )
         parts: list[str] = []
         for message in result.messages:
             content = message.content
@@ -543,10 +641,9 @@ class OptionalMCPToolProvider:
         cached = self._resource_cache.get(resource.uri)
         if cached is not None and cached.expires_at > now:
             return cached.text
-        client = self._client
-        if client is None:
-            raise RuntimeError(f"{self.display_name} MCP is not connected")
-        contents = await client.read_resource(resource.uri)
+        contents = await self._run_with_reconnect(
+            lambda client: client.read_resource(resource.uri)
+        )
         text = "\n".join(
             item.text
             for item in contents
@@ -566,11 +663,12 @@ class OptionalMCPToolProvider:
             self._prompt_metadata = ()
             self._resource_metadata = ()
             self._capabilities = MCPCapabilities()
+            self._discovery_degraded = False
             self._prompt_cache.clear()
             self._resource_cache.clear()
             if client is not None:
                 try:
-                    await client.__aexit__(None, None, None)
+                    await self._close_client(client)
                 except Exception as exc:
                     logger.warning(
                         "%s MCP shutdown failed: %s",
