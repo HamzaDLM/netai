@@ -6,6 +6,7 @@ from haystack.tools import Toolset
 
 from app.core.config import Settings, project_settings
 from app.mcp.infrahub import InfrahubToolProvider
+from app.mcp.logs import LogToolProvider
 from app.mcp.suzieq import SuzieQToolProvider
 from app.tools.registry import ToolRegistry
 
@@ -56,6 +57,29 @@ def _suzieq_mcp_entry(
     }
 
 
+def _logs_mcp_entry(
+    *,
+    status: str = "not_checked",
+    status_message: str = "Log intelligence is connected only when it is needed.",
+    tools: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    return {
+        "agent_key": "syslog",
+        "agent_name": "Log intelligence",
+        "description": (
+            "Read-only bounded syslog events, severity summaries, and normalized "
+            "device log patterns supplied by the standalone log service."
+        ),
+        "specialist_tool": None,
+        "source": "mcp",
+        "dynamic_tools": True,
+        "connection_status": status,
+        "status_message": status_message,
+        "mcp_config_name": "log_mcp",
+        "tools": tools or [],
+    }
+
+
 def get_agent_tool_catalog(
     registry: ToolRegistry | None = None,
     *,
@@ -68,6 +92,7 @@ def get_agent_tool_catalog(
         *runtime_registry.catalog(),
         _infrahub_entry(),
         _suzieq_mcp_entry(),
+        _logs_mcp_entry(),
     ]
 
 
@@ -94,6 +119,7 @@ async def get_resolved_agent_tool_catalog(
     registry: ToolRegistry,
     infrahub: InfrahubToolProvider,
     suzieq: SuzieQToolProvider,
+    logs: LogToolProvider,
 ) -> list[dict[str, object]]:
     """Resolve optional MCP entries without affecting local connectors."""
 
@@ -108,5 +134,10 @@ async def get_resolved_agent_tool_catalog(
             status=suzieq.status,
             status_message=suzieq.status_message,
             tools=_remote_tools(suzieq.toolset, connector_name="SuzieQ"),
+        ),
+        _logs_mcp_entry(
+            status=logs.status,
+            status_message=logs.status_message,
+            tools=_remote_tools(logs.toolset, connector_name="Log intelligence"),
         ),
     ]

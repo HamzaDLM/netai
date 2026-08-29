@@ -51,10 +51,7 @@ pub async fn print_lag_periodically<C: Consumer + Send + Sync + 'static>(
 
             prev_committed.insert(partition, (committed_offset, now));
 
-            debug!(
-                "Partition {} lag: {}, processed/s: {:.2}",
-                partition, lag, processed_per_sec
-            );
+            debug!("Partition {partition} lag: {lag}, processed/s: {processed_per_sec:.2}");
         }
 
         sleep(Duration::from_secs(1)).await; // wait 5 seconds

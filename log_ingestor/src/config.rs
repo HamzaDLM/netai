@@ -2,8 +2,6 @@ pub struct Config {
     pub kafka_brokers: String,
     pub kafka_topic: String,
     pub kafka_group_id: String,
-    pub qdrant_url: String,
-    pub qdrant_collection: String,
     pub clickhouse_url: String,
     pub clickhouse_db: String,
     pub clickhouse_user: String,
@@ -12,16 +10,14 @@ pub struct Config {
     pub clickhouse_batch_size: usize,
     pub clickhouse_flush_interval_ms: u64,
     pub clickhouse_insert_queue_capacity: usize,
+    pub log_mcp_bind: String,
+    pub log_mcp_allowed_hosts: Vec<String>,
+    pub log_mcp_token: Option<String>,
+    pub log_query_default_window_secs: u64,
+    pub log_query_max_window_secs: u64,
+    pub log_query_max_results: u32,
+    pub log_query_timeout_secs: u64,
     pub ignored_syslog_texts: Vec<String>,
-    pub embedding_url: String,
-    pub embedding_model: String,
-    pub embedding_api_key: Option<String>,
-    pub embedding_timeout_secs: u64,
-    pub embedding_dimension: u64,
-    pub embedding_max_in_flight: usize,
-    pub embedding_max_requests_per_second: u64,
-    pub embedding_max_retries: u32,
-    pub embedding_retry_backoff_ms: u64,
     pub redis_url: Option<String>,
     pub vendor_lookup_url: Option<String>,
     pub vendor_refresh_secs: u64,
@@ -34,21 +30,19 @@ impl Config {
     }
 
     fn from_env_with(get: impl Fn(&str) -> Option<String>) -> Self {
-        let embedding_api_key =
-            get("EMBEDDING_API_KEY").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
         let redis_url =
             get("REDIS_URL").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
         let vendor_lookup_url =
             get("VENDOR_LOOKUP_URL").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
         let ignored_syslog_texts =
             parse_ignored_syslog_texts(get("IGNORED_SYSLOG_TEXTS").as_deref());
+        let log_mcp_token =
+            get("LOG_MCP_TOKEN").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
 
         Self {
             kafka_brokers: get("KAFKA_BROKERS").unwrap_or("localhost:9092".into()),
             kafka_topic: get("KAFKA_TOPIC").unwrap_or("syslogs".into()),
             kafka_group_id: get("KAFKA_GROUP_ID").unwrap_or("log-ingestor".into()),
-            qdrant_url: get("QDRANT_URL").unwrap_or("http://localhost:6333".into()),
-            qdrant_collection: get("QDRANT_COLLECTION").unwrap_or("syslogs".into()),
             clickhouse_url: get("CLICKHOUSE_URL").unwrap_or("http://localhost:8123".into()),
             clickhouse_db: get("CLICKHOUSE_DB").unwrap_or("netops".into()),
             clickhouse_user: get("CLICKHOUSE_USER").unwrap_or("admin".into()),
@@ -65,29 +59,32 @@ impl Config {
             clickhouse_insert_queue_capacity: get("CLICKHOUSE_INSERT_QUEUE_CAPACITY")
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(20000),
-            ignored_syslog_texts,
-            embedding_url: get("EMBEDDING_URL")
-                .unwrap_or("http://localhost:8080/openai/embed".into()),
-            embedding_model: get("EMBEDDING_MODEL").unwrap_or("text-embedding-3-small".into()),
-            embedding_api_key,
-            embedding_timeout_secs: get("EMBEDDING_TIMEOUT_SECS")
+            log_mcp_bind: get("LOG_MCP_BIND").unwrap_or("0.0.0.0:8010".into()),
+            log_mcp_allowed_hosts: get("LOG_MCP_ALLOWED_HOSTS")
+                .map(|value| parse_csv(&value))
+                .filter(|items| !items.is_empty())
+                .unwrap_or_else(|| {
+                    vec![
+                        "localhost".into(),
+                        "127.0.0.1".into(),
+                        "::1".into(),
+                        "log_mcp".into(),
+                    ]
+                }),
+            log_mcp_token,
+            log_query_default_window_secs: get("LOG_QUERY_DEFAULT_WINDOW_SECS")
                 .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(30),
-            embedding_dimension: get("EMBEDDING_DIMENSION")
+                .unwrap_or(3600),
+            log_query_max_window_secs: get("LOG_QUERY_MAX_WINDOW_SECS")
                 .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(1536),
-            embedding_max_in_flight: get("EMBEDDING_MAX_IN_FLIGHT")
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(4),
-            embedding_max_requests_per_second: get("EMBEDDING_MAX_REQUESTS_PER_SECOND")
-                .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(4),
-            embedding_max_retries: get("EMBEDDING_MAX_RETRIES")
+                .unwrap_or(604800),
+            log_query_max_results: get("LOG_QUERY_MAX_RESULTS")
                 .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(5),
-            embedding_retry_backoff_ms: get("EMBEDDING_RETRY_BACKOFF_MS")
+                .unwrap_or(200),
+            log_query_timeout_secs: get("LOG_QUERY_TIMEOUT_SECS")
                 .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(250),
+                .unwrap_or(8),
+            ignored_syslog_texts,
             redis_url,
             vendor_lookup_url,
             vendor_refresh_secs: get("VENDOR_REFRESH_SECS")
@@ -96,6 +93,15 @@ impl Config {
             vendor_cache_prefix: get("VENDOR_CACHE_PREFIX").unwrap_or("vendor_cache".into()),
         }
     }
+}
+
+fn parse_csv(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(ToOwned::to_owned)
+        .collect()
 }
 
 fn parse_ignored_syslog_texts(value: Option<&str>) -> Vec<String> {
@@ -130,6 +136,13 @@ mod tests {
         assert_eq!(cfg.clickhouse_retention_days, 30);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1000);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 20000);
+        assert_eq!(cfg.log_mcp_bind, "0.0.0.0:8010");
+        assert!(cfg.log_mcp_allowed_hosts.contains(&"log_mcp".to_string()));
+        assert!(cfg.log_mcp_token.is_none());
+        assert_eq!(cfg.log_query_default_window_secs, 3600);
+        assert_eq!(cfg.log_query_max_window_secs, 604800);
+        assert_eq!(cfg.log_query_max_results, 200);
+        assert_eq!(cfg.log_query_timeout_secs, 8);
         assert_eq!(
             cfg.ignored_syslog_texts,
             vec![
@@ -137,10 +150,6 @@ mod tests {
                 "vfork couldn't find enough resources".to_string(),
             ]
         );
-        assert_eq!(cfg.embedding_max_in_flight, 4);
-        assert_eq!(cfg.embedding_max_requests_per_second, 4);
-        assert_eq!(cfg.embedding_max_retries, 5);
-        assert_eq!(cfg.embedding_retry_backoff_ms, 250);
     }
 
     #[test]
@@ -150,11 +159,14 @@ mod tests {
             ("CLICKHOUSE_RETENTION_DAYS", "45"),
             ("CLICKHOUSE_FLUSH_INTERVAL_MS", "1500"),
             ("CLICKHOUSE_INSERT_QUEUE_CAPACITY", "64000"),
+            ("LOG_MCP_BIND", "127.0.0.1:9010"),
+            ("LOG_MCP_ALLOWED_HOSTS", "logs.example.com,logs.internal"),
+            ("LOG_MCP_TOKEN", "secret"),
+            ("LOG_QUERY_DEFAULT_WINDOW_SECS", "7200"),
+            ("LOG_QUERY_MAX_WINDOW_SECS", "1209600"),
+            ("LOG_QUERY_MAX_RESULTS", "500"),
+            ("LOG_QUERY_TIMEOUT_SECS", "12"),
             ("IGNORED_SYSLOG_TEXTS", "noise one,noise two\nnoise three"),
-            ("EMBEDDING_MAX_IN_FLIGHT", "8"),
-            ("EMBEDDING_MAX_REQUESTS_PER_SECOND", "12"),
-            ("EMBEDDING_MAX_RETRIES", "9"),
-            ("EMBEDDING_RETRY_BACKOFF_MS", "333"),
         ]);
 
         let cfg = Config::from_env_with(|k| vars.get(k).map(|v| v.to_string()));
@@ -162,6 +174,16 @@ mod tests {
         assert_eq!(cfg.clickhouse_retention_days, 45);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1500);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 64000);
+        assert_eq!(cfg.log_mcp_bind, "127.0.0.1:9010");
+        assert_eq!(
+            cfg.log_mcp_allowed_hosts,
+            vec!["logs.example.com", "logs.internal"]
+        );
+        assert_eq!(cfg.log_mcp_token.as_deref(), Some("secret"));
+        assert_eq!(cfg.log_query_default_window_secs, 7200);
+        assert_eq!(cfg.log_query_max_window_secs, 1209600);
+        assert_eq!(cfg.log_query_max_results, 500);
+        assert_eq!(cfg.log_query_timeout_secs, 12);
         assert_eq!(
             cfg.ignored_syslog_texts,
             vec![
@@ -170,10 +192,6 @@ mod tests {
                 "noise three".to_string(),
             ]
         );
-        assert_eq!(cfg.embedding_max_in_flight, 8);
-        assert_eq!(cfg.embedding_max_requests_per_second, 12);
-        assert_eq!(cfg.embedding_max_retries, 9);
-        assert_eq!(cfg.embedding_retry_backoff_ms, 333);
     }
 
     #[test]
@@ -183,10 +201,6 @@ mod tests {
             ("CLICKHOUSE_RETENTION_DAYS", "bad"),
             ("CLICKHOUSE_FLUSH_INTERVAL_MS", "x"),
             ("CLICKHOUSE_INSERT_QUEUE_CAPACITY", "oops"),
-            ("EMBEDDING_MAX_IN_FLIGHT", "nope"),
-            ("EMBEDDING_MAX_REQUESTS_PER_SECOND", "nan"),
-            ("EMBEDDING_MAX_RETRIES", "bad"),
-            ("EMBEDDING_RETRY_BACKOFF_MS", "invalid"),
         ]);
 
         let cfg = Config::from_env_with(|k| vars.get(k).map(|v| v.to_string()));
@@ -194,9 +208,5 @@ mod tests {
         assert_eq!(cfg.clickhouse_retention_days, 30);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1000);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 20000);
-        assert_eq!(cfg.embedding_max_in_flight, 4);
-        assert_eq!(cfg.embedding_max_requests_per_second, 4);
-        assert_eq!(cfg.embedding_max_retries, 5);
-        assert_eq!(cfg.embedding_retry_backoff_ms, 250);
     }
 }

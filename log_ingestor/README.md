@@ -1,6 +1,16 @@
 # log_ingestor
 
-Rust Kafka consumer that ingests syslogs, filters known noisy lines, normalizes remaining events, and stores them in ClickHouse.
+Standalone Rust log intelligence service. Its ingestion process consumes and
+normalizes Kafka syslogs into ClickHouse; its independently runnable MCP process
+owns all read access so NetAI never needs ClickHouse SQL or credentials.
+
+## Runtime layout
+
+```text
+Kafka -> log_ingestor -> ClickHouse <- log_mcp <- NetAI
+```
+
+Both binaries share typed storage and query code but restart and scale independently.
 
 ## Current Flow
 
@@ -34,6 +44,10 @@ cp log_ingestor/.env.skeleton log_ingestor/.env
 - `KAFKA_GROUP_ID` (default: `log-ingestor`)
 
 ### ClickHouse
+
+ClickHouse 19.6 or newer is required because the event table uses a table-level
+TTL. Docker Compose pins ClickHouse 24.8; Ansible installs the current official
+LTS packages rather than Ubuntu's obsolete distribution package.
 - `CLICKHOUSE_URL` (default: `http://localhost:8123`)
 - `CLICKHOUSE_DB` (default: `netops`)
 - `CLICKHOUSE_USER` (default: `admin`)
@@ -44,20 +58,24 @@ cp log_ingestor/.env.skeleton log_ingestor/.env
 - `CLICKHOUSE_INSERT_QUEUE_CAPACITY` (default: `20000`)
 - `IGNORED_SYSLOG_TEXTS` (optional comma/newline-separated substrings; defaults include `vfork couldn't find enough ressources` and `vfork couldn't find enough resources`)
 
-### Qdrant (legacy, not used by current ingestion flow)
-- `QDRANT_URL` (default: `http://localhost:6333`)
-- `QDRANT_COLLECTION` (default: `syslogs`)
+### Log MCP/query service
 
-### Embeddings (legacy, not used by current ingestion flow)
-- `EMBEDDING_URL` (default: `http://localhost:8080/openai/embed`)
-- `EMBEDDING_MODEL` (default: `text-embedding-3-small`)
-- `EMBEDDING_API_KEY` (optional)
-- `EMBEDDING_TIMEOUT_SECS` (default: `30`)
-- `EMBEDDING_DIMENSION` (default: `1536`)
-- `EMBEDDING_MAX_IN_FLIGHT` (default: `4`)
-- `EMBEDDING_MAX_REQUESTS_PER_SECOND` (default: `4`, set `0` to disable request pacing)
-- `EMBEDDING_MAX_RETRIES` (default: `5`)
-- `EMBEDDING_RETRY_BACKOFF_MS` (default: `250`)
+- `LOG_MCP_BIND` (default: `0.0.0.0:8010`)
+- `LOG_MCP_ALLOWED_HOSTS` (comma-separated MCP Host-header allowlist)
+- `LOG_MCP_TOKEN` (optional bearer token; configure it outside local development)
+- `LOG_QUERY_DEFAULT_WINDOW_SECS` (default: `3600`)
+- `LOG_QUERY_MAX_WINDOW_SECS` (default: `604800`, seven days)
+- `LOG_QUERY_MAX_RESULTS` (default: `200`)
+- `LOG_QUERY_TIMEOUT_SECS` (default: `8`)
+
+The MCP service exposes only typed, bounded, read-only operations:
+
+- `logs_get_device_events`
+- `logs_get_severity_summary`
+- `logs_get_device_patterns`
+
+It also exposes unauthenticated process health endpoints at `/health/live` and
+`/health/ready`. The MCP endpoint is `/mcp` and requires `LOG_MCP_TOKEN` when set.
 
 ### Vendor Cache / Lookup
 - `REDIS_URL` (optional; when reachable Redis is used, otherwise in-memory fallback is used)
@@ -75,7 +93,8 @@ Expected lookup API payload formats:
 - `syslog_events` is partitioned by event datetime day (`toDate(toDateTime(ts_unix))`).
 - ClickHouse TTL deletes rows older than `CLICKHOUSE_RETENTION_DAYS`.
 - Event writes to ClickHouse are batched in-memory and flushed by size/time thresholds.
-- Template vectorization is currently disabled to avoid high embedding cost on noisy production syslog data.
+- The former unused Qdrant and embedding compatibility code has been removed;
+  ClickHouse is the log service's only event store.
 - Vendor cache refresh is best-effort. Failed vendor API calls or Redis errors are logged and ingestion continues.
 
 ## Run
@@ -84,6 +103,12 @@ From repo root:
 
 ```bash
 cargo run --manifest-path log_ingestor/Cargo.toml
+```
+
+Run the independent query/MCP process:
+
+```bash
+cargo run --manifest-path log_ingestor/Cargo.toml --bin log_mcp
 ```
 
 The binary will try `.env` in the current working directory first, then `log_ingestor/.env` when launched from the repo root.

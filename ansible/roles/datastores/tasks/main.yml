@@ -3,14 +3,48 @@
   ansible.builtin.apt:
     name:
       - redis-server
-      - clickhouse-server
-      - clickhouse-client
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - gnupg
       - clang
       - cmake
       - pkg-config
       - libssl-dev
     state: present
     update_cache: true
+
+- name: Install official ClickHouse repository signing key
+  ansible.builtin.get_url:
+    url: https://packages.clickhouse.com/rpm/lts/repodata/repomd.xml.key
+    dest: /usr/share/keyrings/clickhouse-keyring.asc
+    mode: '0644'
+  when: netai_clickhouse_enabled | bool
+
+- name: Configure official ClickHouse apt repository
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/usr/share/keyrings/clickhouse-keyring.asc]
+      https://packages.clickhouse.com/deb {{ netai_clickhouse_apt_channel }} main
+    filename: clickhouse
+    state: present
+    update_cache: true
+  when: netai_clickhouse_enabled | bool
+
+- name: Install a current ClickHouse server and client
+  ansible.builtin.apt:
+    name:
+      - clickhouse-server
+      - clickhouse-client
+    state: latest
+    update_cache: true
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+  when: netai_clickhouse_enabled | bool
+  notify: Restart clickhouse
+
+- name: Apply datastore package restarts before version checks
+  ansible.builtin.meta: flush_handlers
 
 - name: Configure redis bind address
   ansible.builtin.lineinfile:
@@ -76,6 +110,24 @@
     host: "{{ netai_clickhouse_host }}"
     port: "{{ netai_clickhouse_http_port }}"
     timeout: 60
+  when: netai_clickhouse_enabled | bool
+
+- name: Read installed clickhouse version
+  ansible.builtin.command:
+    cmd: clickhouse-client --query "SELECT version()"
+  register: netai_clickhouse_version_result
+  changed_when: false
+  when: netai_clickhouse_enabled | bool
+
+- name: Require clickhouse with table TTL support
+  ansible.builtin.assert:
+    that:
+      - >-
+        netai_clickhouse_version_result.stdout is
+        version('19.6', '>=', version_type='loose')
+    fail_msg: >-
+      ClickHouse {{ netai_clickhouse_version_result.stdout }} is too old; NetAI log
+      retention requires ClickHouse 19.6 or newer from the official repository.
   when: netai_clickhouse_enabled | bool
 
 - name: Ensure clickhouse database exists

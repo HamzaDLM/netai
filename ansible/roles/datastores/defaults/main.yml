@@ -7,6 +7,7 @@ netai_redis_password: ""
 
 # ClickHouse
 netai_clickhouse_enabled: true
+netai_clickhouse_apt_channel: lts
 netai_clickhouse_host: 127.0.0.1
 netai_clickhouse_http_port: 8123
 netai_clickhouse_native_port: 9000

@@ -58,12 +58,6 @@ CONNECTORS: tuple[Connector, ...] = (
         module="app.tools.datamodel_tools",
     ),
     Connector(
-        key="syslog",
-        name="Syslog",
-        description="Read-only network syslog retrieval and incident evidence.",
-        module="app.tools.syslog_tool",
-    ),
-    Connector(
         key="network",
         name="Network diagnostics",
         description="Safe reachability, path, and latency diagnostic visualizations.",
@@ -76,7 +70,6 @@ _MOCK_MODULES: dict[str, str] = {
     "suzieq": "app.tools._suzieq_tools_mock",
     "bitbucket": "app.tools._bitbucket_tools_mock",
     "servicenow": "app.tools._servicenow_tools_mock",
-    "syslog": "app.tools._syslog_tool_mock",
 }
 
 

@@ -50,11 +50,6 @@ class Settings(BaseSettings):
 
     SQLALCHEMY_URL: str = "sqlite+aiosqlite:///./netai_local.db"
 
-    CLICKHOUSE_URL: str = "http://localhost:8123"
-    CLICKHOUSE_DB: str = "netops"
-    CLICKHOUSE_USER: str = "default"
-    CLICKHOUSE_PASSWORD: str = ""
-
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_API_KEY: str | None = None
 
@@ -81,6 +76,10 @@ class Settings(BaseSettings):
     SUZIEQ_MCP_TOKEN: str = ""
     SUZIEQ_MCP_TIMEOUT_SECONDS: float = 5.0
     SUZIEQ_MCP_RESOURCE_TTL_SECONDS: float = 60.0
+    LOG_MCP_URL: str = "http://127.0.0.1:8010/mcp"
+    LOG_MCP_TOKEN: str = ""
+    LOG_MCP_TIMEOUT_SECONDS: float = 8.0
+    LOG_MCP_RESOURCE_TTL_SECONDS: float = 60.0
     MCP_CONSUMER_TOKEN: str = ""
 
     BITBUCKET_CLONE_DIR: str = ""

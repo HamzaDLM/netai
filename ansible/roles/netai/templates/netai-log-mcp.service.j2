@@ -1,5 +1,5 @@
 [Unit]
-Description=NetAI log ingestor
+Description=NetAI read-only log intelligence MCP service
 After=network.target
 
 [Service]
@@ -9,11 +9,11 @@ Group={{ netai_group }}
 WorkingDirectory={{ netai_release_dir }}
 Environment=PATH={{ netai_home }}/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile={{ netai_release_dir }}/log_ingestor/.env
-ExecStart={{ netai_release_dir }}/log_ingestor/target/release/log_ingestor
+ExecStart={{ netai_release_dir }}/log_ingestor/target/release/log_mcp
 Restart=always
 RestartSec=5
-StandardOutput=append:{{ netai_log_dir }}/log_ingestor.log
-StandardError=append:{{ netai_log_dir }}/log_ingestor.err.log
+StandardOutput=append:{{ netai_log_dir }}/log_mcp.log
+StandardError=append:{{ netai_log_dir }}/log_mcp.err.log
 
 [Install]
 WantedBy=multi-user.target

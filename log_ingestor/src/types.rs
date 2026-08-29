@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
@@ -15,11 +15,4 @@ pub struct IncomingSyslog {
 pub struct LogTemplate {
     pub id: Uuid,
     pub template: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct QdrantPoint {
-    pub id: Uuid,
-    pub vector: Vec<f32>,
-    pub payload: serde_json::Value,
 }
