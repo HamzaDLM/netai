@@ -10,6 +10,12 @@ pub struct Config {
     pub clickhouse_batch_size: usize,
     pub clickhouse_flush_interval_ms: u64,
     pub clickhouse_insert_queue_capacity: usize,
+    pub clickhouse_insert_max_retries: usize,
+    pub clickhouse_insert_retry_backoff_ms: u64,
+    pub clickhouse_insert_timeout_secs: u64,
+    pub ingest_max_in_flight: usize,
+    pub kafka_lag_poll_interval_secs: u64,
+    pub metrics_bind: String,
     pub log_mcp_bind: String,
     pub log_mcp_allowed_hosts: Vec<String>,
     pub log_mcp_token: Option<String>,
@@ -55,10 +61,26 @@ impl Config {
                 .unwrap_or(1000),
             clickhouse_flush_interval_ms: get("CLICKHOUSE_FLUSH_INTERVAL_MS")
                 .and_then(|v| v.parse::<u64>().ok())
-                .unwrap_or(1000),
+                .unwrap_or(100),
             clickhouse_insert_queue_capacity: get("CLICKHOUSE_INSERT_QUEUE_CAPACITY")
                 .and_then(|v| v.parse::<usize>().ok())
                 .unwrap_or(20000),
+            clickhouse_insert_max_retries: get("CLICKHOUSE_INSERT_MAX_RETRIES")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(5),
+            clickhouse_insert_retry_backoff_ms: get("CLICKHOUSE_INSERT_RETRY_BACKOFF_MS")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(250),
+            clickhouse_insert_timeout_secs: get("CLICKHOUSE_INSERT_TIMEOUT_SECS")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(10),
+            ingest_max_in_flight: get("INGEST_MAX_IN_FLIGHT")
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(256),
+            kafka_lag_poll_interval_secs: get("KAFKA_LAG_POLL_INTERVAL_SECS")
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(15),
+            metrics_bind: get("METRICS_BIND").unwrap_or("0.0.0.0:9898".into()),
             log_mcp_bind: get("LOG_MCP_BIND").unwrap_or("0.0.0.0:8010".into()),
             log_mcp_allowed_hosts: get("LOG_MCP_ALLOWED_HOSTS")
                 .map(|value| parse_csv(&value))
@@ -134,8 +156,14 @@ mod tests {
         let cfg = Config::from_env_with(|_| None);
         assert_eq!(cfg.clickhouse_batch_size, 1000);
         assert_eq!(cfg.clickhouse_retention_days, 30);
-        assert_eq!(cfg.clickhouse_flush_interval_ms, 1000);
+        assert_eq!(cfg.clickhouse_flush_interval_ms, 100);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 20000);
+        assert_eq!(cfg.clickhouse_insert_max_retries, 5);
+        assert_eq!(cfg.clickhouse_insert_retry_backoff_ms, 250);
+        assert_eq!(cfg.clickhouse_insert_timeout_secs, 10);
+        assert_eq!(cfg.ingest_max_in_flight, 256);
+        assert_eq!(cfg.kafka_lag_poll_interval_secs, 15);
+        assert_eq!(cfg.metrics_bind, "0.0.0.0:9898");
         assert_eq!(cfg.log_mcp_bind, "0.0.0.0:8010");
         assert!(cfg.log_mcp_allowed_hosts.contains(&"log_mcp".to_string()));
         assert!(cfg.log_mcp_token.is_none());
@@ -159,6 +187,12 @@ mod tests {
             ("CLICKHOUSE_RETENTION_DAYS", "45"),
             ("CLICKHOUSE_FLUSH_INTERVAL_MS", "1500"),
             ("CLICKHOUSE_INSERT_QUEUE_CAPACITY", "64000"),
+            ("CLICKHOUSE_INSERT_MAX_RETRIES", "7"),
+            ("CLICKHOUSE_INSERT_RETRY_BACKOFF_MS", "500"),
+            ("CLICKHOUSE_INSERT_TIMEOUT_SECS", "20"),
+            ("INGEST_MAX_IN_FLIGHT", "512"),
+            ("KAFKA_LAG_POLL_INTERVAL_SECS", "30"),
+            ("METRICS_BIND", "127.0.0.1:9988"),
             ("LOG_MCP_BIND", "127.0.0.1:9010"),
             ("LOG_MCP_ALLOWED_HOSTS", "logs.example.com,logs.internal"),
             ("LOG_MCP_TOKEN", "secret"),
@@ -174,6 +208,12 @@ mod tests {
         assert_eq!(cfg.clickhouse_retention_days, 45);
         assert_eq!(cfg.clickhouse_flush_interval_ms, 1500);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 64000);
+        assert_eq!(cfg.clickhouse_insert_max_retries, 7);
+        assert_eq!(cfg.clickhouse_insert_retry_backoff_ms, 500);
+        assert_eq!(cfg.clickhouse_insert_timeout_secs, 20);
+        assert_eq!(cfg.ingest_max_in_flight, 512);
+        assert_eq!(cfg.kafka_lag_poll_interval_secs, 30);
+        assert_eq!(cfg.metrics_bind, "127.0.0.1:9988");
         assert_eq!(cfg.log_mcp_bind, "127.0.0.1:9010");
         assert_eq!(
             cfg.log_mcp_allowed_hosts,
@@ -201,12 +241,22 @@ mod tests {
             ("CLICKHOUSE_RETENTION_DAYS", "bad"),
             ("CLICKHOUSE_FLUSH_INTERVAL_MS", "x"),
             ("CLICKHOUSE_INSERT_QUEUE_CAPACITY", "oops"),
+            ("CLICKHOUSE_INSERT_MAX_RETRIES", "none"),
+            ("CLICKHOUSE_INSERT_RETRY_BACKOFF_MS", "later"),
+            ("CLICKHOUSE_INSERT_TIMEOUT_SECS", "eventually"),
+            ("INGEST_MAX_IN_FLIGHT", "many"),
+            ("KAFKA_LAG_POLL_INTERVAL_SECS", "sometimes"),
         ]);
 
         let cfg = Config::from_env_with(|k| vars.get(k).map(|v| v.to_string()));
         assert_eq!(cfg.clickhouse_batch_size, 1000);
         assert_eq!(cfg.clickhouse_retention_days, 30);
-        assert_eq!(cfg.clickhouse_flush_interval_ms, 1000);
+        assert_eq!(cfg.clickhouse_flush_interval_ms, 100);
         assert_eq!(cfg.clickhouse_insert_queue_capacity, 20000);
+        assert_eq!(cfg.clickhouse_insert_max_retries, 5);
+        assert_eq!(cfg.clickhouse_insert_retry_backoff_ms, 250);
+        assert_eq!(cfg.clickhouse_insert_timeout_secs, 10);
+        assert_eq!(cfg.ingest_max_in_flight, 256);
+        assert_eq!(cfg.kafka_lag_poll_interval_secs, 15);
     }
 }

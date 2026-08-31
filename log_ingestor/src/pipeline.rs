@@ -1,20 +1,20 @@
-use anyhow::Result;
+use anyhow::{Result, anyhow, bail};
 use clickhouse::Client as ClickHouseClient;
 use log::{debug, error, warn};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
-use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::Arc;
 use tokio::{
-    sync::mpsc,
-    time::{self, Duration, MissedTickBehavior},
+    sync::{mpsc, oneshot},
+    time::{self, Duration, Instant, MissedTickBehavior},
 };
 use uuid::Uuid;
 
 use crate::{
     config::Config,
-    processing::{normalizer::normalize_message, parser::parse_syslog},
+    metrics::Metrics,
+    processing::parser::parse_syslog,
     storage::clickhouse::{
         SyslogEventRow, build_client as build_clickhouse_client, ensure_events_table_exists,
         insert_events,
@@ -31,13 +31,28 @@ static IPV4_RE: Lazy<Regex> = Lazy::new(|| {
 pub struct Pipeline {
     http: Client,
     clickhouse: ClickHouseClient,
-    clickhouse_tx: mpsc::Sender<SyslogEventRow>,
+    clickhouse_tx: mpsc::Sender<QueuedEvent>,
     vendor_cache: VendorCache,
     config: Arc<Config>,
+    metrics: Metrics,
+}
+
+struct QueuedEvent {
+    row: SyslogEventRow,
+    persisted: oneshot::Sender<Result<(), String>>,
+}
+
+#[derive(Clone, Copy)]
+struct WriterConfig {
+    batch_size: usize,
+    flush_interval: Duration,
+    max_retries: usize,
+    retry_backoff: Duration,
+    insert_timeout: Duration,
 }
 
 impl Pipeline {
-    pub fn new(config: Arc<Config>) -> Self {
+    pub fn new(config: Arc<Config>, metrics: Metrics) -> Self {
         let clickhouse = build_clickhouse_client(
             &config.clickhouse_url,
             &config.clickhouse_db,
@@ -49,17 +64,22 @@ impl Pipeline {
                 .clickhouse_insert_queue_capacity
                 .max(config.clickhouse_batch_size.max(1)),
         );
-        let flush_interval = Duration::from_millis(config.clickhouse_flush_interval_ms.max(100));
-        let flush_batch_size = config.clickhouse_batch_size.max(1);
+        let writer_config = WriterConfig {
+            batch_size: config.clickhouse_batch_size.max(1),
+            flush_interval: Duration::from_millis(config.clickhouse_flush_interval_ms.max(100)),
+            max_retries: config.clickhouse_insert_max_retries,
+            retry_backoff: Duration::from_millis(config.clickhouse_insert_retry_backoff_ms.max(1)),
+            insert_timeout: Duration::from_secs(config.clickhouse_insert_timeout_secs.max(1)),
+        };
         let writer_client = clickhouse.clone();
+        let writer_metrics = metrics.clone();
         tokio::spawn(async move {
-            run_clickhouse_writer(
-                writer_client,
-                clickhouse_rx,
-                flush_batch_size,
-                flush_interval,
-            )
-            .await;
+            if let Err(error) =
+                run_clickhouse_writer(writer_client, clickhouse_rx, writer_config, writer_metrics)
+                    .await
+            {
+                error!("clickhouse writer stopped: {error:#}");
+            }
         });
 
         Self {
@@ -68,6 +88,7 @@ impl Pipeline {
             clickhouse_tx,
             vendor_cache: VendorCache::new(config.clone()),
             config,
+            metrics,
         }
     }
 
@@ -81,15 +102,14 @@ impl Pipeline {
     }
 
     pub async fn process(&self, log: IncomingSyslog) -> Result<()> {
-        debug!("processing log: {}", log.syslog_message);
+        // debug!("processing log: {}", log.syslog_message);
         if should_ignore_message(&log.syslog_message, &self.config.ignored_syslog_texts) {
             debug!("ignoring syslog line matched configured ignored text");
+            self.metrics.event_filtered();
             return Ok(());
         }
 
         let parsed = parse_syslog(&log);
-        let normalized = normalize_message(&parsed);
-        debug!("normalized result: {normalized}");
 
         let source_ip = extract_ip(&log.syslog_message);
         let vendor = match self
@@ -98,43 +118,51 @@ impl Pipeline {
             .await
         {
             Some(vendor) if !vendor.trim().is_empty() => vendor,
-            _ => parsed.vendor.clone(),
+            _ => parsed.vendor,
         };
-
-        let template = normalized.clone();
-        let template_fingerprint = fingerprint_template(&template);
 
         let event_row = SyslogEventRow {
             event_id: Uuid::new_v4().to_string(),
             ts_unix: log.syslog_timestamp,
-            hostname: log.syslog_hostname.clone(),
-            vendor: vendor.clone(),
-            facility: parsed.facility.clone().unwrap_or_default(),
+            hostname: log.syslog_hostname,
+            vendor,
+            facility: parsed.facility.unwrap_or_default(),
             severity: parsed.severity.map(i16::from).unwrap_or(-1),
-            event_code: parsed.event_code.clone().unwrap_or_default(),
-            raw_message: log.syslog_message.clone(),
-            normalized_message: normalized.clone(),
-            template,
-            template_fingerprint,
+            event_code: parsed.event_code.unwrap_or_default(),
+            raw_message: log.syslog_message,
         };
 
-        self.clickhouse_tx
-            .send(event_row)
+        let permit = self
+            .clickhouse_tx
+            .reserve()
             .await
-            .map_err(|err| anyhow::anyhow!("clickhouse writer task unavailable: {err}"))?;
+            .map_err(|_| anyhow!("clickhouse writer task unavailable"))?;
+        let (persisted, persistence) = oneshot::channel();
+        self.metrics.clickhouse_queued();
+        permit.send(QueuedEvent {
+            row: event_row,
+            persisted,
+        });
 
-        Ok(())
+        match persistence.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => bail!(error),
+            Err(_) => bail!("clickhouse writer stopped before acknowledging the event"),
+        }
     }
 }
 
 async fn run_clickhouse_writer(
     client: ClickHouseClient,
-    mut rx: mpsc::Receiver<SyslogEventRow>,
-    batch_size: usize,
-    flush_interval: Duration,
-) {
-    let mut batch: Vec<SyslogEventRow> = Vec::with_capacity(batch_size);
-    let mut ticker = time::interval(flush_interval);
+    mut rx: mpsc::Receiver<QueuedEvent>,
+    config: WriterConfig,
+    metrics: Metrics,
+) -> Result<()> {
+    let mut batch: Vec<QueuedEvent> = Vec::with_capacity(config.batch_size);
+    let mut ticker = time::interval_at(
+        Instant::now() + config.flush_interval,
+        config.flush_interval,
+    );
     ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
@@ -142,60 +170,98 @@ async fn run_clickhouse_writer(
             maybe_row = rx.recv() => {
                 match maybe_row {
                     Some(row) => {
+                        metrics.clickhouse_dequeued();
                         batch.push(row);
-                        if batch.len() >= batch_size {
-                            flush_with_retry(&client, &mut batch).await;
+                        if batch.len() >= config.batch_size {
+                            flush_with_retry(&client, &mut batch, config, &metrics).await?;
                         }
                     }
                     None => {
-                        flush_with_retry(&client, &mut batch).await;
+                        flush_with_retry(&client, &mut batch, config, &metrics).await?;
                         break;
                     }
                 }
             }
             _ = ticker.tick() => {
                 if !batch.is_empty() {
-                    flush_with_retry(&client, &mut batch).await;
+                    flush_with_retry(&client, &mut batch, config, &metrics).await?;
                 }
             }
         }
     }
+
+    Ok(())
 }
 
-async fn flush_with_retry(client: &ClickHouseClient, batch: &mut Vec<SyslogEventRow>) {
+async fn flush_with_retry(
+    client: &ClickHouseClient,
+    batch: &mut Vec<QueuedEvent>,
+    config: WriterConfig,
+    metrics: &Metrics,
+) -> Result<()> {
     if batch.is_empty() {
-        return;
+        return Ok(());
     }
 
-    let mut attempts = 0usize;
+    let mut retries = 0usize;
     loop {
-        match insert_events(client, batch).await {
+        let started = std::time::Instant::now();
+        let rows = batch.iter().map(|event| &event.row).collect::<Vec<_>>();
+        let result = match time::timeout(config.insert_timeout, insert_events(client, &rows)).await
+        {
+            Ok(result) => result,
+            Err(_) => Err(anyhow!(
+                "clickhouse batch insert timed out after {} seconds",
+                config.insert_timeout.as_secs()
+            )),
+        };
+        metrics.observe_clickhouse_batch(batch.len(), started.elapsed().as_secs_f64());
+        match result {
             Ok(_) => {
-                if attempts > 0 {
+                if retries > 0 {
                     warn!(
                         "recovered clickhouse insert after {} retry attempts; flushed {} rows",
-                        attempts,
+                        retries,
                         batch.len()
                     );
                 }
-                batch.clear();
-                return;
+                metrics.events_persisted(batch.len() as u64);
+                for event in batch.drain(..) {
+                    let _ = event.persisted.send(Ok(()));
+                }
+                return Ok(());
             }
             Err(err) => {
-                attempts += 1;
+                metrics.failure("clickhouse_insert");
+                if retries >= config.max_retries {
+                    let message = format!(
+                        "clickhouse batch insert failed after {} attempts: {err:#}",
+                        retries + 1
+                    );
+                    for event in batch.drain(..) {
+                        let _ = event.persisted.send(Err(message.clone()));
+                    }
+                    bail!(message);
+                }
+                retries += 1;
+                metrics.clickhouse_insert_retried();
+                let delay = retry_delay(config.retry_backoff, retries);
                 error!(
-                    "clickhouse batch insert failed (attempt {attempts}), retrying in 1s: {err:#}"
+                    "clickhouse batch insert failed (attempt {} of {}), retrying in {} ms: {err:#}",
+                    retries,
+                    config.max_retries + 1,
+                    delay.as_millis()
                 );
-                time::sleep(Duration::from_secs(1)).await;
+                time::sleep(delay).await;
             }
         }
     }
 }
 
-fn fingerprint_template(template: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    template.hash(&mut hasher);
-    hasher.finish()
+fn retry_delay(base: Duration, retry_number: usize) -> Duration {
+    let exponent = retry_number.saturating_sub(1).min(7) as u32;
+    base.saturating_mul(2u32.saturating_pow(exponent))
+        .min(Duration::from_secs(30))
 }
 
 fn extract_ip(message: &str) -> Option<String> {
@@ -213,10 +279,9 @@ fn should_ignore_message(message: &str, ignored_texts: &[String]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Pipeline, fingerprint_template, should_ignore_message};
+    use super::{Pipeline, QueuedEvent, retry_delay, should_ignore_message};
     use crate::{
-        config::Config, storage::clickhouse::SyslogEventRow, types::IncomingSyslog,
-        vendor_cache::VendorCache,
+        config::Config, metrics::Metrics, types::IncomingSyslog, vendor_cache::VendorCache,
     };
     use reqwest::Client;
     use std::sync::Arc;
@@ -233,7 +298,7 @@ mod tests {
         Arc::new(config)
     }
 
-    fn test_pipeline() -> (Pipeline, mpsc::Receiver<SyslogEventRow>) {
+    fn test_pipeline() -> (Pipeline, mpsc::Receiver<QueuedEvent>) {
         let config = test_config();
         let clickhouse = crate::storage::clickhouse::build_client(
             &config.clickhouse_url,
@@ -248,6 +313,7 @@ mod tests {
             clickhouse_tx,
             vendor_cache: VendorCache::new(config.clone()),
             config,
+            metrics: Metrics::new().expect("metrics registry"),
         };
         (pipeline, clickhouse_rx)
     }
@@ -272,6 +338,22 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn clickhouse_retry_backoff_is_exponential_and_capped() {
+        assert_eq!(
+            retry_delay(Duration::from_millis(250), 1),
+            Duration::from_millis(250)
+        );
+        assert_eq!(
+            retry_delay(Duration::from_millis(250), 3),
+            Duration::from_secs(1)
+        );
+        assert_eq!(
+            retry_delay(Duration::from_secs(10), 8),
+            Duration::from_secs(30)
+        );
+    }
+
     #[tokio::test]
     async fn process_enqueues_clickhouse_row_with_current_pipeline_shape() {
         let (pipeline, mut rx) = test_pipeline();
@@ -283,12 +365,13 @@ mod tests {
             vendor: None,
         };
 
-        pipeline.process(log).await.expect("process log");
+        let process = tokio::spawn(async move { pipeline.process(log).await });
 
-        let row = timeout(Duration::from_secs(1), rx.recv())
+        let queued = timeout(Duration::from_secs(1), rx.recv())
             .await
             .expect("receive row before timeout")
             .expect("row should be queued");
+        let row = &queued.row;
 
         assert!(Uuid::parse_str(&row.event_id).is_ok());
         assert_eq!(row.ts_unix, 1_712_345_678);
@@ -301,15 +384,14 @@ mod tests {
             row.raw_message,
             "%LINK-3-UPDOWN: Interface GigabitEthernet1/0/1, changed state to down"
         );
-        assert_eq!(
-            row.normalized_message,
-            "Interface <IFACE>/<NUM>/<NUM>, changed state to down"
-        );
-        assert_eq!(row.template, row.normalized_message);
-        assert_eq!(
-            row.template_fingerprint,
-            fingerprint_template(&row.template)
-        );
+        queued
+            .persisted
+            .send(Ok(()))
+            .expect("processing task should await persistence");
+        process
+            .await
+            .expect("processing task should join")
+            .expect("process log");
     }
 
     #[tokio::test]

@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct IncomingSyslog {
@@ -9,10 +8,4 @@ pub struct IncomingSyslog {
     pub syslog_message: String,
     #[serde(default)]
     pub vendor: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub struct LogTemplate {
-    pub id: Uuid,
-    pub template: String,
 }

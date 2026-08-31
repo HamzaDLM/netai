@@ -1,8 +1,8 @@
 use anyhow::Result;
-use log::error;
 use log_ingestor::config::Config;
 use log_ingestor::kafka::consumer::start_consumer;
-use log_ingestor::kafka::lag::print_lag_periodically;
+use log_ingestor::kafka::lag::observe_lag_periodically;
+use log_ingestor::metrics::{self, Metrics};
 use log_ingestor::pipeline::Pipeline;
 use std::sync::Arc;
 use tokio::time::{self, Duration};
@@ -21,7 +21,9 @@ async fn main() -> Result<()> {
     ))
     .init();
     let config = Arc::new(Config::from_env());
-    let pipeline = Arc::new(Pipeline::new(config.clone()));
+    let metrics = Metrics::new()?;
+    let metrics_listener = tokio::net::TcpListener::bind(&config.metrics_bind).await?;
+    let pipeline = Arc::new(Pipeline::new(config.clone(), metrics.clone()));
 
     // Ensure storage exists before consuming.
     pipeline.ensure_storage().await?;
@@ -39,29 +41,35 @@ async fn main() -> Result<()> {
     });
 
     // spawn the lag printer task
-    let consumer = create_stream_consumer(&config.kafka_brokers, &config.kafka_group_id)?;
+    let consumer = Arc::new(create_stream_consumer(
+        &config.kafka_brokers,
+        &config.kafka_group_id,
+    )?);
     let topic = config.kafka_topic.to_string();
+    let lag_metrics = metrics.clone();
+    let lag_interval = Duration::from_secs(config.kafka_lag_poll_interval_secs.max(1));
     tokio::spawn(async move {
-        let _ = print_lag_periodically(consumer, &topic, vec![0]).await;
+        observe_lag_periodically(consumer, topic, lag_interval, lag_metrics).await;
     });
 
-    // process the logs
+    // Processing completion includes ClickHouse persistence, so the bounded in-flight
+    // set applies backpressure all the way to Kafka and offsets remain replayable.
     let pipeline_clone = pipeline.clone();
-    start_consumer(
+    let ingestion = start_consumer(
         &config.kafka_brokers,
         &config.kafka_topic,
         &config.kafka_group_id,
+        config.ingest_max_in_flight,
+        metrics.clone(),
         move |log| {
             let pipeline_clone = pipeline_clone.clone();
-            tokio::spawn(async move {
-                if let Err(err) = pipeline_clone.process(log).await {
-                    error!("pipeline processing error: {err:#}");
-                }
-            });
-            Ok(())
+            async move { pipeline_clone.process(log).await }
         },
-    )
-    .await?;
+    );
+    let metrics_server = metrics::serve(metrics_listener, metrics);
 
-    Ok(())
+    tokio::select! {
+        result = ingestion => result,
+        result = metrics_server => result,
+    }
 }

@@ -1,11 +1,10 @@
 use anyhow::{Result, bail};
 use clickhouse::{Client, Row};
-use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub const EVENTS_TABLE: &str = "syslog_events";
 
-#[derive(Clone, Debug, Deserialize, JsonSchema, Serialize, Row)]
+#[derive(Clone, Debug, Deserialize, Serialize, Row)]
 pub struct SyslogEventRow {
     pub event_id: String,
     pub ts_unix: i64,
@@ -15,9 +14,6 @@ pub struct SyslogEventRow {
     pub severity: i16,
     pub event_code: String,
     pub raw_message: String,
-    pub normalized_message: String,
-    pub template: String,
-    pub template_fingerprint: u64,
 }
 
 #[derive(Deserialize, Row)]
@@ -48,6 +44,9 @@ pub async fn ensure_events_table_exists(client: &Client, retention_days: u64) ->
         .query(&events_table_ddl(retention_days))
         .execute()
         .await?;
+    for statement in obsolete_columns_ddl() {
+        client.query(statement).execute().await?;
+    }
 
     Ok(())
 }
@@ -71,10 +70,7 @@ fn events_table_ddl(retention_days: u64) -> String {
                 facility String,
                 severity Int16,
                 event_code String,
-                raw_message String,
-                normalized_message String,
-                template String,
-                template_fingerprint UInt64
+                raw_message String
             )
             ENGINE = MergeTree
             PARTITION BY toDate(toDateTime(ts_unix))
@@ -84,14 +80,22 @@ fn events_table_ddl(retention_days: u64) -> String {
     )
 }
 
-pub async fn insert_events(client: &Client, rows: &[SyslogEventRow]) -> Result<()> {
+fn obsolete_columns_ddl() -> [&'static str; 3] {
+    [
+        "ALTER TABLE syslog_events DROP COLUMN IF EXISTS normalized_message",
+        "ALTER TABLE syslog_events DROP COLUMN IF EXISTS template",
+        "ALTER TABLE syslog_events DROP COLUMN IF EXISTS template_fingerprint",
+    ]
+}
+
+pub async fn insert_events(client: &Client, rows: &[&SyslogEventRow]) -> Result<()> {
     if rows.is_empty() {
         return Ok(());
     }
 
     let mut insert: clickhouse::insert::Insert<SyslogEventRow> = client.insert(EVENTS_TABLE)?;
     for row in rows {
-        insert.write(row).await?;
+        insert.write(*row).await?;
     }
     insert.end().await?;
     Ok(())
@@ -99,7 +103,7 @@ pub async fn insert_events(client: &Client, rows: &[SyslogEventRow]) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{events_table_ddl, supports_table_ttl};
+    use super::{events_table_ddl, obsolete_columns_ddl, supports_table_ttl};
 
     #[test]
     fn identifies_versions_with_table_ttl_support() {
@@ -121,5 +125,15 @@ mod tests {
     #[test]
     fn table_ddl_never_disables_retention() {
         assert!(events_table_ddl(0).contains("TTL toDateTime(ts_unix) + toIntervalDay(1)"));
+    }
+
+    #[test]
+    fn table_schema_does_not_create_derived_message_columns() {
+        let ddl = events_table_ddl(30);
+
+        assert!(!ddl.contains("normalized_message"));
+        assert!(!ddl.contains("template String"));
+        assert!(!ddl.contains("template_fingerprint"));
+        assert_eq!(obsolete_columns_ddl().len(), 3);
     }
 }

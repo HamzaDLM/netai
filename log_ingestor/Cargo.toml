@@ -16,6 +16,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 dashmap = "5"
 regex = "1"
 once_cell = "1"
+prometheus = { version = "0.14", features = ["process"] }
 futures = "0.3"
 clickhouse = "0.13"
 dotenvy = "0.15"

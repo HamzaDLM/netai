@@ -12,6 +12,10 @@ EnvironmentFile={{ netai_release_dir }}/log_ingestor/.env
 ExecStart={{ netai_release_dir }}/log_ingestor/target/release/log_ingestor
 Restart=always
 RestartSec=5
+CPUQuota={{ netai_log_ingestor_cpu_quota }}
+MemoryHigh={{ netai_log_ingestor_memory_high }}
+MemoryMax={{ netai_log_ingestor_memory_max }}
+TasksMax={{ netai_log_ingestor_tasks_max }}
 StandardOutput=append:{{ netai_log_dir }}/log_ingestor.log
 StandardError=append:{{ netai_log_dir }}/log_ingestor.err.log
 

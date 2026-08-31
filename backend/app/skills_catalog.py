@@ -67,8 +67,8 @@ def _logs_mcp_entry(
         "agent_key": "syslog",
         "agent_name": "Log intelligence",
         "description": (
-            "Read-only bounded syslog events, severity summaries, and normalized "
-            "device log patterns supplied by the standalone log service."
+            "Read-only bounded syslog events and structured severity, facility, "
+            "and event-code summaries supplied by the standalone log service."
         ),
         "specialist_tool": None,
         "source": "mcp",

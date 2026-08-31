@@ -58,6 +58,8 @@ netai_log_ingestor_env:
   KAFKA_BROKERS: 127.0.0.1:9092
   CLICKHOUSE_URL: http://127.0.0.1:8123
   CLICKHOUSE_PASSWORD: "<set-me>"
+  INGEST_MAX_IN_FLIGHT: "256"
+  METRICS_BIND: 127.0.0.1:9898
   LOG_MCP_BIND: 127.0.0.1:8010
   LOG_MCP_TOKEN: "<set-me>"
   REDIS_URL: redis://127.0.0.1:6379/
@@ -79,9 +81,16 @@ netai_backend_port: 8000
 netai_enable_log_ingestor: true
 netai_enable_log_mcp: true
 netai_enable_mcp_servers: true
+netai_log_ingestor_cpu_quota: "100%"
+netai_log_ingestor_memory_max: 1G
+netai_log_mcp_cpu_quota: "50%"
+netai_log_mcp_memory_max: 512M
 netai_ui_env:
   VITE_BASE_URL: /api/v1
 ```
+
+The log ingestor's systemd unit also applies configurable CPU, memory, and task limits.
+Prometheus-format ingestion and process metrics are available at `METRICS_BIND/metrics`.
 
 ## Local CLI Run (optional)
 

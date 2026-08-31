@@ -1,59 +1,119 @@
-use anyhow::Result;
-use log::debug;
-use rdkafka::consumer::Consumer;
-use rdkafka::topic_partition_list::Offset;
-use rdkafka::topic_partition_list::TopicPartitionList;
-use std::collections::HashMap;
-use std::time::Instant;
+use std::{collections::HashMap, sync::Arc, time::Instant};
+
+use anyhow::{Result, anyhow};
+use log::{debug, warn};
+use rdkafka::{
+    consumer::Consumer,
+    topic_partition_list::{Offset, TopicPartitionList},
+};
 use tokio::time::{Duration, sleep};
 
-fn get_committed_offset(consumer: &impl Consumer, partition: i32, topic: &str) -> Result<i64> {
-    let mut tpl = TopicPartitionList::new();
-    tpl.add_partition(topic, partition);
+use crate::metrics::Metrics;
 
-    let committed = consumer.committed_offsets(tpl, std::time::Duration::from_secs(1))?;
-
-    for elem in committed.elements() {
-        if elem.topic() == topic && elem.partition() == partition {
-            return Ok(match elem.offset() {
-                Offset::Offset(v) if v >= 0 => v,
-                _ => 0,
-            });
-        }
-    }
-
-    Ok(0)
+struct LagMeasurement {
+    partition: i32,
+    committed_offset: i64,
+    lag: i64,
 }
 
-pub async fn print_lag_periodically<C: Consumer + Send + Sync + 'static>(
-    consumer: C,
-    topic: &str,
-    partitions: Vec<i32>,
-) -> Result<()> {
-    let mut prev_committed: HashMap<i32, (i64, Instant)> = HashMap::new();
+pub async fn observe_lag_periodically<C>(
+    consumer: Arc<C>,
+    topic: String,
+    poll_interval: Duration,
+    metrics: Metrics,
+) where
+    C: Consumer + Send + Sync + 'static,
+{
+    let mut previous: HashMap<i32, (i64, Instant)> = HashMap::new();
 
     loop {
-        for &partition in &partitions {
-            let (_, high) =
-                consumer.fetch_watermarks(topic, partition, std::time::Duration::from_secs(1))?;
-            let committed_offset = get_committed_offset(&consumer, partition, topic)?;
-            let lag = (high - committed_offset).max(0);
-            let now = Instant::now();
-
-            let processed_per_sec =
-                if let Some((prev_offset, prev_ts)) = prev_committed.get(&partition) {
-                    let offset_delta = (committed_offset - *prev_offset).max(0) as f64;
-                    let secs = now.duration_since(*prev_ts).as_secs_f64();
-                    if secs > 0.0 { offset_delta / secs } else { 0.0 }
-                } else {
-                    0.0
-                };
-
-            prev_committed.insert(partition, (committed_offset, now));
-
-            debug!("Partition {partition} lag: {lag}, processed/s: {processed_per_sec:.2}");
+        let observed_consumer = consumer.clone();
+        let observed_topic = topic.clone();
+        match tokio::task::spawn_blocking(move || {
+            collect_lag(observed_consumer.as_ref(), &observed_topic)
+        })
+        .await
+        {
+            Ok(Ok(measurements)) => {
+                let now = Instant::now();
+                for measurement in measurements {
+                    let processed_per_second = previous
+                        .get(&measurement.partition)
+                        .map(|(previous_offset, previous_time)| {
+                            let offset_delta =
+                                (measurement.committed_offset - *previous_offset).max(0) as f64;
+                            let seconds = now.duration_since(*previous_time).as_secs_f64();
+                            if seconds > 0.0 {
+                                offset_delta / seconds
+                            } else {
+                                0.0
+                            }
+                        })
+                        .unwrap_or_default();
+                    previous.insert(measurement.partition, (measurement.committed_offset, now));
+                    let partition = measurement.partition.to_string();
+                    metrics.observe_kafka_partition(
+                        &topic,
+                        &partition,
+                        measurement.lag,
+                        processed_per_second,
+                    );
+                    debug!(
+                        "kafka partition {} lag: {}, committed messages/s: {:.2}",
+                        measurement.partition, measurement.lag, processed_per_second
+                    );
+                }
+            }
+            Ok(Err(error)) => {
+                metrics.failure("kafka_lag_observation");
+                warn!("failed to observe Kafka lag: {error:#}");
+            }
+            Err(error) => {
+                metrics.failure("kafka_lag_observation");
+                warn!("kafka lag observation task failed: {error}");
+            }
         }
 
-        sleep(Duration::from_secs(1)).await; // wait 5 seconds
+        sleep(poll_interval.max(Duration::from_secs(1))).await;
     }
+}
+
+fn collect_lag(consumer: &impl Consumer, topic: &str) -> Result<Vec<LagMeasurement>> {
+    let timeout = std::time::Duration::from_secs(1);
+    let metadata = consumer.fetch_metadata(Some(topic), timeout)?;
+    let topic_metadata = metadata
+        .topics()
+        .iter()
+        .find(|candidate| candidate.name() == topic)
+        .ok_or_else(|| anyhow!("Kafka metadata did not include topic '{topic}'"))?;
+    let partitions = topic_metadata
+        .partitions()
+        .iter()
+        .map(|partition| partition.id())
+        .collect::<Vec<_>>();
+
+    let mut requested_offsets = TopicPartitionList::new();
+    for partition in &partitions {
+        requested_offsets.add_partition(topic, *partition);
+    }
+    let committed = consumer.committed_offsets(requested_offsets, timeout)?;
+
+    partitions
+        .into_iter()
+        .map(|partition| {
+            let (_, high) = consumer.fetch_watermarks(topic, partition, timeout)?;
+            let committed_offset = committed
+                .find_partition(topic, partition)
+                .map(|element| match element.offset() {
+                    Offset::Offset(offset) if offset >= 0 => offset,
+                    _ => 0,
+                })
+                .unwrap_or_default();
+            Ok(LagMeasurement {
+                partition,
+                committed_offset,
+                lag: (high - committed_offset).max(0),
+            })
+        })
+        .collect()
 }

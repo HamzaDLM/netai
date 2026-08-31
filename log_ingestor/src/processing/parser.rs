@@ -11,7 +11,6 @@ static CISCO_PREFIX_RE: Lazy<Regex> = Lazy::new(|| {
 #[derive(Debug, Clone)]
 pub struct ParsedSyslog {
     pub vendor: String,
-    pub message: String,
     pub facility: Option<String>,
     pub severity: Option<u8>,
     pub event_code: Option<String>,
@@ -24,14 +23,8 @@ pub fn parse_syslog(log: &IncomingSyslog) -> ParsedSyslog {
         let facility = caps.get(1).map(|m| m.as_str().to_string());
         let severity = caps.get(2).and_then(|m| m.as_str().parse::<u8>().ok());
         let event_code = caps.get(3).map(|m| m.as_str().to_string());
-        let message = caps
-            .get(4)
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_else(|| log.syslog_message.clone());
-
         return ParsedSyslog {
             vendor,
-            message,
             facility,
             severity,
             event_code,
@@ -40,7 +33,6 @@ pub fn parse_syslog(log: &IncomingSyslog) -> ParsedSyslog {
 
     ParsedSyslog {
         vendor,
-        message: log.syslog_message.clone(),
         facility: None,
         severity: None,
         event_code: None,
@@ -153,10 +145,6 @@ mod tests {
         assert_eq!(parsed.facility.as_deref(), Some("LINK"));
         assert_eq!(parsed.severity, Some(3));
         assert_eq!(parsed.event_code.as_deref(), Some("UPDOWN"));
-        assert_eq!(
-            parsed.message,
-            "Interface GigabitEthernet1/0/1, changed state to down"
-        );
     }
 
     #[test]

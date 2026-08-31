@@ -1,6 +1,7 @@
 pub mod config;
 pub mod kafka;
 pub mod mcp_server;
+pub mod metrics;
 pub mod pipeline;
 pub mod processing;
 pub mod query;

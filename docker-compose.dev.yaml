@@ -38,6 +38,8 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:24.8
+    cpus: "${CLICKHOUSE_CPU_LIMIT:-2.0}"
+    mem_limit: "${CLICKHOUSE_MEMORY_LIMIT:-3g}"
     ports:
       - "8123:8123"
       - "9000:9000"
@@ -96,6 +98,9 @@ services:
       VENDOR_LOOKUP_URL: ${VENDOR_LOOKUP_URL:-}
       VENDOR_REFRESH_SECS: ${VENDOR_REFRESH_SECS:-900}
       IGNORED_SYSLOG_TEXTS: ${IGNORED_SYSLOG_TEXTS:-}
+      METRICS_BIND: 0.0.0.0:9898
+    cpus: "${LOG_INGESTOR_CPU_LIMIT:-1.0}"
+    mem_limit: "${LOG_INGESTOR_MEMORY_LIMIT:-1g}"
     depends_on:
       clickhouse:
         condition: service_healthy
@@ -103,6 +108,8 @@ services:
         condition: service_started
       redis:
         condition: service_started
+    ports:
+      - "127.0.0.1:9898:9898"
 
   log_mcp:
     build:
@@ -115,6 +122,8 @@ services:
       LOG_MCP_BIND: 0.0.0.0:8010
       LOG_MCP_TOKEN: ${LOG_MCP_TOKEN:-}
     command: ["./target/release/log_mcp"]
+    cpus: "${LOG_MCP_CPU_LIMIT:-0.5}"
+    mem_limit: "${LOG_MCP_MEMORY_LIMIT:-512m}"
     depends_on:
       clickhouse:
         condition: service_healthy

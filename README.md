@@ -33,8 +33,8 @@ protocol boundary: Infrahub is consumed as an optional remote toolset, and the
 Zabbix MCP server exposes the same underlying Haystack tools to external clients.
 
 The separate Rust log ingestor consumes Kafka and writes ClickHouse events.
-NetAI reads recent host syslogs directly from ClickHouse; the repository's
-Qdrant code and service remain isolated to ingestion experiments/legacy paths.
+NetAI queries those events through the standalone read-only log MCP service, so
+the backend does not own ClickHouse credentials or query logic.
 
 ## Repository structure
 
