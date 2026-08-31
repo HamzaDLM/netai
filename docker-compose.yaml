@@ -79,8 +79,8 @@ services:
     environment:
       FRONTEND_HOST: http://localhost:5173
       BACKEND_GIT_SHA: ${BACKEND_GIT_SHA:-dev}
-      LOG_MCP_URL: http://log_mcp:8010/mcp
-      LOG_MCP_TOKEN: ${LOG_MCP_TOKEN:-}
+      SYSLOG_MCP_URL: http://syslog_mcp:8010/mcp
+      SYSLOG_MCP_TOKEN: ${SYSLOG_MCP_TOKEN:-}
       SQLALCHEMY_URL: sqlite+aiosqlite:///./data/netai_local.db
     command: >
       sh -c "uv run alembic upgrade head &&
@@ -120,20 +120,20 @@ services:
       - "127.0.0.1:9898:9898"
     restart: unless-stopped
 
-  log_mcp:
+  syslog_mcp:
     build:
       context: ./log_ingestor
       dockerfile: Dockerfile
-    container_name: netai_log_mcp
+    container_name: netai_syslog_mcp
     env_file:
       - ./log_ingestor/.env.skeleton
     environment:
       CLICKHOUSE_URL: http://clickhouse:8123
-      LOG_MCP_BIND: 0.0.0.0:8010
-      LOG_MCP_TOKEN: ${LOG_MCP_TOKEN:-}
-    command: ["./target/release/log_mcp"]
-    cpus: "${LOG_MCP_CPU_LIMIT:-0.5}"
-    mem_limit: "${LOG_MCP_MEMORY_LIMIT:-512m}"
+      SYSLOG_MCP_BIND: 0.0.0.0:8010
+      SYSLOG_MCP_TOKEN: ${SYSLOG_MCP_TOKEN:-}
+    command: ["./target/release/syslog_mcp"]
+    cpus: "${SYSLOG_MCP_CPU_LIMIT:-0.5}"
+    mem_limit: "${SYSLOG_MCP_MEMORY_LIMIT:-512m}"
     depends_on:
       clickhouse:
         condition: service_healthy

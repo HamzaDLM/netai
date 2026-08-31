@@ -22,13 +22,13 @@ from app.agents.netai import create_netai_agent, messages_for_llm
 from app.core.config import Settings
 from app.infrastructure import InfrastructureClients
 from app.mcp.infrahub import InfrahubToolProvider
-from app.mcp.logs import LogToolProvider
 from app.mcp.mcp_client import (
     MCPClientConfig,
     MCPRequestContext,
     OptionalMCPToolProvider,
 )
 from app.mcp.suzieq import SuzieQToolProvider
+from app.mcp.syslog import SyslogToolProvider
 from app.services.agent_events import RunObserver
 from app.tools.registry import ToolRegistry
 
@@ -109,7 +109,7 @@ class NetAIService:
         registry: ToolRegistry | None = None,
         infrahub: InfrahubToolProvider | None = None,
         suzieq: SuzieQToolProvider | None = None,
-        logs: LogToolProvider | None = None,
+        syslog: SyslogToolProvider | None = None,
     ) -> None:
         self.settings = settings
         self.chat_generator = chat_generator or create_chat_generator(settings)
@@ -131,12 +131,12 @@ class NetAIService:
                 resource_cache_ttl_seconds=(settings.SUZIEQ_MCP_RESOURCE_TTL_SECONDS),
             )
         )
-        self.logs = logs or LogToolProvider(
+        self.syslog = syslog or SyslogToolProvider(
             MCPClientConfig(
-                url=settings.LOG_MCP_URL,
-                token=settings.LOG_MCP_TOKEN or None,
-                timeout=settings.LOG_MCP_TIMEOUT_SECONDS,
-                resource_cache_ttl_seconds=settings.LOG_MCP_RESOURCE_TTL_SECONDS,
+                url=settings.SYSLOG_MCP_URL,
+                token=settings.SYSLOG_MCP_TOKEN or None,
+                timeout=settings.SYSLOG_MCP_TIMEOUT_SECONDS,
+                resource_cache_ttl_seconds=settings.SYSLOG_MCP_RESOURCE_TTL_SECONDS,
             )
         )
         self.agent = create_netai_agent(
@@ -151,7 +151,7 @@ class NetAIService:
         await asyncio.gather(
             self.infrahub.warm_up(),
             self.suzieq.warm_up(),
-            self.logs.warm_up(),
+            self.syslog.warm_up(),
         )
 
     async def close(self) -> None:
@@ -159,7 +159,7 @@ class NetAIService:
             await asyncio.gather(
                 self.infrahub.close(),
                 self.suzieq.close(),
-                self.logs.close(),
+                self.syslog.close(),
             )
         finally:
             try:
@@ -233,7 +233,7 @@ class NetAIService:
         provider_specs: list[tuple[str, OptionalMCPToolProvider, bool]] = [
             ("infrahub", self.infrahub, False),
             ("suzieq", self.suzieq, True),
-            ("syslog", self.logs, False),
+            ("syslog", self.syslog, False),
         ]
         relevant = [
             spec for spec in provider_specs if spec[1].is_relevant(message_text)

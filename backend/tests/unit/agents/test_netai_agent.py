@@ -271,10 +271,10 @@ class UnavailableSuzieQ:
         return None
 
 
-class AvailableLogProvider:
+class AvailableSyslogProvider:
     status = "available"
     status_message = "connected"
-    display_name = "Log intelligence"
+    display_name = "Syslog intelligence"
 
     def __init__(self) -> None:
         async def device_events(hostname: str) -> dict[str, object]:
@@ -283,7 +283,7 @@ class AvailableLogProvider:
         self.toolset = Toolset(
             [
                 Tool(
-                    name="logs_get_device_events",
+                    name="syslog_get_device_events",
                     description="Return bounded syslog events for a device.",
                     parameters={
                         "type": "object",
@@ -391,47 +391,47 @@ async def test_optional_suzieq_mcp_failure_falls_back_without_blocking() -> None
 
 
 @pytest.mark.anyio
-async def test_log_questions_use_standalone_mcp_tools() -> None:
+async def test_syslog_questions_use_standalone_mcp_tools() -> None:
     generator = ScriptedGenerator(
         [
             ChatMessage.from_assistant(
                 tool_calls=[
                     ToolCall(
                         tool_name="search_tools",
-                        arguments={"tool_keywords": "logs device events"},
-                        id="search-logs",
+                        arguments={"tool_keywords": "syslog device events"},
+                        id="search-syslog",
                     )
                 ]
             ),
             ChatMessage.from_assistant(
                 tool_calls=[
                     ToolCall(
-                        tool_name="logs_get_device_events",
+                        tool_name="syslog_get_device_events",
                         arguments={"hostname": "edge-01"},
-                        id="query-logs",
+                        id="query-syslog",
                     )
                 ]
             ),
-            ChatMessage.from_assistant("No recent device log events were found."),
+            ChatMessage.from_assistant("No recent device syslog events were found."),
         ]
     )
     service = NetAIService(
         settings=project_settings,
         chat_generator=generator,
-        logs=AvailableLogProvider(),  # type: ignore[arg-type]
+        syslog=AvailableSyslogProvider(),  # type: ignore[arg-type]
     )
     try:
         run = await service.run(
-            messages=[ChatMessage.from_user("Show recent logs for edge-01")],
-            conversation_id="conversation-logs",
+            messages=[ChatMessage.from_user("Show recent syslogs for edge-01")],
+            conversation_id="conversation-syslog",
             user_id=7,
         )
     finally:
         await service.close()
 
-    assert run.answer == "No recent device log events were found."
+    assert run.answer == "No recent device syslog events were found."
     assert not any(name.startswith("syslog_") for name in service.registry.tool_names)
-    assert "logs_get_device_events" in generator.tools_seen[1]
+    assert "syslog_get_device_events" in generator.tools_seen[1]
     tool_calls = cast(list[dict[str, object]], run.run_map["tool_calls"])
     assert tool_calls[0]["connector"] == "syslog"
 

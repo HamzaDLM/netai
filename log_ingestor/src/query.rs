@@ -9,7 +9,7 @@ use crate::{config::Config, storage::clickhouse::build_client};
 pub const DEFAULT_RESULT_LIMIT: u32 = 20;
 
 #[derive(Clone)]
-pub struct LogQueryService {
+pub struct SyslogQueryService {
     client: Client,
     default_window_secs: u64,
     max_window_secs: u64,
@@ -18,7 +18,7 @@ pub struct LogQueryService {
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
-pub struct DeviceEventsRequest {
+pub struct SyslogEventsRequest {
     #[schemars(description = "Device hostname, matched case-insensitively.")]
     pub hostname: String,
     #[schemars(description = "Inclusive UTC Unix timestamp. Defaults to one hour ago.")]
@@ -34,7 +34,7 @@ pub struct DeviceEventsRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Row, Serialize)]
-struct DeviceEventQueryRow {
+struct SyslogEventQueryRow {
     ts_unix: i64,
     vendor: String,
     facility: String,
@@ -44,7 +44,7 @@ struct DeviceEventQueryRow {
 }
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct LogEvent {
+pub struct SyslogEvent {
     pub ts_unix: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<u8>,
@@ -55,8 +55,8 @@ pub struct LogEvent {
     pub message: String,
 }
 
-impl From<DeviceEventQueryRow> for LogEvent {
-    fn from(row: DeviceEventQueryRow) -> Self {
+impl From<SyslogEventQueryRow> for SyslogEvent {
+    fn from(row: SyslogEventQueryRow) -> Self {
         Self {
             ts_unix: row.ts_unix,
             severity: known_severity(row.severity),
@@ -68,7 +68,7 @@ impl From<DeviceEventQueryRow> for LogEvent {
 }
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct DeviceEventsResponse {
+pub struct SyslogEventsResponse {
     pub hostname: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vendor: Option<String>,
@@ -76,11 +76,11 @@ pub struct DeviceEventsResponse {
     pub end_time_unix: i64,
     pub count: usize,
     pub truncated: bool,
-    pub events: Vec<LogEvent>,
+    pub events: Vec<SyslogEvent>,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
-pub struct DeviceWindowRequest {
+pub struct SyslogWindowRequest {
     #[schemars(description = "Device hostname, matched case-insensitively.")]
     pub hostname: String,
     #[schemars(description = "Inclusive UTC Unix timestamp. Defaults to one hour ago.")]
@@ -90,29 +90,29 @@ pub struct DeviceWindowRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Row, Serialize)]
-struct SeverityCountRow {
+struct SyslogSeverityCountRow {
     severity: i16,
     count: u64,
 }
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct SeverityCount {
+pub struct SyslogSeverityCount {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<u8>,
     pub count: u64,
 }
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct SeveritySummaryResponse {
+pub struct SyslogSeveritySummaryResponse {
     pub hostname: String,
     pub start_time_unix: i64,
     pub end_time_unix: i64,
     pub total: u64,
-    pub severities: Vec<SeverityCount>,
+    pub severities: Vec<SyslogSeverityCount>,
 }
 
 #[derive(Clone, Debug, Deserialize, JsonSchema)]
-pub struct EventSummaryRequest {
+pub struct SyslogEventSummaryRequest {
     #[schemars(description = "Device hostname, matched case-insensitively.")]
     pub hostname: String,
     #[schemars(description = "Inclusive UTC Unix timestamp. Defaults to one hour ago.")]
@@ -124,7 +124,7 @@ pub struct EventSummaryRequest {
 }
 
 #[derive(Clone, Debug, Deserialize, Row, Serialize)]
-struct EventSummaryQueryRow {
+struct SyslogEventSummaryQueryRow {
     severity: i16,
     facility: String,
     event_code: String,
@@ -133,7 +133,7 @@ struct EventSummaryQueryRow {
 }
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct EventSummaryGroup {
+pub struct SyslogEventSummaryGroup {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,8 +144,8 @@ pub struct EventSummaryGroup {
     pub last_seen_unix: i64,
 }
 
-impl From<EventSummaryQueryRow> for EventSummaryGroup {
-    fn from(row: EventSummaryQueryRow) -> Self {
+impl From<SyslogEventSummaryQueryRow> for SyslogEventSummaryGroup {
+    fn from(row: SyslogEventSummaryQueryRow) -> Self {
         Self {
             severity: known_severity(row.severity),
             facility: non_empty(row.facility),
@@ -157,16 +157,16 @@ impl From<EventSummaryQueryRow> for EventSummaryGroup {
 }
 
 #[derive(Clone, Debug, Serialize, JsonSchema)]
-pub struct EventSummaryResponse {
+pub struct SyslogEventSummaryResponse {
     pub hostname: String,
     pub start_time_unix: i64,
     pub end_time_unix: i64,
     pub count: usize,
     pub truncated: bool,
-    pub groups: Vec<EventSummaryGroup>,
+    pub groups: Vec<SyslogEventSummaryGroup>,
 }
 
-impl LogQueryService {
+impl SyslogQueryService {
     pub fn from_config(config: &Config) -> Self {
         Self {
             client: build_client(
@@ -175,10 +175,10 @@ impl LogQueryService {
                 &config.clickhouse_user,
                 &config.clickhouse_password,
             ),
-            default_window_secs: config.log_query_default_window_secs.max(1),
-            max_window_secs: config.log_query_max_window_secs.max(1),
-            max_results: config.log_query_max_results.max(1),
-            timeout_secs: config.log_query_timeout_secs.max(1),
+            default_window_secs: config.syslog_query_default_window_secs.max(1),
+            max_window_secs: config.syslog_query_max_window_secs.max(1),
+            max_results: config.syslog_query_max_results.max(1),
+            timeout_secs: config.syslog_query_timeout_secs.max(1),
         }
     }
 
@@ -197,8 +197,8 @@ impl LogQueryService {
 
     pub async fn device_events(
         &self,
-        request: DeviceEventsRequest,
-    ) -> Result<DeviceEventsResponse> {
+        request: SyslogEventsRequest,
+    ) -> Result<SyslogEventsResponse> {
         let hostname = validate_hostname(&request.hostname)?;
         let (start, end) = self.resolve_window(request.start_time_unix, request.end_time_unix)?;
         if let Some(severity) = request.severity
@@ -249,14 +249,14 @@ impl LogQueryService {
         }
         let mut rows = query
             .bind(fetch_limit)
-            .fetch_all::<DeviceEventQueryRow>()
+            .fetch_all::<SyslogEventQueryRow>()
             .await?;
         let truncated = rows.len() > limit as usize;
         rows.truncate(limit as usize);
         let vendor = rows.iter().find_map(|row| known_vendor(row.vendor.clone()));
-        let events = rows.into_iter().map(LogEvent::from).collect::<Vec<_>>();
+        let events = rows.into_iter().map(SyslogEvent::from).collect::<Vec<_>>();
 
-        Ok(DeviceEventsResponse {
+        Ok(SyslogEventsResponse {
             hostname,
             vendor,
             start_time_unix: start,
@@ -269,8 +269,8 @@ impl LogQueryService {
 
     pub async fn severity_summary(
         &self,
-        request: DeviceWindowRequest,
-    ) -> Result<SeveritySummaryResponse> {
+        request: SyslogWindowRequest,
+    ) -> Result<SyslogSeveritySummaryResponse> {
         let hostname = validate_hostname(&request.hostname)?;
         let (start, end) = self.resolve_window(request.start_time_unix, request.end_time_unix)?;
         let rows = self
@@ -285,17 +285,17 @@ impl LogQueryService {
             .bind(&hostname)
             .bind(start)
             .bind(end)
-            .fetch_all::<SeverityCountRow>()
+            .fetch_all::<SyslogSeverityCountRow>()
             .await?;
         let total = rows.iter().map(|item| item.count).sum();
         let severities = rows
             .into_iter()
-            .map(|row| SeverityCount {
+            .map(|row| SyslogSeverityCount {
                 severity: known_severity(row.severity),
                 count: row.count,
             })
             .collect();
-        Ok(SeveritySummaryResponse {
+        Ok(SyslogSeveritySummaryResponse {
             hostname,
             start_time_unix: start,
             end_time_unix: end,
@@ -306,8 +306,8 @@ impl LogQueryService {
 
     pub async fn event_summary(
         &self,
-        request: EventSummaryRequest,
-    ) -> Result<EventSummaryResponse> {
+        request: SyslogEventSummaryRequest,
+    ) -> Result<SyslogEventSummaryResponse> {
         let hostname = validate_hostname(&request.hostname)?;
         let (start, end) = self.resolve_window(request.start_time_unix, request.end_time_unix)?;
         let limit = request
@@ -332,15 +332,15 @@ impl LogQueryService {
             .bind(start)
             .bind(end)
             .bind(fetch_limit)
-            .fetch_all::<EventSummaryQueryRow>()
+            .fetch_all::<SyslogEventSummaryQueryRow>()
             .await?;
         let truncated = rows.len() > limit as usize;
         rows.truncate(limit as usize);
         let groups = rows
             .into_iter()
-            .map(EventSummaryGroup::from)
+            .map(SyslogEventSummaryGroup::from)
             .collect::<Vec<_>>();
-        Ok(EventSummaryResponse {
+        Ok(SyslogEventSummaryResponse {
             hostname,
             start_time_unix: start,
             end_time_unix: end,
@@ -415,9 +415,9 @@ fn known_vendor(value: String) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        DeviceEventQueryRow, DeviceEventsRequest, EventSummaryGroup, EventSummaryQueryRow,
-        EventSummaryRequest, LogEvent, LogQueryService, non_empty, resolve_window,
-        validate_hostname,
+        SyslogEvent, SyslogEventQueryRow, SyslogEventSummaryGroup, SyslogEventSummaryQueryRow,
+        SyslogEventSummaryRequest, SyslogEventsRequest, SyslogQueryService, non_empty,
+        resolve_window, validate_hostname,
     };
     use clickhouse::{Client, test};
 
@@ -443,7 +443,7 @@ mod tests {
 
     #[test]
     fn unknown_or_blank_metadata_is_omitted_from_mcp_json() {
-        let event = LogEvent {
+        let event = SyslogEvent {
             ts_unix: 100,
             severity: None,
             facility: non_empty(String::new()),
@@ -460,7 +460,7 @@ mod tests {
 
     #[test]
     fn structured_summary_maps_storage_sentinels_to_optional_fields() {
-        let group = EventSummaryGroup::from(EventSummaryQueryRow {
+        let group = SyslogEventSummaryGroup::from(SyslogEventSummaryQueryRow {
             severity: -1,
             facility: "LINK".to_string(),
             event_code: String::new(),
@@ -483,7 +483,7 @@ mod tests {
     async fn device_events_returns_a_minimal_payload_and_reports_truncation() {
         let mock = test::Mock::new();
         let client = Client::default().with_url(mock.url());
-        let row = |timestamp: i64| DeviceEventQueryRow {
+        let row = |timestamp: i64| SyslogEventQueryRow {
             ts_unix: timestamp,
             vendor: "cisco".to_string(),
             facility: "LINK".to_string(),
@@ -492,7 +492,7 @@ mod tests {
             message: "interface changed state to down".to_string(),
         };
         mock.add(test::handlers::provide(vec![row(200), row(100)]));
-        let service = LogQueryService {
+        let service = SyslogQueryService {
             client,
             default_window_secs: 3_600,
             max_window_secs: 86_400,
@@ -501,7 +501,7 @@ mod tests {
         };
 
         let response = service
-            .device_events(DeviceEventsRequest {
+            .device_events(SyslogEventsRequest {
                 hostname: " edge-01 ".to_string(),
                 start_time_unix: Some(0),
                 end_time_unix: Some(300),
@@ -526,7 +526,7 @@ mod tests {
     async fn event_summary_returns_structured_groups_and_reports_truncation() {
         let mock = test::Mock::new();
         let client = Client::default().with_url(mock.url());
-        let row = |event_code: &str, count: u64| EventSummaryQueryRow {
+        let row = |event_code: &str, count: u64| SyslogEventSummaryQueryRow {
             severity: 3,
             facility: "LINK".to_string(),
             event_code: event_code.to_string(),
@@ -537,7 +537,7 @@ mod tests {
             row("UPDOWN", 12),
             row("CHANGED", 4),
         ]));
-        let service = LogQueryService {
+        let service = SyslogQueryService {
             client,
             default_window_secs: 3_600,
             max_window_secs: 86_400,
@@ -546,7 +546,7 @@ mod tests {
         };
 
         let response = service
-            .event_summary(EventSummaryRequest {
+            .event_summary(SyslogEventSummaryRequest {
                 hostname: "edge-01".to_string(),
                 start_time_unix: Some(0),
                 end_time_unix: Some(300),

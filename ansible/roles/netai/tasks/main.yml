@@ -73,7 +73,7 @@
   no_log: true
   notify: Restart netai backend
 
-- name: Render log service environment file
+- name: Render syslog service environment file
   ansible.builtin.template:
     src: log-ingestor.env.j2
     dest: "{{ netai_release_dir }}/log_ingestor/.env"
@@ -81,10 +81,10 @@
     group: "{{ netai_group }}"
     mode: "0640"
   no_log: true
-  when: netai_enable_log_ingestor | bool or netai_enable_log_mcp | bool
+  when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
   notify:
     - Restart netai log ingestor
-    - Restart netai log MCP
+    - Restart netai syslog MCP
 
 - name: Render UI production environment file
   ansible.builtin.copy:
@@ -127,7 +127,7 @@
   args:
     executable: /bin/bash
 
-- name: Build log service binaries
+- name: Build syslog service binaries
   become_user: "{{ netai_user }}"
   ansible.builtin.shell: |
     set -euo pipefail
@@ -136,7 +136,7 @@
     cargo build --release --manifest-path log_ingestor/Cargo.toml
   args:
     executable: /bin/bash
-  when: netai_enable_log_ingestor | bool or netai_enable_log_mcp | bool
+  when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
 
 - name: Install netai backend systemd service
   ansible.builtin.template:
@@ -173,17 +173,36 @@
     - Reload systemd
     - Restart netai log ingestor
 
-- name: Install netai log MCP systemd service
+- name: Inspect superseded generic MCP systemd unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/netai-log-mcp.service
+  register: netai_superseded_syslog_mcp_unit
+
+- name: Stop superseded generic MCP systemd service
+  ansible.builtin.systemd_service:
+    name: netai-log-mcp
+    enabled: false
+    state: stopped
+  when: netai_superseded_syslog_mcp_unit.stat.exists
+
+- name: Remove superseded generic MCP systemd unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/netai-log-mcp.service
+    state: absent
+  when: netai_superseded_syslog_mcp_unit.stat.exists
+  notify: Reload systemd
+
+- name: Install netai syslog MCP systemd service
   ansible.builtin.template:
-    src: netai-log-mcp.service.j2
-    dest: /etc/systemd/system/netai-log-mcp.service
+    src: netai-syslog-mcp.service.j2
+    dest: /etc/systemd/system/netai-syslog-mcp.service
     owner: root
     group: root
     mode: "0644"
-  when: netai_enable_log_mcp | bool
+  when: netai_enable_syslog_mcp | bool
   notify:
     - Reload systemd
-    - Restart netai log MCP
+    - Restart netai syslog MCP
 
 - name: Ensure netai backend service is enabled and started
   ansible.builtin.systemd_service:
@@ -205,12 +224,12 @@
     state: started
   when: netai_enable_log_ingestor | bool
 
-- name: Ensure netai log MCP service is enabled and started
+- name: Ensure netai syslog MCP service is enabled and started
   ansible.builtin.systemd_service:
-    name: netai-log-mcp
+    name: netai-syslog-mcp
     enabled: true
     state: started
-  when: netai_enable_log_mcp | bool
+  when: netai_enable_syslog_mcp | bool
 
 - name: Install nginx site for netai
   ansible.builtin.template:

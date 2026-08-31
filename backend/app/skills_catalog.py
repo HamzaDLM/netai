@@ -6,8 +6,8 @@ from haystack.tools import Toolset
 
 from app.core.config import Settings, project_settings
 from app.mcp.infrahub import InfrahubToolProvider
-from app.mcp.logs import LogToolProvider
 from app.mcp.suzieq import SuzieQToolProvider
+from app.mcp.syslog import SyslogToolProvider
 from app.tools.registry import ToolRegistry
 
 
@@ -57,15 +57,15 @@ def _suzieq_mcp_entry(
     }
 
 
-def _logs_mcp_entry(
+def _syslog_mcp_entry(
     *,
     status: str = "not_checked",
-    status_message: str = "Log intelligence is connected only when it is needed.",
+    status_message: str = "Syslog intelligence is connected only when it is needed.",
     tools: list[dict[str, object]] | None = None,
 ) -> dict[str, object]:
     return {
         "agent_key": "syslog",
-        "agent_name": "Log intelligence",
+        "agent_name": "Syslog intelligence",
         "description": (
             "Read-only bounded syslog events and structured severity, facility, "
             "and event-code summaries supplied by the standalone log service."
@@ -75,7 +75,7 @@ def _logs_mcp_entry(
         "dynamic_tools": True,
         "connection_status": status,
         "status_message": status_message,
-        "mcp_config_name": "log_mcp",
+        "mcp_config_name": "syslog_mcp",
         "tools": tools or [],
     }
 
@@ -92,7 +92,7 @@ def get_agent_tool_catalog(
         *runtime_registry.catalog(),
         _infrahub_entry(),
         _suzieq_mcp_entry(),
-        _logs_mcp_entry(),
+        _syslog_mcp_entry(),
     ]
 
 
@@ -119,7 +119,7 @@ async def get_resolved_agent_tool_catalog(
     registry: ToolRegistry,
     infrahub: InfrahubToolProvider,
     suzieq: SuzieQToolProvider,
-    logs: LogToolProvider,
+    syslog: SyslogToolProvider,
 ) -> list[dict[str, object]]:
     """Resolve optional MCP entries without affecting local connectors."""
 
@@ -135,9 +135,9 @@ async def get_resolved_agent_tool_catalog(
             status_message=suzieq.status_message,
             tools=_remote_tools(suzieq.toolset, connector_name="SuzieQ"),
         ),
-        _logs_mcp_entry(
-            status=logs.status,
-            status_message=logs.status_message,
-            tools=_remote_tools(logs.toolset, connector_name="Log intelligence"),
+        _syslog_mcp_entry(
+            status=syslog.status,
+            status_message=syslog.status_message,
+            tools=_remote_tools(syslog.toolset, connector_name="Syslog intelligence"),
         ),
     ]

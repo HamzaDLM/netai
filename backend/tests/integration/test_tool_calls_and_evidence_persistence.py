@@ -20,11 +20,11 @@ async def test_stream_agent_tool_calls_are_persisted(async_client, monkeypatch) 
                 },
                 "tool_calls": [
                     {
-                        "tool_name": "syslog_get_host_syslogs",
+                        "tool_name": "syslog_get_device_events",
                         "input_params": {"hostname": "core-sw-01"},
                         "output": {
                             "count": 1,
-                            "logs": [{"raw_message": "interface flaps observed"}],
+                            "events": [{"message": "interface flaps observed"}],
                         },
                         "status": "success",
                         "error_type": None,
@@ -66,6 +66,6 @@ async def test_stream_agent_tool_calls_are_persisted(async_client, monkeypatch) 
     assert run["child_runs"] == []
     assert len(run["tool_calls"]) == 1
     tool_call = run["tool_calls"][0]
-    assert tool_call["tool_name"] == "syslog_get_host_syslogs"
+    assert tool_call["tool_name"] == "syslog_get_device_events"
     assert tool_call["output"]["count"] == 1
-    assert "flaps" in tool_call["output"]["logs"][0]["raw_message"]
+    assert "flaps" in tool_call["output"]["events"][0]["message"]

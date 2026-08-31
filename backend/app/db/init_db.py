@@ -393,7 +393,7 @@ DEFAULT_EVAL_SCENARIOS: Sequence[EvalScenarioBlueprint] = (
         "prompt": "Retrieve recent syslogs for dist-rtr-nyc-01 and tell me whether they contain interface or BGP failure evidence.",
         "fixture": "Syslog has xe-0/0/2 link-down and BGP neighbor 10.1.1.1 down events.",
         "tags": ["sanity", "syslog", "bgp"],
-        "required_tools": ["syslog_get_host_syslogs"],
+        "required_tools": ["syslog_get_device_events"],
         "forbidden_tools": [],
         "expected_facts": [
             "xe-0/0/2 changed state to down",
@@ -511,7 +511,7 @@ DEFAULT_EVAL_SCENARIOS: Sequence[EvalScenarioBlueprint] = (
         "required_tools": [
             "zabbix_diagnose_host",
             "suzieq_get_bgp_sessions",
-            "syslog_get_host_syslogs",
+            "syslog_get_device_events",
             "servicenow_get_incident",
         ],
         "forbidden_tools": [],

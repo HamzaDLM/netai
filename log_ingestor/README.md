@@ -1,13 +1,13 @@
 # log_ingestor
 
-Standalone Rust log intelligence service. Its ingestion process parses Kafka
+Standalone Rust network-device syslog intelligence service. Its ingestion process parses Kafka
 syslogs into ClickHouse; its independently runnable MCP process
 owns all read access so NetAI never needs ClickHouse SQL or credentials.
 
 ## Runtime layout
 
 ```text
-Kafka -> log_ingestor -> ClickHouse <- log_mcp <- NetAI
+Kafka -> log_ingestor -> ClickHouse <- syslog_mcp <- NetAI
 ```
 
 Both binaries share typed storage and query code but restart and scale independently.
@@ -64,21 +64,21 @@ LTS packages rather than Ubuntu's obsolete distribution package.
 - `METRICS_BIND` (default: `0.0.0.0:9898`; serves `/metrics`)
 - `IGNORED_SYSLOG_TEXTS` (optional comma/newline-separated substrings; defaults include `vfork couldn't find enough ressources` and `vfork couldn't find enough resources`)
 
-### Log MCP/query service
+### Syslog MCP/query service
 
-- `LOG_MCP_BIND` (default: `0.0.0.0:8010`)
-- `LOG_MCP_ALLOWED_HOSTS` (comma-separated MCP Host-header allowlist)
-- `LOG_MCP_TOKEN` (optional bearer token; configure it outside local development)
-- `LOG_QUERY_DEFAULT_WINDOW_SECS` (default: `3600`)
-- `LOG_QUERY_MAX_WINDOW_SECS` (default: `604800`, seven days)
-- `LOG_QUERY_MAX_RESULTS` (default: `200`)
-- `LOG_QUERY_TIMEOUT_SECS` (default: `8`)
+- `SYSLOG_MCP_BIND` (default: `0.0.0.0:8010`)
+- `SYSLOG_MCP_ALLOWED_HOSTS` (comma-separated MCP Host-header allowlist)
+- `SYSLOG_MCP_TOKEN` (optional bearer token; configure it outside local development)
+- `SYSLOG_QUERY_DEFAULT_WINDOW_SECS` (default: `3600`)
+- `SYSLOG_QUERY_MAX_WINDOW_SECS` (default: `604800`, seven days)
+- `SYSLOG_QUERY_MAX_RESULTS` (default: `200`)
+- `SYSLOG_QUERY_TIMEOUT_SECS` (default: `8`)
 
 The MCP service exposes only typed, bounded, read-only operations:
 
-- `logs_get_device_events`
-- `logs_get_severity_summary`
-- `logs_get_event_summary`
+- `syslog_get_device_events`
+- `syslog_get_severity_summary`
+- `syslog_get_event_summary`
 
 Raw event results default to 20 rows. Their MCP representation contains only the timestamp,
 original message, and available parsed metadata; storage-only identifiers and repeated host/vendor
@@ -86,7 +86,7 @@ fields are not sent for every event. The event summary groups parsed severity, f
 code so an agent can inspect frequent signals before requesting raw messages.
 
 It also exposes unauthenticated process health endpoints at `/health/live` and
-`/health/ready`. The MCP endpoint is `/mcp` and requires `LOG_MCP_TOKEN` when set.
+`/health/ready`. The MCP endpoint is `/mcp` and requires `SYSLOG_MCP_TOKEN` when set.
 
 ### Vendor Cache / Lookup
 - `REDIS_URL` (optional; when reachable Redis is used, otherwise in-memory fallback is used)
@@ -113,7 +113,7 @@ Expected lookup API payload formats:
   rate queries include `rate(netai_log_ingestor_events_persisted_total[5m])` and
   `rate(netai_log_ingestor_failures_total[5m])`.
 - The former unused Qdrant and embedding compatibility code has been removed;
-  ClickHouse is the log service's only event store.
+  ClickHouse is the syslog service's only event store.
 - Vendor cache refresh is best-effort. Failed vendor API calls or Redis errors are logged and ingestion continues.
 
 ## Run
@@ -127,7 +127,7 @@ cargo run --manifest-path log_ingestor/Cargo.toml
 Run the independent query/MCP process:
 
 ```bash
-cargo run --manifest-path log_ingestor/Cargo.toml --bin log_mcp
+cargo run --manifest-path log_ingestor/Cargo.toml --bin syslog_mcp
 ```
 
 The binary will try `.env` in the current working directory first, then `log_ingestor/.env` when launched from the repo root.

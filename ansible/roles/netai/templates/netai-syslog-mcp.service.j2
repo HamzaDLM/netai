@@ -1,0 +1,23 @@
+[Unit]
+Description=NetAI read-only network-device syslog intelligence MCP service
+After=network.target
+
+[Service]
+Type=simple
+User={{ netai_user }}
+Group={{ netai_group }}
+WorkingDirectory={{ netai_release_dir }}
+Environment=PATH={{ netai_home }}/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile={{ netai_release_dir }}/log_ingestor/.env
+ExecStart={{ netai_release_dir }}/log_ingestor/target/release/syslog_mcp
+Restart=always
+RestartSec=5
+CPUQuota={{ netai_syslog_mcp_cpu_quota }}
+MemoryHigh={{ netai_syslog_mcp_memory_high }}
+MemoryMax={{ netai_syslog_mcp_memory_max }}
+TasksMax={{ netai_syslog_mcp_tasks_max }}
+StandardOutput=append:{{ netai_log_dir }}/syslog_mcp.log
+StandardError=append:{{ netai_log_dir }}/syslog_mcp.err.log
+
+[Install]
+WantedBy=multi-user.target

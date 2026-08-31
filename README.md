@@ -32,8 +32,8 @@ Haystack `Tool` objects used directly by the Agent. MCP remains an external
 protocol boundary: Infrahub is consumed as an optional remote toolset, and the
 Zabbix MCP server exposes the same underlying Haystack tools to external clients.
 
-The separate Rust log ingestor consumes Kafka and writes ClickHouse events.
-NetAI queries those events through the standalone read-only log MCP service, so
+The separate Rust syslog ingestor consumes Kafka and writes ClickHouse events.
+NetAI queries those events through the standalone read-only syslog MCP service, so
 the backend does not own ClickHouse credentials or query logic.
 
 ## Repository structure

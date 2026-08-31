@@ -16,13 +16,13 @@ pub struct Config {
     pub ingest_max_in_flight: usize,
     pub kafka_lag_poll_interval_secs: u64,
     pub metrics_bind: String,
-    pub log_mcp_bind: String,
-    pub log_mcp_allowed_hosts: Vec<String>,
-    pub log_mcp_token: Option<String>,
-    pub log_query_default_window_secs: u64,
-    pub log_query_max_window_secs: u64,
-    pub log_query_max_results: u32,
-    pub log_query_timeout_secs: u64,
+    pub syslog_mcp_bind: String,
+    pub syslog_mcp_allowed_hosts: Vec<String>,
+    pub syslog_mcp_token: Option<String>,
+    pub syslog_query_default_window_secs: u64,
+    pub syslog_query_max_window_secs: u64,
+    pub syslog_query_max_results: u32,
+    pub syslog_query_timeout_secs: u64,
     pub ignored_syslog_texts: Vec<String>,
     pub redis_url: Option<String>,
     pub vendor_lookup_url: Option<String>,
@@ -42,8 +42,8 @@ impl Config {
             get("VENDOR_LOOKUP_URL").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
         let ignored_syslog_texts =
             parse_ignored_syslog_texts(get("IGNORED_SYSLOG_TEXTS").as_deref());
-        let log_mcp_token =
-            get("LOG_MCP_TOKEN").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
+        let syslog_mcp_token =
+            get("SYSLOG_MCP_TOKEN").and_then(|v| if v.trim().is_empty() { None } else { Some(v) });
 
         Self {
             kafka_brokers: get("KAFKA_BROKERS").unwrap_or("localhost:9092".into()),
@@ -81,8 +81,8 @@ impl Config {
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(15),
             metrics_bind: get("METRICS_BIND").unwrap_or("0.0.0.0:9898".into()),
-            log_mcp_bind: get("LOG_MCP_BIND").unwrap_or("0.0.0.0:8010".into()),
-            log_mcp_allowed_hosts: get("LOG_MCP_ALLOWED_HOSTS")
+            syslog_mcp_bind: get("SYSLOG_MCP_BIND").unwrap_or("0.0.0.0:8010".into()),
+            syslog_mcp_allowed_hosts: get("SYSLOG_MCP_ALLOWED_HOSTS")
                 .map(|value| parse_csv(&value))
                 .filter(|items| !items.is_empty())
                 .unwrap_or_else(|| {
@@ -90,20 +90,20 @@ impl Config {
                         "localhost".into(),
                         "127.0.0.1".into(),
                         "::1".into(),
-                        "log_mcp".into(),
+                        "syslog_mcp".into(),
                     ]
                 }),
-            log_mcp_token,
-            log_query_default_window_secs: get("LOG_QUERY_DEFAULT_WINDOW_SECS")
+            syslog_mcp_token,
+            syslog_query_default_window_secs: get("SYSLOG_QUERY_DEFAULT_WINDOW_SECS")
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(3600),
-            log_query_max_window_secs: get("LOG_QUERY_MAX_WINDOW_SECS")
+            syslog_query_max_window_secs: get("SYSLOG_QUERY_MAX_WINDOW_SECS")
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(604800),
-            log_query_max_results: get("LOG_QUERY_MAX_RESULTS")
+            syslog_query_max_results: get("SYSLOG_QUERY_MAX_RESULTS")
                 .and_then(|v| v.parse::<u32>().ok())
                 .unwrap_or(200),
-            log_query_timeout_secs: get("LOG_QUERY_TIMEOUT_SECS")
+            syslog_query_timeout_secs: get("SYSLOG_QUERY_TIMEOUT_SECS")
                 .and_then(|v| v.parse::<u64>().ok())
                 .unwrap_or(8),
             ignored_syslog_texts,
@@ -164,13 +164,16 @@ mod tests {
         assert_eq!(cfg.ingest_max_in_flight, 256);
         assert_eq!(cfg.kafka_lag_poll_interval_secs, 15);
         assert_eq!(cfg.metrics_bind, "0.0.0.0:9898");
-        assert_eq!(cfg.log_mcp_bind, "0.0.0.0:8010");
-        assert!(cfg.log_mcp_allowed_hosts.contains(&"log_mcp".to_string()));
-        assert!(cfg.log_mcp_token.is_none());
-        assert_eq!(cfg.log_query_default_window_secs, 3600);
-        assert_eq!(cfg.log_query_max_window_secs, 604800);
-        assert_eq!(cfg.log_query_max_results, 200);
-        assert_eq!(cfg.log_query_timeout_secs, 8);
+        assert_eq!(cfg.syslog_mcp_bind, "0.0.0.0:8010");
+        assert!(
+            cfg.syslog_mcp_allowed_hosts
+                .contains(&"syslog_mcp".to_string())
+        );
+        assert!(cfg.syslog_mcp_token.is_none());
+        assert_eq!(cfg.syslog_query_default_window_secs, 3600);
+        assert_eq!(cfg.syslog_query_max_window_secs, 604800);
+        assert_eq!(cfg.syslog_query_max_results, 200);
+        assert_eq!(cfg.syslog_query_timeout_secs, 8);
         assert_eq!(
             cfg.ignored_syslog_texts,
             vec![
@@ -193,13 +196,16 @@ mod tests {
             ("INGEST_MAX_IN_FLIGHT", "512"),
             ("KAFKA_LAG_POLL_INTERVAL_SECS", "30"),
             ("METRICS_BIND", "127.0.0.1:9988"),
-            ("LOG_MCP_BIND", "127.0.0.1:9010"),
-            ("LOG_MCP_ALLOWED_HOSTS", "logs.example.com,logs.internal"),
-            ("LOG_MCP_TOKEN", "secret"),
-            ("LOG_QUERY_DEFAULT_WINDOW_SECS", "7200"),
-            ("LOG_QUERY_MAX_WINDOW_SECS", "1209600"),
-            ("LOG_QUERY_MAX_RESULTS", "500"),
-            ("LOG_QUERY_TIMEOUT_SECS", "12"),
+            ("SYSLOG_MCP_BIND", "127.0.0.1:9010"),
+            (
+                "SYSLOG_MCP_ALLOWED_HOSTS",
+                "syslog.example.com,syslog.internal",
+            ),
+            ("SYSLOG_MCP_TOKEN", "secret"),
+            ("SYSLOG_QUERY_DEFAULT_WINDOW_SECS", "7200"),
+            ("SYSLOG_QUERY_MAX_WINDOW_SECS", "1209600"),
+            ("SYSLOG_QUERY_MAX_RESULTS", "500"),
+            ("SYSLOG_QUERY_TIMEOUT_SECS", "12"),
             ("IGNORED_SYSLOG_TEXTS", "noise one,noise two\nnoise three"),
         ]);
 
@@ -214,16 +220,16 @@ mod tests {
         assert_eq!(cfg.ingest_max_in_flight, 512);
         assert_eq!(cfg.kafka_lag_poll_interval_secs, 30);
         assert_eq!(cfg.metrics_bind, "127.0.0.1:9988");
-        assert_eq!(cfg.log_mcp_bind, "127.0.0.1:9010");
+        assert_eq!(cfg.syslog_mcp_bind, "127.0.0.1:9010");
         assert_eq!(
-            cfg.log_mcp_allowed_hosts,
-            vec!["logs.example.com", "logs.internal"]
+            cfg.syslog_mcp_allowed_hosts,
+            vec!["syslog.example.com", "syslog.internal"]
         );
-        assert_eq!(cfg.log_mcp_token.as_deref(), Some("secret"));
-        assert_eq!(cfg.log_query_default_window_secs, 7200);
-        assert_eq!(cfg.log_query_max_window_secs, 1209600);
-        assert_eq!(cfg.log_query_max_results, 500);
-        assert_eq!(cfg.log_query_timeout_secs, 12);
+        assert_eq!(cfg.syslog_mcp_token.as_deref(), Some("secret"));
+        assert_eq!(cfg.syslog_query_default_window_secs, 7200);
+        assert_eq!(cfg.syslog_query_max_window_secs, 1209600);
+        assert_eq!(cfg.syslog_query_max_results, 500);
+        assert_eq!(cfg.syslog_query_timeout_secs, 12);
         assert_eq!(
             cfg.ignored_syslog_texts,
             vec![

@@ -19,11 +19,11 @@
     state: restarted
   when: netai_enable_log_ingestor | bool
 
-- name: Restart netai log MCP
+- name: Restart netai syslog MCP
   ansible.builtin.systemd_service:
-    name: netai-log-mcp
+    name: netai-syslog-mcp
     state: restarted
-  when: netai_enable_log_mcp | bool
+  when: netai_enable_syslog_mcp | bool
 
 - name: Reload nginx
   ansible.builtin.systemd_service:

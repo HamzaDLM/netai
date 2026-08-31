@@ -3,10 +3,10 @@ import app.services.chat_runs as chat_runs
 
 def test_event_actor_for_tool_lifecycle() -> None:
     actor_type, actor_name = chat_runs._event_actor(
-        {"type": "tool_started", "tool_name": "syslog_get_host_syslogs"}
+        {"type": "tool_started", "tool_name": "syslog_get_device_events"}
     )
     assert actor_type == "tool"
-    assert actor_name == "syslog_get_host_syslogs"
+    assert actor_name == "syslog_get_device_events"
 
 
 def test_event_actor_for_artifact() -> None:
