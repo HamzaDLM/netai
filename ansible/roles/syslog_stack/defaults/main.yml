@@ -9,29 +9,28 @@ netai_enable_log_ingestor: true
 netai_enable_syslog_mcp: true
 netai_restart_backend_with_syslog_mcp: true
 
-# ClickHouse is installed from the official, versioned static binary archive.
-# Pinning the version makes deployments reproducible and avoids old distro
-# packages (notably Ubuntu's historical 18.x package).
+# ClickHouse is installed from versioned Debian packages bundled with this role
+# under files/. Keeping the packages with the deployment content makes
+# installation independent from external package repositories.
 netai_clickhouse_version: "26.3.17.110"
-netai_clickhouse_channel: lts
 netai_clickhouse_architectures:
   x86_64: amd64
   aarch64: arm64
 netai_clickhouse_arch: >-
   {{ netai_clickhouse_architectures.get(ansible_architecture, '') }}
-netai_clickhouse_archive_name: >-
-  {{ 'clickhouse-common-static-' ~ netai_clickhouse_version
-     ~ '-' ~ netai_clickhouse_arch ~ '.tgz' }}
-netai_clickhouse_package_base_url: >-
-  https://packages.clickhouse.com/tgz/{{ netai_clickhouse_channel }}
-netai_clickhouse_download_url: >-
-  {{ netai_clickhouse_package_base_url }}/{{ netai_clickhouse_archive_name }}
-netai_clickhouse_checksum_url: "{{ netai_clickhouse_download_url }}.sha512"
-netai_clickhouse_remove_distribution_packages: false
-netai_clickhouse_install_root: /opt/clickhouse
-netai_clickhouse_release_dir: >-
-  {{ netai_clickhouse_install_root ~ '/releases/clickhouse-common-static-'
-     ~ netai_clickhouse_version }}
+netai_clickhouse_deb_packages:
+  - >-
+    {{ 'clickhouse-common-static_' ~ netai_clickhouse_version
+       ~ '_' ~ netai_clickhouse_arch ~ '.deb' }}
+  - >-
+    {{ 'clickhouse-client_' ~ netai_clickhouse_version
+       ~ '_' ~ netai_clickhouse_arch ~ '.deb' }}
+  - >-
+    {{ 'clickhouse-server_' ~ netai_clickhouse_version
+       ~ '_' ~ netai_clickhouse_arch ~ '.deb' }}
+# Optional expected SHA-256 values keyed by package filename. Ansible's copy
+# module already checks transfer integrity when this mapping is empty.
+netai_clickhouse_deb_sha256: {}
 netai_clickhouse_cache_dir: /var/cache/netai
 netai_clickhouse_config_dir: /etc/clickhouse-server
 netai_clickhouse_data_dir: /var/lib/clickhouse

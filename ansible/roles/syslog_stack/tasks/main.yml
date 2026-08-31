@@ -46,10 +46,6 @@
     group: "{{ item.group }}"
     mode: "{{ item.mode }}"
   loop:
-    - path: "{{ netai_clickhouse_install_root }}/releases"
-      owner: root
-      group: root
-      mode: "0755"
     - path: "{{ netai_clickhouse_cache_dir }}"
       owner: root
       group: root
@@ -84,37 +80,48 @@
       mode: "0750"
   when: netai_clickhouse_enabled | bool
 
-- name: Download pinned ClickHouse static binary archive
-  ansible.builtin.get_url:
-    url: "{{ netai_clickhouse_download_url }}"
-    dest: "{{ netai_clickhouse_cache_dir }}/{{ netai_clickhouse_archive_name }}"
-    checksum: "sha512:{{ netai_clickhouse_checksum_url }}"
+- name: Install local Debian package support
+  ansible.builtin.apt:
+    name: xz-utils
+    state: present
+    update_cache: true
+  when: netai_clickhouse_enabled | bool
+
+- name: Copy bundled ClickHouse Debian packages
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ netai_clickhouse_cache_dir }}/{{ item }}"
     owner: root
     group: root
     mode: "0644"
+  loop: "{{ netai_clickhouse_deb_packages }}"
   when: netai_clickhouse_enabled | bool
 
-- name: Extract pinned ClickHouse static binary archive
-  ansible.builtin.unarchive:
-    src: "{{ netai_clickhouse_cache_dir }}/{{ netai_clickhouse_archive_name }}"
-    dest: "{{ netai_clickhouse_install_root }}/releases"
-    remote_src: true
-    creates: "{{ netai_clickhouse_release_dir }}/usr/bin/clickhouse"
-  when: netai_clickhouse_enabled | bool
-
-- name: Remove distribution-managed ClickHouse packages
-  ansible.builtin.apt:
-    name:
-      - clickhouse-client
-      - clickhouse-common
-      - clickhouse-common-static
-      - clickhouse-server
-    state: absent
-    purge: false
-    autoremove: false
+- name: Verify configured ClickHouse Debian package checksums
+  ansible.builtin.command:
+    argv:
+      - sha256sum
+      - "{{ netai_clickhouse_cache_dir }}/{{ item }}"
+  loop: "{{ netai_clickhouse_deb_packages }}"
+  register: netai_clickhouse_deb_checksum_result
+  changed_when: false
+  failed_when: >-
+    netai_clickhouse_deb_checksum_result.stdout.split()[0]
+    != netai_clickhouse_deb_sha256[item] | lower
   when:
     - netai_clickhouse_enabled | bool
-    - netai_clickhouse_remove_distribution_packages | bool
+    - netai_clickhouse_deb_sha256.get(item, '') | length > 0
+
+- name: Install bundled ClickHouse Debian packages
+  ansible.builtin.apt:
+    deb: "{{ netai_clickhouse_cache_dir }}/{{ item }}"
+    state: present
+  loop: "{{ netai_clickhouse_deb_packages }}"
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    CLICKHOUSE_PASSWORD: ""
+  when: netai_clickhouse_enabled | bool
+  notify: Restart clickhouse
 
 - name: Reassert ClickHouse service account after package migration
   ansible.builtin.user:
@@ -125,21 +132,6 @@
     create_home: false
     state: present
   when: netai_clickhouse_enabled | bool
-
-- name: Link ClickHouse executable entry points
-  ansible.builtin.file:
-    src: "{{ netai_clickhouse_release_dir }}/usr/bin/clickhouse"
-    dest: "/usr/local/bin/{{ item }}"
-    state: link
-    force: true
-    owner: root
-    group: root
-  loop:
-    - clickhouse
-    - clickhouse-client
-    - clickhouse-server
-  when: netai_clickhouse_enabled | bool
-  notify: Restart clickhouse
 
 - name: Render ClickHouse server configuration
   ansible.builtin.template:
@@ -193,7 +185,7 @@
 - name: Read installed ClickHouse version
   ansible.builtin.command:
     argv:
-      - /usr/local/bin/clickhouse-client
+      - /usr/bin/clickhouse-client
       - --host
       - "{{ netai_clickhouse_host }}"
       - --port
@@ -216,7 +208,7 @@
 - name: Ensure ClickHouse database exists
   ansible.builtin.command:
     argv:
-      - /usr/local/bin/clickhouse-client
+      - /usr/bin/clickhouse-client
       - --host
       - "{{ netai_clickhouse_host }}"
       - --query
@@ -228,7 +220,7 @@
 - name: Ensure ClickHouse application user exists and has current credentials
   ansible.builtin.command:
     argv:
-      - /usr/local/bin/clickhouse-client
+      - /usr/bin/clickhouse-client
       - --host
       - "{{ netai_clickhouse_host }}"
       - --multiquery

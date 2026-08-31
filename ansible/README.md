@@ -21,7 +21,7 @@ This folder deploys NetAI to Ubuntu hosts without Docker.
 - Clones/pulls the selected Git branch
 - Installs and configures Qdrant (built from source, managed by systemd)
 - Deploys the complete syslog intelligence stack from one role:
-  - a pinned official ClickHouse static binary, database, and application user
+  - bundled, pinned ClickHouse packages, database, and application user
   - Redis
   - the NetAI syslog ingestor binary
   - the read-only NetAI syslog MCP binary
@@ -100,13 +100,13 @@ netai_ui_env:
   VITE_BASE_URL: /api/v1
 ```
 
-The `syslog_stack` role pins and checksum-verifies the ClickHouse archive instead
-of using Ubuntu's often outdated ClickHouse package. Override
-`netai_clickhouse_version`, `netai_clickhouse_download_url`, and
-`netai_clickhouse_checksum_url` together when using an internal artifact mirror.
-For a host migrating from package-managed ClickHouse, set
-`netai_clickhouse_remove_distribution_packages: true` to remove the legacy
-packages without purging their data after the static archive is available.
+The `syslog_stack` role installs ClickHouse from
+the bundled `clickhouse-common-static`, `clickhouse-client`, and
+`clickhouse-server` `.deb` files under `roles/syslog_stack/files/`. No external
+ClickHouse repository is used. Put all three packages for each deployed
+architecture in that directory and update `netai_clickhouse_version` when
+replacing them. Optionally populate `netai_clickhouse_deb_sha256` to enforce
+known package digests.
 
 The log ingestor's systemd unit also applies configurable CPU, memory, and task limits.
 Prometheus-format ingestion and process metrics are available at `METRICS_BIND/metrics`.

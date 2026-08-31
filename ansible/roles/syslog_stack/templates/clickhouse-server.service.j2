@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User={{ netai_clickhouse_user_name }}
 Group={{ netai_clickhouse_group }}
-ExecStart=/usr/local/bin/clickhouse server --config-file={{ netai_clickhouse_config_dir }}/config.xml
+ExecStart=/usr/bin/clickhouse server --config-file={{ netai_clickhouse_config_dir }}/config.xml
 Restart=always
 RestartSec=5
 LimitNOFILE=262144
