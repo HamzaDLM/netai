@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<clickhouse>
+    <logger>
+        <level>information</level>
+        <log>{{ netai_clickhouse_log_dir }}/clickhouse-server.log</log>
+        <errorlog>{{ netai_clickhouse_log_dir }}/clickhouse-server.err.log</errorlog>
+        <size>1000M</size>
+        <count>10</count>
+    </logger>
+
+    <http_port>{{ netai_clickhouse_http_port }}</http_port>
+    <tcp_port>{{ netai_clickhouse_native_port }}</tcp_port>
+    <listen_host>{{ netai_clickhouse_host }}</listen_host>
+    <path>{{ netai_clickhouse_data_dir }}/</path>
+    <tmp_path>{{ netai_clickhouse_data_dir }}/tmp/</tmp_path>
+    <user_files_path>{{ netai_clickhouse_data_dir }}/user_files/</user_files_path>
+    <format_schema_path>{{ netai_clickhouse_data_dir }}/format_schemas/</format_schema_path>
+    <access_control_path>{{ netai_clickhouse_data_dir }}/access/</access_control_path>
+
+    <user_directories>
+        <users_xml>
+            <path>users.xml</path>
+        </users_xml>
+        <local_directory>
+            <path>{{ netai_clickhouse_data_dir }}/access/</path>
+        </local_directory>
+    </user_directories>
+
+    <default_profile>default</default_profile>
+    <default_database>default</default_database>
+    <timezone>UTC</timezone>
+</clickhouse>

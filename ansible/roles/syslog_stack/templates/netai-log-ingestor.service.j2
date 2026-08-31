@@ -1,6 +1,8 @@
 [Unit]
-Description=NetAI log ingestor
-After=network.target
+Description=NetAI network-device syslog ingestor
+After=network-online.target{% if netai_clickhouse_enabled | bool %} clickhouse-server.service{% endif %}{% if netai_redis_enabled | bool %} redis-server.service{% endif %}
+
+Wants=network-online.target{% if netai_clickhouse_enabled | bool %} clickhouse-server.service{% endif %}{% if netai_redis_enabled | bool %} redis-server.service{% endif %}
 
 [Service]
 Type=simple

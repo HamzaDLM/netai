@@ -1,0 +1,17 @@
+[Unit]
+Description=ClickHouse server for NetAI syslog intelligence
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ netai_clickhouse_user_name }}
+Group={{ netai_clickhouse_group }}
+ExecStart=/usr/local/bin/clickhouse server --config-file={{ netai_clickhouse_config_dir }}/config.xml
+Restart=always
+RestartSec=5
+LimitNOFILE=262144
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

@@ -15,3 +15,5 @@
     - role: base
     - role: datastores
     - role: netai
+    - role: syslog_stack
+      when: netai_syslog_stack_enabled | default(true) | bool

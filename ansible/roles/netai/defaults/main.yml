@@ -18,18 +18,7 @@ netai_backend_host: 127.0.0.1
 netai_backend_port: 8000
 netai_server_name: _
 
-netai_enable_log_ingestor: true
-netai_enable_syslog_mcp: true
 netai_enable_mcp_servers: false
-
-netai_log_ingestor_cpu_quota: "100%"
-netai_log_ingestor_memory_high: 768M
-netai_log_ingestor_memory_max: 1G
-netai_log_ingestor_tasks_max: 512
-netai_syslog_mcp_cpu_quota: "50%"
-netai_syslog_mcp_memory_high: 384M
-netai_syslog_mcp_memory_max: 512M
-netai_syslog_mcp_tasks_max: 256
 
 # Keep secrets in Tower credentials/extra vars, not in git.
 netai_backend_env:
@@ -55,38 +44,6 @@ netai_backend_env:
   LANGFUSE_SECRET_KEY: ""
   LANGFUSE_BASE_URL: ""
   LANGFUSE_SAMPLE_RATE: "1.0"
-
-netai_log_ingestor_env:
-  RUST_LOG: info
-  KAFKA_BROKERS: "{{ netai_kafka_bootstrap_servers | default('127.0.0.1:9092') }}"
-  KAFKA_TOPIC: syslogs
-  KAFKA_GROUP_ID: log-ingestor
-  CLICKHOUSE_URL: http://127.0.0.1:8123
-  CLICKHOUSE_DB: "{{ netai_clickhouse_db | default('netops') }}"
-  CLICKHOUSE_USER: "{{ netai_clickhouse_user | default('admin') }}"
-  CLICKHOUSE_PASSWORD: "{{ netai_clickhouse_password | default('admin') }}"
-  CLICKHOUSE_RETENTION_DAYS: "30"
-  CLICKHOUSE_BATCH_SIZE: "1000"
-  CLICKHOUSE_FLUSH_INTERVAL_MS: "100"
-  CLICKHOUSE_INSERT_QUEUE_CAPACITY: "20000"
-  CLICKHOUSE_INSERT_MAX_RETRIES: "5"
-  CLICKHOUSE_INSERT_RETRY_BACKOFF_MS: "250"
-  CLICKHOUSE_INSERT_TIMEOUT_SECS: "10"
-  INGEST_MAX_IN_FLIGHT: "256"
-  KAFKA_LAG_POLL_INTERVAL_SECS: "15"
-  METRICS_BIND: 127.0.0.1:9898
-  SYSLOG_MCP_BIND: 127.0.0.1:8010
-  SYSLOG_MCP_ALLOWED_HOSTS: localhost,127.0.0.1
-  SYSLOG_MCP_TOKEN: ""
-  SYSLOG_QUERY_DEFAULT_WINDOW_SECS: "3600"
-  SYSLOG_QUERY_MAX_WINDOW_SECS: "604800"
-  SYSLOG_QUERY_MAX_RESULTS: "200"
-  SYSLOG_QUERY_TIMEOUT_SECS: "8"
-  IGNORED_SYSLOG_TEXTS: ""
-  REDIS_URL: "{{ netai_log_ingestor_redis_url | default('redis://127.0.0.1:6379/') }}"
-  VENDOR_LOOKUP_URL: ""
-  VENDOR_REFRESH_SECS: "900"
-  VENDOR_CACHE_PREFIX: vendor_cache
 
 # For Vue build (ui/.env.production)
 netai_ui_env:

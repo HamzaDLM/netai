@@ -1,6 +1,8 @@
 [Unit]
 Description=NetAI read-only network-device syslog intelligence MCP service
-After=network.target
+After=network-online.target{% if netai_clickhouse_enabled | bool %} clickhouse-server.service{% endif %}{% if netai_redis_enabled | bool %} redis-server.service{% endif %}
+
+Wants=network-online.target{% if netai_clickhouse_enabled | bool %} clickhouse-server.service{% endif %}{% if netai_redis_enabled | bool %} redis-server.service{% endif %}
 
 [Service]
 Type=simple

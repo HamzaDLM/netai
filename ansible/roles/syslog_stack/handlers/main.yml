@@ -1,0 +1,28 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart clickhouse
+  ansible.builtin.systemd_service:
+    name: clickhouse-server
+    state: restarted
+  when: netai_clickhouse_enabled | bool
+
+- name: Restart redis
+  ansible.builtin.systemd_service:
+    name: redis-server
+    state: restarted
+  when: netai_redis_enabled | bool
+
+- name: Restart netai log ingestor
+  ansible.builtin.systemd_service:
+    name: netai-log-ingestor
+    state: restarted
+  when: netai_enable_log_ingestor | bool
+
+- name: Restart netai syslog MCP
+  ansible.builtin.systemd_service:
+    name: netai-syslog-mcp
+    state: restarted
+  when: netai_enable_syslog_mcp | bool

@@ -1,0 +1,480 @@
+---
+- name: Validate ClickHouse variables
+  ansible.builtin.assert:
+    that:
+      - netai_clickhouse_arch | length > 0
+      - netai_clickhouse_db is match('^[A-Za-z_][A-Za-z0-9_]*$')
+      - netai_clickhouse_user is match('^[A-Za-z_][A-Za-z0-9_]*$')
+      - netai_clickhouse_host | length > 0
+    fail_msg: >-
+      Unsupported CPU architecture or invalid ClickHouse configuration.
+      Static ClickHouse builds are supported on x86_64 and aarch64.
+  when: netai_clickhouse_enabled | bool
+
+- name: Validate Redis variables
+  ansible.builtin.assert:
+    that:
+      - netai_redis_bind | length > 0
+      - netai_redis_port | int > 0
+      - netai_redis_port | int < 65536
+    fail_msg: Invalid Redis bind address or port.
+  when: netai_redis_enabled | bool
+
+- name: Ensure syslog stack system groups exist
+  ansible.builtin.group:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - "{{ netai_clickhouse_group }}"
+  when: netai_clickhouse_enabled | bool
+
+- name: Ensure ClickHouse service user exists
+  ansible.builtin.user:
+    name: "{{ netai_clickhouse_user_name }}"
+    group: "{{ netai_clickhouse_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+  when: netai_clickhouse_enabled | bool
+
+- name: Ensure ClickHouse directories exist
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ netai_clickhouse_install_root }}/releases"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ netai_clickhouse_cache_dir }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ netai_clickhouse_config_dir }}"
+      owner: root
+      group: "{{ netai_clickhouse_group }}"
+      mode: "0750"
+    - path: "{{ netai_clickhouse_data_dir }}"
+      owner: "{{ netai_clickhouse_user_name }}"
+      group: "{{ netai_clickhouse_group }}"
+      mode: "0750"
+    - path: "{{ netai_clickhouse_data_dir }}/tmp"
+      owner: "{{ netai_clickhouse_user_name }}"
+      group: "{{ netai_clickhouse_group }}"
+      mode: "0750"
+    - path: "{{ netai_clickhouse_data_dir }}/user_files"
+      owner: "{{ netai_clickhouse_user_name }}"
+      group: "{{ netai_clickhouse_group }}"
+      mode: "0750"
+    - path: "{{ netai_clickhouse_data_dir }}/format_schemas"
+      owner: "{{ netai_clickhouse_user_name }}"
+      group: "{{ netai_clickhouse_group }}"
+      mode: "0750"
+    - path: "{{ netai_clickhouse_data_dir }}/access"
+      owner: "{{ netai_clickhouse_user_name }}"
+      group: "{{ netai_clickhouse_group }}"
+      mode: "0750"
+    - path: "{{ netai_clickhouse_log_dir }}"
+      owner: "{{ netai_clickhouse_user_name }}"
+      group: "{{ netai_clickhouse_group }}"
+      mode: "0750"
+  when: netai_clickhouse_enabled | bool
+
+- name: Download pinned ClickHouse static binary archive
+  ansible.builtin.get_url:
+    url: "{{ netai_clickhouse_download_url }}"
+    dest: "{{ netai_clickhouse_cache_dir }}/{{ netai_clickhouse_archive_name }}"
+    checksum: "sha512:{{ netai_clickhouse_checksum_url }}"
+    owner: root
+    group: root
+    mode: "0644"
+  when: netai_clickhouse_enabled | bool
+
+- name: Extract pinned ClickHouse static binary archive
+  ansible.builtin.unarchive:
+    src: "{{ netai_clickhouse_cache_dir }}/{{ netai_clickhouse_archive_name }}"
+    dest: "{{ netai_clickhouse_install_root }}/releases"
+    remote_src: true
+    creates: "{{ netai_clickhouse_release_dir }}/usr/bin/clickhouse"
+  when: netai_clickhouse_enabled | bool
+
+- name: Remove distribution-managed ClickHouse packages
+  ansible.builtin.apt:
+    name:
+      - clickhouse-client
+      - clickhouse-common
+      - clickhouse-common-static
+      - clickhouse-server
+    state: absent
+    purge: false
+    autoremove: false
+  when:
+    - netai_clickhouse_enabled | bool
+    - netai_clickhouse_remove_distribution_packages | bool
+
+- name: Reassert ClickHouse service account after package migration
+  ansible.builtin.user:
+    name: "{{ netai_clickhouse_user_name }}"
+    group: "{{ netai_clickhouse_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    state: present
+  when: netai_clickhouse_enabled | bool
+
+- name: Link ClickHouse executable entry points
+  ansible.builtin.file:
+    src: "{{ netai_clickhouse_release_dir }}/usr/bin/clickhouse"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+    force: true
+    owner: root
+    group: root
+  loop:
+    - clickhouse
+    - clickhouse-client
+    - clickhouse-server
+  when: netai_clickhouse_enabled | bool
+  notify: Restart clickhouse
+
+- name: Render ClickHouse server configuration
+  ansible.builtin.template:
+    src: clickhouse-config.xml.j2
+    dest: "{{ netai_clickhouse_config_dir }}/config.xml"
+    owner: root
+    group: "{{ netai_clickhouse_group }}"
+    mode: "0640"
+  when: netai_clickhouse_enabled | bool
+  notify: Restart clickhouse
+
+- name: Render ClickHouse bootstrap users configuration
+  ansible.builtin.template:
+    src: clickhouse-users.xml.j2
+    dest: "{{ netai_clickhouse_config_dir }}/users.xml"
+    owner: root
+    group: "{{ netai_clickhouse_group }}"
+    mode: "0640"
+  when: netai_clickhouse_enabled | bool
+  notify: Restart clickhouse
+
+- name: Install ClickHouse systemd service
+  ansible.builtin.template:
+    src: clickhouse-server.service.j2
+    dest: /etc/systemd/system/clickhouse-server.service
+    owner: root
+    group: root
+    mode: "0644"
+  when: netai_clickhouse_enabled | bool
+  notify:
+    - Reload systemd
+    - Restart clickhouse
+
+- name: Apply ClickHouse unit and configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure ClickHouse is enabled and started
+  ansible.builtin.systemd_service:
+    name: clickhouse-server
+    enabled: true
+    state: started
+  when: netai_clickhouse_enabled | bool
+
+- name: Wait for ClickHouse HTTP endpoint
+  ansible.builtin.wait_for:
+    host: "{{ netai_clickhouse_host }}"
+    port: "{{ netai_clickhouse_http_port }}"
+    timeout: 60
+  when: netai_clickhouse_enabled | bool
+
+- name: Read installed ClickHouse version
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/clickhouse-client
+      - --host
+      - "{{ netai_clickhouse_host }}"
+      - --port
+      - "{{ netai_clickhouse_native_port | string }}"
+      - --query
+      - SELECT version()
+  register: netai_clickhouse_version_result
+  changed_when: false
+  when: netai_clickhouse_enabled | bool
+
+- name: Verify pinned ClickHouse version is running
+  ansible.builtin.assert:
+    that:
+      - netai_clickhouse_version_result.stdout == netai_clickhouse_version
+    fail_msg: >-
+      Expected ClickHouse {{ netai_clickhouse_version }}, but the running server
+      reported {{ netai_clickhouse_version_result.stdout }}.
+  when: netai_clickhouse_enabled | bool
+
+- name: Ensure ClickHouse database exists
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/clickhouse-client
+      - --host
+      - "{{ netai_clickhouse_host }}"
+      - --query
+      - "CREATE DATABASE IF NOT EXISTS {{ netai_clickhouse_db }}"
+  register: netai_clickhouse_create_database
+  changed_when: netai_clickhouse_create_database.stdout | length > 0
+  when: netai_clickhouse_enabled | bool
+
+- name: Ensure ClickHouse application user exists and has current credentials
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/clickhouse-client
+      - --host
+      - "{{ netai_clickhouse_host }}"
+      - --multiquery
+      - --query
+      - >-
+        CREATE USER IF NOT EXISTS {{ netai_clickhouse_user }};
+        ALTER USER {{ netai_clickhouse_user }}
+        IDENTIFIED WITH plaintext_password BY
+        '{{ netai_clickhouse_password | replace("'", "''") }}';
+        GRANT ALL ON {{ netai_clickhouse_db }}.* TO {{ netai_clickhouse_user }};
+  changed_when: false
+  no_log: true
+  when:
+    - netai_clickhouse_enabled | bool
+    - netai_clickhouse_user != "default"
+
+- name: Install Redis server package
+  ansible.builtin.apt:
+    name: redis-server
+    state: present
+    update_cache: true
+  when: netai_redis_enabled | bool
+
+- name: Configure Redis listener and protected mode
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: "^{{ item.key }} "
+    line: "{{ item.key }} {{ item.value }}"
+  loop:
+    - key: bind
+      value: "{{ netai_redis_bind }}"
+    - key: port
+      value: "{{ netai_redis_port }}"
+    - key: protected-mode
+      value: "yes"
+  when: netai_redis_enabled | bool
+  notify: Restart redis
+
+- name: Remove Redis password when not configured
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^requirepass '
+    state: absent
+  when:
+    - netai_redis_enabled | bool
+    - netai_redis_password | length == 0
+  notify: Restart redis
+
+- name: Configure Redis password
+  ansible.builtin.lineinfile:
+    path: /etc/redis/redis.conf
+    regexp: '^requirepass '
+    line: "requirepass {{ netai_redis_password }}"
+  when:
+    - netai_redis_enabled | bool
+    - netai_redis_password | length > 0
+  no_log: true
+  notify: Restart redis
+
+- name: Ensure Redis is enabled and started
+  ansible.builtin.systemd_service:
+    name: redis-server
+    enabled: true
+    state: started
+  when: netai_redis_enabled | bool
+
+- name: Render syslog services environment file
+  ansible.builtin.template:
+    src: log-ingestor.env.j2
+    dest: "{{ netai_release_dir }}/log_ingestor/.env"
+    owner: "{{ netai_user }}"
+    group: "{{ netai_group }}"
+    mode: "0640"
+  no_log: true
+  when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
+  notify:
+    - Restart netai log ingestor
+    - Restart netai syslog MCP
+
+- name: Install Rust toolchain for syslog service builds
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+      curl https://sh.rustup.rs -sSf | sh -s -- -y
+    fi
+    "$HOME/.cargo/bin/rustup" default stable
+  args:
+    executable: /bin/bash
+  register: netai_syslog_rustup_result
+  changed_when: >-
+    'installed' in netai_syslog_rustup_result.stdout
+    or 'installed' in netai_syslog_rustup_result.stderr
+    or 'updated' in netai_syslog_rustup_result.stdout
+    or 'updated' in netai_syslog_rustup_result.stderr
+  when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
+
+- name: Build syslog service binaries
+  become_user: "{{ netai_user }}"
+  ansible.builtin.shell: |
+    set -euo pipefail
+    export PATH="$HOME/.cargo/bin:$PATH"
+    cd "{{ netai_release_dir }}"
+    cargo build --locked --release --manifest-path log_ingestor/Cargo.toml
+  args:
+    executable: /bin/bash
+  register: netai_syslog_build_result
+  changed_when: "'Compiling ' in netai_syslog_build_result.stderr"
+  when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
+  notify:
+    - Restart netai log ingestor
+    - Restart netai syslog MCP
+
+- name: Install syslog stack application units
+  ansible.builtin.template:
+    src: "{{ item.template }}"
+    dest: "/etc/systemd/system/{{ item.unit }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - template: netai-log-ingestor.service.j2
+      unit: netai-log-ingestor
+      enabled: "{{ netai_enable_log_ingestor }}"
+    - template: netai-syslog-mcp.service.j2
+      unit: netai-syslog-mcp
+      enabled: "{{ netai_enable_syslog_mcp }}"
+  when: item.enabled | bool
+  notify:
+    - Reload systemd
+    - Restart netai log ingestor
+    - Restart netai syslog MCP
+
+- name: Inspect superseded generic MCP systemd unit
+  ansible.builtin.stat:
+    path: /etc/systemd/system/netai-log-mcp.service
+  register: netai_superseded_syslog_mcp_unit
+
+- name: Stop superseded generic MCP systemd service
+  ansible.builtin.systemd_service:
+    name: netai-log-mcp
+    enabled: false
+    state: stopped
+  when: netai_superseded_syslog_mcp_unit.stat.exists
+
+- name: Remove superseded generic MCP systemd unit
+  ansible.builtin.file:
+    path: /etc/systemd/system/netai-log-mcp.service
+    state: absent
+  when: netai_superseded_syslog_mcp_unit.stat.exists
+  notify: Reload systemd
+
+- name: Apply syslog application unit changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure enabled syslog application services are started
+  ansible.builtin.systemd_service:
+    name: "{{ item.unit }}"
+    enabled: true
+    state: started
+  loop:
+    - unit: netai-log-ingestor
+      enabled: "{{ netai_enable_log_ingestor }}"
+    - unit: netai-syslog-mcp
+      enabled: "{{ netai_enable_syslog_mcp }}"
+  when: item.enabled | bool
+
+- name: Inspect syslog application units
+  ansible.builtin.stat:
+    path: "{{ item.unit_path }}"
+  loop:
+    - unit: netai-log-ingestor
+      enabled: "{{ netai_enable_log_ingestor }}"
+      unit_path: /etc/systemd/system/netai-log-ingestor.service
+    - unit: netai-syslog-mcp
+      enabled: "{{ netai_enable_syslog_mcp }}"
+      unit_path: /etc/systemd/system/netai-syslog-mcp.service
+  register: netai_syslog_application_units
+
+- name: Stop disabled syslog application services when their units exist
+  ansible.builtin.systemd_service:
+    name: "{{ item.item.unit }}"
+    enabled: false
+    state: stopped
+  loop: "{{ netai_syslog_application_units.results }}"
+  when:
+    - not (item.item.enabled | bool)
+    - item.stat.exists
+
+- name: Wait for log ingestor metrics endpoint
+  ansible.builtin.wait_for:
+    host: >-
+      {{ netai_log_ingestor_env.METRICS_BIND | string | split(':') | first }}
+    port: >-
+      {{ netai_log_ingestor_env.METRICS_BIND | split(':') | last | int }}
+    timeout: 30
+  when: netai_enable_log_ingestor | bool
+
+- name: Wait for syslog MCP endpoint
+  ansible.builtin.wait_for:
+    host: >-
+      {{ netai_log_ingestor_env.SYSLOG_MCP_BIND | string | split(':') | first }}
+    port: >-
+      {{ netai_log_ingestor_env.SYSLOG_MCP_BIND | split(':') | last | int }}
+    timeout: 30
+  when: netai_enable_syslog_mcp | bool
+
+- name: Restart NetAI backend after syslog MCP is ready
+  ansible.builtin.systemd_service:
+    name: netai-backend
+    state: restarted
+  when:
+    - netai_enable_syslog_mcp | bool
+    - netai_restart_backend_with_syslog_mcp | bool
+
+- name: Collect service facts for syslog stack verification
+  ansible.builtin.service_facts:
+
+- name: Record syslog stack service states
+  ansible.builtin.set_fact:
+    netai_clickhouse_service_state: >-
+      {{ ansible_facts.services.get('clickhouse-server.service', {}).state
+         | default('missing') }}
+    netai_redis_service_state: >-
+      {{ ansible_facts.services.get('redis-server.service', {}).state
+         | default('missing') }}
+    netai_ingestor_service_state: >-
+      {{ ansible_facts.services.get('netai-log-ingestor.service', {}).state
+         | default('missing') }}
+    netai_syslog_mcp_service_state: >-
+      {{ ansible_facts.services.get('netai-syslog-mcp.service', {}).state
+         | default('missing') }}
+
+- name: Verify all enabled syslog stack services are running
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (netai_clickhouse_enabled | bool)
+        or netai_clickhouse_service_state == 'running'
+      - >-
+        not (netai_redis_enabled | bool)
+        or netai_redis_service_state == 'running'
+      - >-
+        not (netai_enable_log_ingestor | bool)
+        or netai_ingestor_service_state == 'running'
+      - >-
+        not (netai_enable_syslog_mcp | bool)
+        or netai_syslog_mcp_service_state == 'running'
+    fail_msg: One or more enabled syslog stack services failed to start.

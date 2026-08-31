@@ -1,20 +1,4 @@
 ---
-# Redis
-netai_redis_enabled: true
-netai_redis_bind: 127.0.0.1
-netai_redis_port: 6379
-netai_redis_password: ""
-
-# ClickHouse
-netai_clickhouse_enabled: true
-netai_clickhouse_apt_channel: lts
-netai_clickhouse_host: 127.0.0.1
-netai_clickhouse_http_port: 8123
-netai_clickhouse_native_port: 9000
-netai_clickhouse_db: netops
-netai_clickhouse_user: admin
-netai_clickhouse_password: admin
-
 # Qdrant
 netai_qdrant_enabled: true
 netai_qdrant_version: v1.16.3
