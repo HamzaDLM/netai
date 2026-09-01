@@ -1,4 +1,9 @@
-.PHONY: help cli api api-prod ingestor docker-up docker-rebuild docker-reset docker-dev-up docker-dev-rebuild docker-dev-down
+.PHONY: help cli api api-prod ingestor syslog-rust-build syslog-binaries syslog-ingestor-binary syslog-mcp-binary check-syslog-build-arch docker-up docker-rebuild docker-reset docker-dev-up docker-dev-rebuild docker-dev-down
+
+SYSLOG_BUILD_ARCH_RAW := $(shell uname -m)
+SYSLOG_BUILD_ARCH := $(if $(filter x86_64,$(SYSLOG_BUILD_ARCH_RAW)),amd64,$(if $(filter aarch64 arm64,$(SYSLOG_BUILD_ARCH_RAW)),arm64,))
+SYSLOG_ROLE_FILES := ansible/roles/syslog_stack/files
+SYSLOG_RELEASE_DIR := log_ingestor/target/release
 
 help:
 	@echo "Available targets:"
@@ -6,6 +11,9 @@ help:
 	@echo "  make api       - Run FastAPI with uvicorn (reload, :8000)"
 	@echo "  make api-prod  - Run FastAPI with uvicorn (no reload, :8000)"
 	@echo "  make ingestor  - Run Rust log_ingestor (cargo run)"
+	@echo "  make syslog-binaries        - Build and stage both native syslog binaries"
+	@echo "  make syslog-ingestor-binary - Build and stage the native ingestor binary"
+	@echo "  make syslog-mcp-binary      - Build and stage the native MCP binary"
 	@echo "  make docker-up      - Start docker compose stack"
 	@echo "  make docker-rebuild - Rebuild images (no cache) and recreate containers"
 	@echo "  make docker-reset   - Full reset (remove containers + volumes), then rebuild"
@@ -24,6 +32,24 @@ api-prod:
 
 ingestor:
 	cargo run --manifest-path log_ingestor/Cargo.toml
+
+check-syslog-build-arch:
+	@test -n "$(SYSLOG_BUILD_ARCH)" || { echo "Unsupported build architecture: $(SYSLOG_BUILD_ARCH_RAW)"; exit 1; }
+
+syslog-rust-build: check-syslog-build-arch
+	cargo build --locked --release --bins --manifest-path log_ingestor/Cargo.toml
+
+syslog-ingestor-binary: syslog-rust-build
+	install -d "$(SYSLOG_ROLE_FILES)"
+	install -m 0755 "$(SYSLOG_RELEASE_DIR)/log_ingestor" "$(SYSLOG_ROLE_FILES)/netai-log-ingestor-$(SYSLOG_BUILD_ARCH)"
+	sha256sum "$(SYSLOG_ROLE_FILES)/netai-log-ingestor-$(SYSLOG_BUILD_ARCH)"
+
+syslog-mcp-binary: syslog-rust-build
+	install -d "$(SYSLOG_ROLE_FILES)"
+	install -m 0755 "$(SYSLOG_RELEASE_DIR)/syslog_mcp" "$(SYSLOG_ROLE_FILES)/netai-syslog-mcp-$(SYSLOG_BUILD_ARCH)"
+	sha256sum "$(SYSLOG_ROLE_FILES)/netai-syslog-mcp-$(SYSLOG_BUILD_ARCH)"
+
+syslog-binaries: syslog-ingestor-binary syslog-mcp-binary
 
 docker-up:
 	docker compose up

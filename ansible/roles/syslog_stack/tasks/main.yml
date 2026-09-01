@@ -20,6 +20,56 @@
     fail_msg: Invalid Redis bind address or port.
   when: netai_redis_enabled | bool
 
+- name: Validate bundled syslog binary architecture
+  ansible.builtin.assert:
+    that:
+      - netai_syslog_binary_arch | length > 0
+    fail_msg: >-
+      No bundled syslog binary architecture mapping exists for
+      {{ ansible_architecture }}. Supported architectures are x86_64 and
+      aarch64.
+  when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
+
+- name: Inspect bundled ClickHouse package artifacts
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/{{ item }}"
+  loop: "{{ netai_clickhouse_deb_packages }}"
+  register: netai_clickhouse_local_packages
+  delegate_to: localhost
+  become: false
+  when: netai_clickhouse_enabled | bool
+
+- name: Require bundled ClickHouse package artifacts
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Missing ClickHouse artifact: {{ item.item }}"
+  loop: "{{ netai_clickhouse_local_packages.results }}"
+  when: netai_clickhouse_enabled | bool
+
+- name: Inspect bundled syslog executable artifacts
+  ansible.builtin.stat:
+    path: "{{ role_path }}/files/{{ item.name }}"
+  loop:
+    - name: "{{ netai_log_ingestor_binary_name }}"
+      enabled: "{{ netai_enable_log_ingestor }}"
+    - name: "{{ netai_syslog_mcp_binary_name }}"
+      enabled: "{{ netai_enable_syslog_mcp }}"
+  register: netai_syslog_local_binaries
+  delegate_to: localhost
+  become: false
+  when: item.enabled | bool
+
+- name: Require bundled syslog executable artifacts
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: "Missing syslog executable artifact: {{ item.item.name }}"
+  loop: "{{ netai_syslog_local_binaries.results }}"
+  when: not (item.skipped | default(false))
+
 - name: Ensure syslog stack system groups exist
   ansible.builtin.group:
     name: "{{ item }}"
@@ -300,39 +350,32 @@
     - Restart netai log ingestor
     - Restart netai syslog MCP
 
-- name: Install Rust toolchain for syslog service builds
-  become_user: "{{ netai_user }}"
-  ansible.builtin.shell: |
-    set -euo pipefail
-    if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-      curl https://sh.rustup.rs -sSf | sh -s -- -y
-    fi
-    "$HOME/.cargo/bin/rustup" default stable
-  args:
-    executable: /bin/bash
-  register: netai_syslog_rustup_result
-  changed_when: >-
-    'installed' in netai_syslog_rustup_result.stdout
-    or 'installed' in netai_syslog_rustup_result.stderr
-    or 'updated' in netai_syslog_rustup_result.stdout
-    or 'updated' in netai_syslog_rustup_result.stderr
+- name: Install syslog binary runtime libraries
+  ansible.builtin.apt:
+    name: "{{ netai_syslog_runtime_packages }}"
+    state: present
+    update_cache: true
   when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
 
-- name: Build syslog service binaries
-  become_user: "{{ netai_user }}"
-  ansible.builtin.shell: |
-    set -euo pipefail
-    export PATH="$HOME/.cargo/bin:$PATH"
-    cd "{{ netai_release_dir }}"
-    cargo build --locked --release --manifest-path log_ingestor/Cargo.toml
-  args:
-    executable: /bin/bash
-  register: netai_syslog_build_result
-  changed_when: "'Compiling ' in netai_syslog_build_result.stderr"
-  when: netai_enable_log_ingestor | bool or netai_enable_syslog_mcp | bool
-  notify:
-    - Restart netai log ingestor
-    - Restart netai syslog MCP
+- name: Install bundled syslog ingestor binary
+  ansible.builtin.copy:
+    src: "{{ netai_log_ingestor_binary_name }}"
+    dest: "{{ netai_log_ingestor_binary_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: netai_enable_log_ingestor | bool
+  notify: Restart netai log ingestor
+
+- name: Install bundled syslog MCP binary
+  ansible.builtin.copy:
+    src: "{{ netai_syslog_mcp_binary_name }}"
+    dest: "{{ netai_syslog_mcp_binary_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+  when: netai_enable_syslog_mcp | bool
+  notify: Restart netai syslog MCP
 
 - name: Install syslog stack application units
   ansible.builtin.template:

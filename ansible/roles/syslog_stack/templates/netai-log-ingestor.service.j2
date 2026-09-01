@@ -9,9 +9,8 @@ Type=simple
 User={{ netai_user }}
 Group={{ netai_group }}
 WorkingDirectory={{ netai_release_dir }}
-Environment=PATH={{ netai_home }}/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 EnvironmentFile={{ netai_release_dir }}/log_ingestor/.env
-ExecStart={{ netai_release_dir }}/log_ingestor/target/release/log_ingestor
+ExecStart={{ netai_log_ingestor_binary_path }}
 Restart=always
 RestartSec=5
 CPUQuota={{ netai_log_ingestor_cpu_quota }}

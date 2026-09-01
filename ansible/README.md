@@ -27,7 +27,7 @@ This folder deploys NetAI to Ubuntu hosts without Docker.
   - the read-only NetAI syslog MCP binary
 - Installs Python runtime via `uv` (Python 3.13), then runs backend migrations
 - Builds frontend static assets
-- Builds the syslog ingestion and syslog MCP release binaries (optional)
+- Copies prebuilt syslog ingestion and syslog MCP release binaries (optional)
 - Configures and starts:
   - `netai-backend` (systemd)
   - `netai-mcp-servers` (systemd, optional; runs all configured MCP HTTP servers in one process)
@@ -107,6 +107,10 @@ ClickHouse repository is used. Put all three packages for each deployed
 architecture in that directory and update `netai_clickhouse_version` when
 replacing them. Optionally populate `netai_clickhouse_deb_sha256` to enforce
 known package digests.
+
+Build and stage the Rust executables before deployment with
+`make syslog-binaries`. Compilation happens on the build machine, not on the
+managed server.
 
 The log ingestor's systemd unit also applies configurable CPU, memory, and task limits.
 Prometheus-format ingestion and process metrics are available at `METRICS_BIND/metrics`.

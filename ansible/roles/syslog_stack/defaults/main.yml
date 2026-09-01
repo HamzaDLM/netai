@@ -59,6 +59,23 @@ netai_syslog_mcp_memory_high: 384M
 netai_syslog_mcp_memory_max: 512M
 netai_syslog_mcp_tasks_max: 256
 
+# Rust executables are built before deployment and bundled in files/. The
+# architecture suffix prevents accidentally deploying a binary for another CPU.
+netai_syslog_binary_arch: >-
+  {{ netai_clickhouse_architectures.get(ansible_architecture, '') }}
+netai_syslog_binary_install_dir: /usr/local/bin
+netai_syslog_runtime_packages:
+  - libssl3
+  - zlib1g
+netai_log_ingestor_binary_name: >-
+  {{ 'netai-log-ingestor-' ~ netai_syslog_binary_arch }}
+netai_syslog_mcp_binary_name: >-
+  {{ 'netai-syslog-mcp-' ~ netai_syslog_binary_arch }}
+netai_log_ingestor_binary_path: >-
+  {{ netai_syslog_binary_install_dir }}/netai-log-ingestor
+netai_syslog_mcp_binary_path: >-
+  {{ netai_syslog_binary_install_dir }}/netai-syslog-mcp
+
 netai_log_ingestor_env:
   RUST_LOG: info
   KAFKA_BROKERS: >-
